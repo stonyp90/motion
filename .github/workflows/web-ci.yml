@@ -27,8 +27,10 @@ jobs:
           cache: 'npm'
           cache-dependency-path: web/package-lock.json
       - run: npm ci
-      - run: npm run lint
       - run: npm run type-check
+      # `next build` runs ESLint internally (per next.config.js); a
+      # separate `next lint` invocation duplicates the work and was
+      # deprecated in Next 16.
       - run: npm run build
       - name: Upload .next bundle
         uses: actions/upload-artifact@v4
