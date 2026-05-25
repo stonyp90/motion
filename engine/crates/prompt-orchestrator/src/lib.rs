@@ -6,7 +6,9 @@
 
 #![recursion_limit = "256"]
 
+pub mod brief;
 pub mod llm;
+pub mod script_synth;
 
 use anyhow::Result;
 use motion_forge_style_extract::{EasingLabel, StyleCard};
@@ -394,6 +396,170 @@ pub fn fallback_timeline(
 
 fn pick_background(style: &StyleCard) -> [u8; 3] {
     // Pick the darkest swatch as background; fall back to near-black.
+    style
+        .palette
+        .iter()
+        .min_by_key(|s| s.hex[0] as u32 + s.hex[1] as u32 + s.hex[2] as u32)
+        .map(|s| s.hex)
+        .unwrap_or([12, 12, 16])
+}
+
+// =====================================================================
+// W4 — brief intake → multi-scene timeline.
+//
+// Everything below this line is wired up by the brief-intake worker and
+// stays in its own section to avoid collisions with W2's character-cast
+// edits (which add a `characters` module and a `LayerKind::Character`
+// variant above this line). Merge order does not matter as long as the
+// `pub mod` declarations at the top of the file are unioned.
+// =====================================================================
+
+/// Minimal placeholder for a character reference passed through to
+/// per-scene generation. W2 owns the real definition in
+/// `prompt-orchestrator::characters`; we re-export the same name from
+/// there once W2 merges. Until then this stub keeps the public
+/// `brief_to_timeline` signature stable.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CharacterRef {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+}
+
+/// Drive the per-scene generate path across every beat in a [`Brief`]
+/// and stitch the per-scene timelines into a single [`LottieTimeline`]
+/// the renderer can ingest as one composition.
+///
+/// This is the minimum delta to the existing public API: it composes
+/// the existing single-scene `PromptOrchestrator::orchestrate` rather
+/// than introducing a new orchestration path. Per-scene duration is
+/// taken from `brief.total_duration_sec` if set, else falls back to a
+/// fixed `default_per_scene_sec` budget.
+///
+/// Sub-beats are inlined into their parent scene's prompt so the
+/// renderer still sees one logical shot per parent — the orchestrator
+/// can decide later to split them out.
+pub async fn brief_to_timeline(
+    brief: brief::Brief,
+    cast: Vec<CharacterRef>,
+    style: StyleCard,
+) -> Result<LottieTimeline> {
+    let backend = llm::auto_local_first(canned_fallback_for_brief(&brief)).await;
+    let backend: Arc<dyn llm::LlmBackend> = Arc::from(backend);
+
+    let scene_count = brief.scenes.len().max(1) as f32;
+    let total = brief
+        .total_duration_sec
+        .filter(|d| *d > 0.0)
+        .unwrap_or(scene_count * 3.0);
+    let per_scene = (total / scene_count).max(0.5);
+
+    let cast_header = if cast.is_empty() {
+        String::new()
+    } else {
+        let names: Vec<String> = cast
+            .iter()
+            .map(|c| match &c.role {
+                Some(r) => format!("{} ({})", c.name, r),
+                None => c.name.clone(),
+            })
+            .collect();
+        format!("Recurring cast: {}.\n", names.join(", "))
+    };
+
+    // Reuse the first scene's composition defaults; the renderer needs
+    // a single canvas size across the whole timeline.
+    let orch = PromptOrchestrator::new(backend.clone()).with_duration(per_scene);
+    let comp_w = orch.composition_width;
+    let comp_h = orch.composition_height;
+    let fps = orch.frame_rate;
+    let bg = first_palette(&style);
+
+    let mut all_shots: Vec<Shot> = Vec::with_capacity(brief.scenes.len());
+    let mut cursor = 0.0_f32;
+    for (i, scene) in brief.scenes.iter().enumerate() {
+        let prompt = build_scene_prompt(scene, &brief, &cast_header, i);
+        let per = PromptOrchestrator::new(backend.clone())
+            .with_composition(comp_w, comp_h, fps)
+            .with_duration(per_scene);
+
+        let scene_timeline = match per.orchestrate(&prompt, &style).await {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::warn!(
+                    scene_id = %scene.id,
+                    error = %e,
+                    "scene generate failed; using fallback timeline for this beat"
+                );
+                fallback_timeline(&prompt, &style, comp_w, comp_h, fps, per_scene)
+            }
+        };
+
+        // Re-base shot timestamps onto the global cursor and absorb
+        // them into the master timeline.
+        for mut shot in scene_timeline.shots {
+            let scene_start = shot.start_seconds;
+            shot.start_seconds = cursor + scene_start;
+            for layer in &mut shot.layers {
+                for kf in &mut layer.keyframes {
+                    kf.time_seconds = cursor + (kf.time_seconds - scene_start) + scene_start;
+                }
+            }
+            // Tag the shot with its source beat for downstream tooling.
+            shot.description = format!("[{}] {}", scene.id, shot.description);
+            all_shots.push(shot);
+        }
+        cursor += per_scene;
+    }
+
+    Ok(LottieTimeline {
+        composition_width: comp_w,
+        composition_height: comp_h,
+        duration_seconds: cursor,
+        frame_rate: fps,
+        background_hex: bg,
+        shots: all_shots,
+    })
+}
+
+fn build_scene_prompt(
+    scene: &brief::SceneScript,
+    brief_ctx: &brief::Brief,
+    cast_header: &str,
+    idx: usize,
+) -> String {
+    let mut s = String::with_capacity(256);
+    s.push_str(cast_header);
+    s.push_str(&format!(
+        "Scene {} of {} (beat {}). ",
+        idx + 1,
+        brief_ctx.scenes.len(),
+        scene.id
+    ));
+    s.push_str(&format!("Visual direction: {}.", scene.visual));
+    if let Some(vo) = &scene.vo {
+        s.push_str(&format!(" VO: \"{vo}\"."));
+    }
+    for sb in &scene.sub_beats {
+        s.push_str(&format!(" Sub-beat {}: {}.", sb.id, sb.visual));
+        if let Some(vo) = &sb.vo {
+            s.push_str(&format!(" Sub-VO: \"{vo}\"."));
+        }
+    }
+    s
+}
+
+fn canned_fallback_for_brief(_brief: &brief::Brief) -> &'static str {
+    // The auto-picker only uses this string when no backend is
+    // reachable AND the MockBackend would otherwise be picked. We let
+    // `fallback_timeline` (which the per-scene loop falls back to on
+    // error) carry the real visual; this stub just needs to be
+    // syntactically valid JSON that the per-scene parser will reject
+    // and trigger the fallback.
+    "{\"composition_width\":1920,\"composition_height\":1080,\"duration_seconds\":3.0,\"frame_rate\":30.0,\"background_hex\":[0,0,0],\"shots\":[]}"
+}
+
+fn first_palette(style: &StyleCard) -> [u8; 3] {
     style
         .palette
         .iter()

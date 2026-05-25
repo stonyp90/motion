@@ -20,6 +20,11 @@ use axum::{
     routing::{get, post},
 };
 use motion_forge_pipeline::{Composition, GenerateConfig, IterateConfig, Pipeline};
+use motion_forge_prompt_orchestrator::{
+    brief::{Brief, parse_brief},
+    llm,
+    script_synth::synthesize_script,
+};
 use motion_forge_style_extract::Theme;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -41,6 +46,8 @@ pub async fn serve(bind: &str) -> Result<()> {
         .route("/themes", get(themes))
         .route("/generate", post(generate))
         .route("/iterate", post(iterate))
+        .route("/v1/brief/parse", post(brief_parse))
+        .route("/v1/brief/synth", post(brief_synth))
         .layer(tower_http::cors::CorsLayer::permissive())
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state);
@@ -223,6 +230,41 @@ async fn iterate(
     }))
 }
 
+// ---- brief intake (W4) ----
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BriefParseRequest {
+    /// Raw script text. May be a structured "N.0 …" storyboard or any
+    /// free-form prose — caller is expected to know which (the
+    /// client-side parser does the detection).
+    pub text: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BriefSynthRequest {
+    /// Free-form client brief.
+    pub brief: String,
+    /// Target total runtime in seconds (e.g. 60.0).
+    pub duration: f32,
+    /// Target number of scenes (e.g. 20).
+    pub scene_count: u32,
+}
+
+async fn brief_parse(Json(req): Json<BriefParseRequest>) -> Result<Json<Brief>, ApiError> {
+    let brief = parse_brief(&req.text).map_err(ApiError::bad_request)?;
+    Ok(Json(brief))
+}
+
+async fn brief_synth(Json(req): Json<BriefSynthRequest>) -> Result<Json<Brief>, ApiError> {
+    // Use the same backend-picker the orchestrator uses, so brief synth
+    // works against whatever local LLM (or cloud fallback) is reachable.
+    let backend = llm::auto_local_first("{\"scenes\":[]}").await;
+    let brief = synthesize_script(&*backend, &req.brief, req.duration, req.scene_count)
+        .await
+        .map_err(ApiError::internal)?;
+    Ok(Json(brief))
+}
+
 // ---- types ----
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -393,6 +435,53 @@ const OPENAPI_JSON: &str = r##"{
           }
         }
       }
+    },
+    "/v1/brief/parse": {
+      "post": {
+        "summary": "Parse a pasted, numbered storyboard script into a structured Brief",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/BriefParseRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Parsed brief",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Brief" }
+              }
+            }
+          },
+          "400": { "description": "Input is not a structured script" }
+        }
+      }
+    },
+    "/v1/brief/synth": {
+      "post": {
+        "summary": "Synthesize a structured scene-by-scene Brief from a free-form client brief via LLM",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/BriefSynthRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Synthesized brief",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Brief" }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -462,6 +551,50 @@ const OPENAPI_JSON: &str = r##"{
             "items": { "$ref": "#/components/schemas/ThemeEntry" }
           }
         }
+      },
+      "BriefParseRequest": {
+        "type": "object",
+        "required": ["text"],
+        "properties": {
+          "text": { "type": "string", "description": "Raw storyboard script text." }
+        }
+      },
+      "BriefSynthRequest": {
+        "type": "object",
+        "required": ["brief", "duration", "scene_count"],
+        "properties": {
+          "brief": { "type": "string", "description": "Free-form client brief." },
+          "duration": { "type": "number", "description": "Target total runtime in seconds." },
+          "scene_count": { "type": "integer", "description": "Target number of scenes." }
+        }
+      },
+      "SceneScript": {
+        "type": "object",
+        "required": ["id", "visual"],
+        "properties": {
+          "id": { "type": "string", "description": "Beat label (e.g. \"1.0\", \"12.1\")." },
+          "vo": { "type": ["string", "null"], "description": "Voice-over line. Null for silent visuals." },
+          "visual": { "type": "string" },
+          "sub_beats": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/SceneScript" }
+          }
+        }
+      },
+      "Brief": {
+        "type": "object",
+        "required": ["scenes", "language"],
+        "properties": {
+          "scenes": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/SceneScript" }
+          },
+          "language": {
+            "type": "string",
+            "enum": ["english", "french", "unknown"]
+          },
+          "total_duration_sec": { "type": ["number", "null"] }
+        }
       }
     }
   }
@@ -498,6 +631,9 @@ mod tests {
         assert!(v["paths"]["/generate"].is_object());
         assert!(v["paths"]["/iterate"].is_object());
         assert!(v["paths"]["/themes"].is_object());
+        assert!(v["paths"]["/v1/brief/parse"].is_object());
+        assert!(v["paths"]["/v1/brief/synth"].is_object());
+        assert!(v["components"]["schemas"]["Brief"].is_object());
     }
 
     #[tokio::test]
@@ -515,6 +651,8 @@ mod tests {
             .route("/themes", get(themes))
             .route("/generate", post(generate))
             .route("/iterate", post(iterate))
+            .route("/v1/brief/parse", post(brief_parse))
+            .route("/v1/brief/synth", post(brief_synth))
             .with_state(state);
 
         let server = tokio::spawn(async move {
@@ -535,6 +673,20 @@ mod tests {
         let body: serde_json::Value = themes_resp.json().await.unwrap();
         // Themes directory might not be present in every test env; tolerate.
         assert!(body["themes"].is_array());
+
+        // /v1/brief/parse — deterministic, no LLM required.
+        let parse_resp = reqwest::Client::new()
+            .post(format!("{base}/v1/brief/parse"))
+            .json(&serde_json::json!({
+                "text": "1.0 First scene VO line.\nVisual : a building\n2.0 Second scene VO.\nVisual : another shot"
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(parse_resp.status(), 200);
+        let body: serde_json::Value = parse_resp.json().await.unwrap();
+        assert_eq!(body["scenes"].as_array().unwrap().len(), 2);
+        assert_eq!(body["scenes"][0]["id"], "1.0");
 
         server.abort();
     }
