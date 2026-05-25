@@ -1,0 +1,38 @@
+{
+  "name": "hero",
+  "frameRate": 30,
+  "version": "5.5",
+  "armature": [
+    {
+      "name": "main",
+      "frameRate": 30,
+      "bone": [
+        { "name": "root", "transform": { "x": 0, "y": 0 } },
+        { "name": "arm", "transform": { "x": 50, "y": 20, "skX": 15 } }
+      ],
+      "slot": [
+        { "name": "body", "parent": "root", "color": { "rM": 50, "gM": 80, "bM": 20, "aM": 100 } },
+        { "name": "hand", "parent": "arm" }
+      ],
+      "animation": [
+        {
+          "name": "idle",
+          "duration": 60,
+          "bone": [
+            {
+              "name": "arm",
+              "translateFrame": [
+                { "duration": 30, "x": 0, "y": 0 },
+                { "duration": 30, "x": 10, "y": -5 }
+              ],
+              "rotateFrame": [
+                { "duration": 30, "rotate": 0 },
+                { "duration": 30, "rotate": 30 }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

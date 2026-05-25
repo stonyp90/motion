@@ -182,6 +182,23 @@ enum Command {
         #[arg(long, default_value = "127.0.0.1:7755")]
         bind: String,
     },
+
+    /// Import a third-party motion-design file (Lottie / Bodymovin /
+    /// dotLottie / Rive / DragonBones / MoGRT / AE-JSX-export) and write
+    /// the normalized internal Composition to disk.
+    Ingest {
+        /// Source format. Omit to auto-detect from magic bytes. Accepted
+        /// values: lottie, bodymovin, dot-lottie, rive, dragon-bones,
+        /// after-effects-jsx, mo-grt.
+        #[arg(long)]
+        format: Option<String>,
+        /// Input file path. Required.
+        #[arg(long = "in")]
+        input: PathBuf,
+        /// Where to write the normalized Composition (JSON).
+        #[arg(long = "out")]
+        output: PathBuf,
+    },
 }
 
 #[tokio::main]
@@ -317,6 +334,11 @@ async fn main() -> Result<()> {
         }),
         Command::Themes => cmd_themes(),
         Command::Serve { bind } => motion_forge_http::serve(&bind).await,
+        Command::Ingest {
+            format,
+            input,
+            output,
+        } => cmd_ingest(format, input, output).await,
     }
 }
 
@@ -714,6 +736,51 @@ fn cmd_themes() -> Result<()> {
         }
     }
     Ok(())
+}
+
+async fn cmd_ingest(format: Option<String>, input: PathBuf, output: PathBuf) -> Result<()> {
+    use motion_forge_ingest::{SourceFormat, detect, ingest};
+    let bytes = std::fs::read(&input).with_context(|| format!("reading {}", input.display()))?;
+    let resolved = match format {
+        Some(s) => parse_cli_format(&s).ok_or_else(|| anyhow::anyhow!("unknown --format: {s}"))?,
+        None => match detect(&bytes) {
+            Some(f) => f,
+            None => {
+                // Fall back to extension hint, otherwise bail.
+                let ext = input.extension().and_then(|e| e.to_str()).unwrap_or("");
+                SourceFormat::from_extension(ext).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "could not auto-detect format from bytes or extension; pass --format explicitly"
+                    )
+                })?
+            }
+        },
+    };
+    tracing::info!(format = resolved.label(), in_path = %input.display(), "ingest: starting");
+    let comp = ingest(resolved, &bytes).await?;
+    let json = serde_json::to_string_pretty(&comp).context("serializing composition")?;
+    std::fs::write(&output, json).with_context(|| format!("writing {}", output.display()))?;
+    tracing::info!(
+        out = %output.display(),
+        shots = comp.shots.len(),
+        duration_s = comp.duration_seconds,
+        "ingest: wrote normalized composition"
+    );
+    Ok(())
+}
+
+fn parse_cli_format(s: &str) -> Option<motion_forge_ingest::SourceFormat> {
+    use motion_forge_ingest::SourceFormat;
+    match s.trim().to_ascii_lowercase().as_str() {
+        "lottie" => Some(SourceFormat::Lottie),
+        "bodymovin" => Some(SourceFormat::Bodymovin),
+        "dot-lottie" | "dotlottie" => Some(SourceFormat::DotLottie),
+        "rive" => Some(SourceFormat::Rive),
+        "dragon-bones" | "dragonbones" => Some(SourceFormat::DragonBones),
+        "after-effects-jsx" | "ae-jsx" | "jsx" => Some(SourceFormat::AfterEffectsJsx),
+        "mo-grt" | "mogrt" => Some(SourceFormat::MoGRT),
+        _ => None,
+    }
 }
 
 // ---- helpers ----

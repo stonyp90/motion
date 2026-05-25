@@ -20,12 +20,12 @@ pub mod stt_route;
 use anyhow::Result;
 use axum::{
     Json, Router,
-    body::Bytes,
-    extract::{Path as AxumPath, State},
+    extract::{Multipart, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
+use motion_forge_ingest::{SourceFormat, detect as ingest_detect, ingest as ingest_bytes};
 use motion_forge_pipeline::{Composition, GenerateConfig, IterateConfig, Pipeline};
 use motion_forge_prompt_orchestrator::{
     brief::{Brief, parse_brief},
@@ -84,18 +84,9 @@ pub async fn serve(bind: &str) -> Result<()> {
         .route("/themes", get(themes))
         .route("/generate", post(generate))
         .route("/iterate", post(iterate))
-        .route("/v1/themes", get(themes))
-        .route("/v1/generate", post(generate))
-        .route("/v1/iterate", post(iterate))
-        .route("/v1/brief/parse", post(brief_parse))
-        .route("/v1/brief/synth", post(brief_synth))
-        .route("/v1/export/:format", post(export))
-        .layer(tower_http::limit::RequestBodyLimitLayer::new(
-            // 32 MiB is well above any realistic Lottie + audio payload
-            // but stops a runaway upload from chewing all process RAM.
-            32 * 1024 * 1024,
-        ))
-        .layer(auth_layer)
+        .route("/v1/ingest", post(ingest))
+        .layer(tower_http::cors::CorsLayer::permissive())
+        .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state);
 
     // Open routes: liveness, OpenAPI, voice STT (intentionally pre-auth).
@@ -285,121 +276,70 @@ async fn iterate(
     }))
 }
 
-/// POST /v1/export/{format}
+/// POST /v1/ingest — multipart upload of any supported source format.
 ///
-/// Body: the raw Lottie JSON. Returns the encoded artifact inline with
-/// the format's MIME type as `Content-Type`. For raster formats (MP4 /
-/// WebM / GIF / ...) the python sidecar renders an intermediate MP4 and
-/// ffmpeg transcodes to the requested codec. For zero-render formats
-/// (lottie / dotlottie / svg) we skip rasterization entirely.
-async fn export(
-    AxumPath(format_slug): AxumPath<String>,
-    body: Bytes,
-) -> Result<Response, ApiError> {
-    let format = OutputFormat::from_str(&format_slug).map_err(ApiError::bad_request)?;
-    if body.is_empty() {
-        return Err(ApiError::bad_request("request body is empty"));
-    }
-
-    // Validate the body is parseable Lottie JSON before we touch disk.
-    let parsed: serde_json::Value = serde_json::from_slice(&body)
-        .map_err(|e| ApiError::bad_request(format!("invalid JSON: {e}")))?;
-    if !parsed.is_object() {
-        return Err(ApiError::bad_request("Lottie body must be a JSON object"));
-    }
-
-    // Stash the body in a private tempdir + run the conversion. We do
-    // synchronous I/O here off the async runtime to avoid blocking other
-    // requests during long ffmpeg runs.
-    let bytes = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<u8>> {
-        let tmp = tempfile::tempdir()?;
-        let in_path = tmp.path().join("in.lottie.json");
-        std::fs::write(&in_path, &body)?;
-        let out_path = tmp.path().join(format!("out.{}", format.extension()));
-
-        match format {
-            OutputFormat::Lottie => {
-                copy_lottie(&in_path, &out_path)?;
+/// Form fields:
+/// - `format` (optional, text): one of `lottie`, `bodymovin`, `dot-lottie`,
+///   `rive`, `dragon-bones`, `after-effects-jsx`, `mo-grt`. When omitted,
+///   the server sniffs the bytes.
+/// - `file` (required, file/bytes): the source asset.
+///
+/// Response: the normalized [`Composition`] as JSON.
+async fn ingest(
+    State(_state): State<AppState>,
+    mut multipart: Multipart,
+) -> Result<Json<motion_forge_ingest::Composition>, ApiError> {
+    let mut explicit_format: Option<SourceFormat> = None;
+    let mut bytes: Option<Vec<u8>> = None;
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| ApiError::bad_request(format!("multipart: {e}")))?
+    {
+        match field.name() {
+            Some("format") => {
+                let s = field
+                    .text()
+                    .await
+                    .map_err(|e| ApiError::bad_request(format!("format field: {e}")))?;
+                explicit_format = parse_format(&s)
+                    .ok_or_else(|| ApiError::bad_request(format!("unknown format: {s}")))
+                    .map(Some)?;
             }
-            OutputFormat::DotLottie => {
-                pack_dotlottie(&in_path, &out_path)?;
+            Some("file") => {
+                let data = field
+                    .bytes()
+                    .await
+                    .map_err(|e| ApiError::bad_request(format!("file field: {e}")))?;
+                bytes = Some(data.to_vec());
             }
-            OutputFormat::Svg => {
-                build_svg(&in_path, &out_path)?;
-            }
-            _ => {
-                // Raster pipeline: shell to the python renderer for
-                // the intermediate MP4, then transcode with ffmpeg.
-                use motion_forge_render::{
-                    RenderConfig, Renderer, python_sidecar_adapter::PythonLottieRenderer,
-                };
-                let intermediate = tmp.path().join("intermediate.mp4");
-                let cfg = RenderConfig {
-                    width: parsed.get("w").and_then(|x| x.as_u64()).unwrap_or(1920) as u32,
-                    height: parsed.get("h").and_then(|x| x.as_u64()).unwrap_or(1080) as u32,
-                    frame_rate: parsed.get("fr").and_then(|x| x.as_f64()).unwrap_or(30.0),
-                    bitrate_kbps: 4000,
-                    codec: motion_forge_video_io::Codec::H264,
-                    format: OutputFormat::Mp4,
-                };
-                let mut r = PythonLottieRenderer::default_in_workspace();
-                r.render(&in_path, &intermediate, &cfg)?;
-                transcode_with_ffmpeg(format, &intermediate, &out_path)?;
-            }
+            _ => { /* ignore unknown fields */ }
         }
-        Ok(std::fs::read(&out_path)?)
-    })
-    .await
-    .map_err(|e| ApiError::internal(format!("join error: {e}")))?
-    .map_err(ApiError::internal)?;
-
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static(format.mime()),
-    );
-    headers.insert(
-        header::CONTENT_DISPOSITION,
-        HeaderValue::from_str(&format!(
-            "attachment; filename=\"export.{}\"",
-            format.extension()
-        ))
-        .unwrap_or(HeaderValue::from_static("attachment")),
-    );
-    Ok((StatusCode::OK, headers, bytes).into_response())
-}
-
-// ---- brief intake (W4) ----
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct BriefParseRequest {
-    /// Raw script text. May be a structured "N.0 …" storyboard or any
-    /// free-form prose — caller is expected to know which (the
-    /// client-side parser does the detection).
-    pub text: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct BriefSynthRequest {
-    /// Free-form client brief.
-    pub brief: String,
-    /// Target total runtime in seconds (e.g. 60.0).
-    pub duration: f32,
-    /// Target number of scenes (e.g. 20).
-    pub scene_count: u32,
-}
-
-async fn brief_parse(Json(req): Json<BriefParseRequest>) -> Result<Json<Brief>, ApiError> {
-    let brief = parse_brief(&req.text).map_err(ApiError::bad_request)?;
-    Ok(Json(brief))
-}
-
-async fn brief_synth(Json(req): Json<BriefSynthRequest>) -> Result<Json<Brief>, ApiError> {
-    let backend = llm::auto_local_first("{\"scenes\":[]}").await;
-    let brief = synthesize_script(&*backend, &req.brief, req.duration, req.scene_count)
+    }
+    let bytes = bytes.ok_or_else(|| ApiError::bad_request("missing \"file\" field"))?;
+    let format = match explicit_format {
+        Some(f) => f,
+        None => ingest_detect(&bytes).ok_or_else(|| {
+            ApiError::bad_request("unable to auto-detect format; pass explicit \"format\" field")
+        })?,
+    };
+    let comp = ingest_bytes(format, &bytes)
         .await
         .map_err(ApiError::internal)?;
-    Ok(Json(brief))
+    Ok(Json(comp))
+}
+
+fn parse_format(s: &str) -> Option<SourceFormat> {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "lottie" => Some(SourceFormat::Lottie),
+        "bodymovin" => Some(SourceFormat::Bodymovin),
+        "dot-lottie" | "dotlottie" => Some(SourceFormat::DotLottie),
+        "rive" => Some(SourceFormat::Rive),
+        "dragon-bones" | "dragonbones" => Some(SourceFormat::DragonBones),
+        "after-effects-jsx" | "ae-jsx" | "jsx" => Some(SourceFormat::AfterEffectsJsx),
+        "mo-grt" | "mogrt" => Some(SourceFormat::MoGRT),
+        _ => None,
+    }
 }
 
 // ---- types ----
@@ -573,40 +513,38 @@ const OPENAPI_JSON: &str = r##"{
         }
       }
     },
-    "/v1/export/{format}": {
+    "/v1/ingest": {
       "post": {
-        "summary": "Convert a Lottie JSON body to any supported output format",
-        "description": "Streams the encoded artifact back inline (Content-Type matches the requested format).",
-        "parameters": [
-          {
-            "name": "format",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "enum": ["mp4", "mov", "webm", "webm-av1", "gif", "webp", "apng", "lottie", "dotlottie", "svg"]
-            }
-          }
-        ],
+        "summary": "Import a third-party motion-design file into motion-forge's internal Composition",
+        "description": "Accepts Lottie, Bodymovin, dotLottie, Rive (text JSON only), DragonBones, After Effects JSX-export JSON, or Premiere Pro MoGRT. The server sniffs the format from magic bytes if the `format` field is omitted.",
         "requestBody": {
           "required": true,
           "content": {
-            "application/json": {
-              "schema": { "type": "object", "description": "Lottie animation JSON" }
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": ["file"],
+                "properties": {
+                  "format": {
+                    "type": "string",
+                    "enum": ["lottie", "bodymovin", "dot-lottie", "rive", "dragon-bones", "after-effects-jsx", "mo-grt"]
+                  },
+                  "file": { "type": "string", "format": "binary" }
+                }
+              }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Encoded artifact in the requested format",
+            "description": "Normalized Composition (Lottie-shaped timeline)",
             "content": {
-              "application/octet-stream": {
-                "schema": { "type": "string", "format": "binary" }
+              "application/json": {
+                "schema": { "type": "object" }
               }
             }
           },
-          "400": { "description": "Invalid format slug or malformed Lottie body" },
-          "500": { "description": "Conversion failed (ffmpeg / python sidecar error)" }
+          "400": { "description": "Bad request — unknown format or missing file" }
         }
       }
     }
@@ -714,6 +652,16 @@ mod tests {
         assert!(v["paths"]["/generate"].is_object());
         assert!(v["paths"]["/iterate"].is_object());
         assert!(v["paths"]["/themes"].is_object());
+        assert!(v["paths"]["/v1/ingest"].is_object());
+    }
+
+    #[test]
+    fn parse_format_accepts_kebab_and_compact() {
+        assert_eq!(parse_format("lottie"), Some(SourceFormat::Lottie));
+        assert_eq!(parse_format("dot-lottie"), Some(SourceFormat::DotLottie));
+        assert_eq!(parse_format("dotlottie"), Some(SourceFormat::DotLottie));
+        assert_eq!(parse_format("MOGRT"), Some(SourceFormat::MoGRT));
+        assert_eq!(parse_format("nope"), None);
     }
 
     #[tokio::test]
@@ -731,7 +679,7 @@ mod tests {
             .route("/themes", get(themes))
             .route("/generate", post(generate))
             .route("/iterate", post(iterate))
-            .route("/v1/export/:format", post(export))
+            .route("/v1/ingest", post(ingest))
             .with_state(state);
 
         let server = tokio::spawn(async move {

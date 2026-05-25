@@ -524,7 +524,7 @@ dependencies = [
  "tar",
  "ureq",
  "xz2",
- "zip",
+ "zip 4.6.1",
 ]
 
 [[package]]
@@ -1170,6 +1170,7 @@ dependencies = [
  "clap",
  "motion-forge-decompose",
  "motion-forge-http",
+ "motion-forge-ingest",
  "motion-forge-lottie-gen",
  "motion-forge-pipeline",
  "motion-forge-prompt-orchestrator",
@@ -1203,9 +1204,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "axum",
- "futures-util",
- "http",
- "jsonwebtoken",
+ "motion-forge-ingest",
  "motion-forge-pipeline",
  "motion-forge-prompt-orchestrator",
  "motion-forge-render",
@@ -1221,6 +1220,21 @@ dependencies = [
  "tower",
  "tower-http",
  "tracing",
+]
+
+[[package]]
+name = "motion-forge-ingest"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "motion-forge-prompt-orchestrator",
+ "motion-forge-style-extract",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tracing",
+ "zip 8.6.0",
 ]
 
 [[package]]
@@ -2418,28 +2432,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
-name = "tungstenite"
-version = "0.24.0"
+name = "typed-path"
+version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18e5b8366ee7a95b16d32197d0b2604b43a0be89dc5fac9f8e96ccafbaedda8a"
-dependencies = [
- "byteorder",
- "bytes",
- "data-encoding",
- "http",
- "httparse",
- "log",
- "rand 0.8.6",
- "sha1",
- "thiserror 1.0.69",
- "utf-8",
-]
-
-[[package]]
-name = "typenum"
-version = "1.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "40ce102ab67701b8526c123c1bab5cbe42d7040ccfd0f64af1a385808d2f43de"
+checksum = "8e28f89b80c87b8fb0cf04ab448d5dd0dd0ade2f8891bae878de66a75a28600e"
 
 [[package]]
 name = "unicode-ident"
@@ -3039,6 +3035,20 @@ dependencies = [
  "flate2",
  "indexmap",
  "memchr",
+ "zopfli",
+]
+
+[[package]]
+name = "zip"
+version = "8.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d04a6b5381502aa6087c94c669499eb1602eb9c5e8198e534de571f7154809b"
+dependencies = [
+ "crc32fast",
+ "flate2",
+ "indexmap",
+ "memchr",
+ "typed-path",
  "zopfli",
 ]
 
