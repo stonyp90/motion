@@ -74,3 +74,143 @@ jobs:
           path: engine/target/release/motion-forge
           if-no-files-found: error
           retention-days: 7
+
+  # --------------------------------------------------------------------------
+  # NEW: API contract tests via hurl. Boots motion-forge-http + keycloak,
+  # runs every *.hurl file under engine/tests/api-contract/. W26 owns the
+  # specs; until they land we tolerate an empty directory and exit clean.
+  # --------------------------------------------------------------------------
+  api-contract:
+    name: api contract (hurl)
+    needs: [fmt, clippy]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ffmpeg binary
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: engine
+
+      - name: Bring up dependency stack (postgres + keycloak)
+        run: |
+          docker compose up -d
+          for i in $(seq 1 30); do
+            status=$(docker inspect --format='{{ .State.Health.Status }}' motion-forge-postgres 2>/dev/null || echo "starting")
+            echo "postgres health: ${status} (attempt ${i})"
+            [[ "${status}" == "healthy" ]] && break
+            sleep 2
+          done
+
+      - name: Build motion-forge-http
+        run: cargo build -p motion-forge-http --release
+
+      - name: Start motion-forge-http
+        env:
+          MOTION_FORGE_BIND: 127.0.0.1:8080
+          RUST_LOG: info
+        run: |
+          nohup ./target/release/motion-forge-http > /tmp/motion-forge-http.log 2>&1 &
+          echo $! > /tmp/motion-forge-http.pid
+          for _i in $(seq 1 20); do
+            if curl -sf http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
+              echo "engine up"
+              break
+            fi
+            sleep 2
+          done
+          curl -sf http://127.0.0.1:8080/healthz || (cat /tmp/motion-forge-http.log; exit 1)
+
+      - name: Install hurl
+        run: |
+          # Pin a stable version; Trail of Bits release scheme is monotonic.
+          HURL_VER=5.0.1
+          curl -sSL -o /tmp/hurl.deb \
+            "https://github.com/Orange-OpenSource/hurl/releases/download/${HURL_VER}/hurl_${HURL_VER}_amd64.deb"
+          sudo dpkg -i /tmp/hurl.deb
+          hurl --version
+
+      - name: Run hurl contract suite
+        env:
+          API_URL: http://127.0.0.1:8080
+        run: |
+          # W26 will populate engine/tests/api-contract/*.hurl. Until then,
+          # this job documents the contract harness without failing CI.
+          shopt -s nullglob
+          SPECS=(tests/api-contract/*.hurl)
+          if (( ${#SPECS[@]} == 0 )); then
+            echo "::notice::no .hurl specs yet — W26 hasn't merged. Skipping."
+            exit 0
+          fi
+          echo "Running ${#SPECS[@]} hurl spec(s)"
+          hurl --test \
+            --variable "api_url=${API_URL}" \
+            --report-junit /tmp/hurl-junit.xml \
+            "${SPECS[@]}"
+
+      - name: Upload hurl report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hurl-report
+          path: |
+            /tmp/hurl-junit.xml
+            /tmp/motion-forge-http.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Tear down
+        if: always()
+        run: |
+          if [[ -f /tmp/motion-forge-http.pid ]]; then
+            kill "$(cat /tmp/motion-forge-http.pid)" 2>/dev/null || true
+          fi
+          docker compose down -v || true
+
+  # --------------------------------------------------------------------------
+  # NEW: Docker image build + Trivy scan (HIGH+ fails). Complements the
+  # security.yml weekly Trivy run by gating every PR/main push that touches
+  # the engine. Keeps the same Dockerfile as production (engine/infra/docker).
+  # --------------------------------------------------------------------------
+  docker-build-scan:
+    name: docker image · build + Trivy
+    needs: [fmt, clippy, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build api image (load locally for scan)
+        uses: docker/build-push-action@v6
+        with:
+          context: engine
+          file: engine/infra/docker/Dockerfile.api
+          platforms: linux/amd64
+          tags: motion-forge-api:ci
+          load: true
+          cache-from: type=gha,scope=engine-api
+          cache-to: type=gha,scope=engine-api,mode=max
+
+      - name: Trivy scan (HIGH+ fails)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: motion-forge-api:ci
+          format: sarif
+          output: trivy-engine.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+
+      - name: Upload Trivy SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-engine.sarif
+          category: engine-ci-trivy

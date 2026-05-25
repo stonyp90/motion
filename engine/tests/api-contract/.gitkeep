@@ -1,0 +1,7 @@
+# Placeholder — W26 will populate this directory with `*.hurl` contract tests
+# that exercise the motion-forge-http API surface against a live engine.
+#
+# The CI job `.github/workflows/engine-ci.yml::api-contract` boots
+# motion-forge-http + the docker-compose dependency stack, then runs every
+# `.hurl` file it finds here. Until W26 lands the actual specs, the job
+# tolerates an empty directory and exits 0 with a notice.

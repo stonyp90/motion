@@ -5,20 +5,24 @@ on:
     branches: [main]
     paths:
       - 'web/**'
+      - 'engine/**'
       - '.github/workflows/web-ci.yml'
   pull_request:
     paths:
       - 'web/**'
+      - 'engine/**'
       - '.github/workflows/web-ci.yml'
   workflow_dispatch:
 
-defaults:
-  run:
-    working-directory: web
-
 jobs:
+  # --------------------------------------------------------------------------
+  # Existing job: lint, typecheck, build (kept verbatim per W25 spec).
+  # --------------------------------------------------------------------------
   lint-typecheck-build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -38,3 +42,288 @@ jobs:
           name: web-next-bundle
           path: web/.next/
           retention-days: 5
+
+  # --------------------------------------------------------------------------
+  # NEW: Playwright E2E across chromium / webkit / firefox.
+  # Brings up keycloak + engine via docker-compose, runs `npm run test:e2e`.
+  # Tests live at `web/e2e/` (post-merge after W20 lands).
+  # Tolerates a missing test directory or script while W20 is in flight.
+  # --------------------------------------------------------------------------
+  playwright-e2e:
+    name: playwright · ${{ matrix.browser }}
+    needs: lint-typecheck-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, webkit, firefox]
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+
+      # Cache Playwright browser binaries by lockfile hash — invalidates
+      # whenever @playwright/test bumps, matches official guidance.
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}-${{ matrix.browser }}
+
+      - name: Install Playwright (browser + system deps)
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Install Playwright system deps only (cache hit)
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps ${{ matrix.browser }}
+
+      # Bring up the dependency stack: postgres + (later) keycloak.
+      # docker-compose is published in engine/docker-compose.yml. We tolerate
+      # the keycloak service being added later — `up -d` only spins the
+      # services it knows about.
+      - name: Start dependency stack (postgres + keycloak)
+        working-directory: engine
+        run: |
+          docker compose up -d
+          # Wait up to 60s for postgres to report healthy.
+          for i in $(seq 1 30); do
+            status=$(docker inspect --format='{{ .State.Health.Status }}' motion-forge-postgres 2>/dev/null || echo "starting")
+            echo "postgres health: ${status} (attempt ${i})"
+            [[ "${status}" == "healthy" ]] && break
+            sleep 2
+          done
+
+      - name: Build engine HTTP API
+        working-directory: engine
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+          cargo build -p motion-forge-http --release
+
+      - name: Boot engine HTTP API in background
+        working-directory: engine
+        env:
+          MOTION_FORGE_BIND: 127.0.0.1:8080
+        run: |
+          nohup ./target/release/motion-forge-http > /tmp/motion-forge-http.log 2>&1 &
+          echo $! > /tmp/motion-forge-http.pid
+          # Wait up to 30s for /healthz to respond.
+          for _i in $(seq 1 15); do
+            if curl -sf http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
+              echo "engine up"
+              break
+            fi
+            sleep 2
+          done
+          curl -sf http://127.0.0.1:8080/healthz || (cat /tmp/motion-forge-http.log; exit 1)
+
+      - name: Build web (reuses cached deps)
+        run: npm run build
+
+      - name: Run Playwright E2E (${{ matrix.browser }})
+        id: e2e
+        env:
+          PLAYWRIGHT_BROWSER: ${{ matrix.browser }}
+          BASE_URL: http://127.0.0.1:3001
+          API_URL: http://127.0.0.1:8080
+        run: |
+          # W20 owns the actual spec files at web/e2e/ — until they land,
+          # treat a missing directory or script as a no-op so CI stays green.
+          if [[ ! -d e2e ]]; then
+            echo "::notice::web/e2e/ not present yet — W20 hasn't merged. Skipping."
+            exit 0
+          fi
+          if ! npm run | grep -q '^  test:e2e'; then
+            echo "::notice::no test:e2e script defined yet — skipping."
+            exit 0
+          fi
+          npm run test:e2e -- --project=${{ matrix.browser }}
+
+      - name: Upload Playwright report
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.browser }}
+          path: |
+            web/playwright-report/
+            web/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Tear down stack
+        if: always()
+        working-directory: engine
+        run: |
+          if [[ -f /tmp/motion-forge-http.pid ]]; then
+            kill "$(cat /tmp/motion-forge-http.pid)" 2>/dev/null || true
+          fi
+          docker compose down -v || true
+
+  # --------------------------------------------------------------------------
+  # NEW: Lighthouse audit against the built production server.
+  # Gates: a11y >= 95, perf >= 80, SEO >= 90, best-practices >= 90.
+  # --------------------------------------------------------------------------
+  lighthouse:
+    name: lighthouse audit
+    needs: lint-typecheck-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Install Lighthouse CI
+        run: npm install --no-save --no-audit @lhci/cli@0.14.x
+
+      - name: Run Lighthouse against `next start`
+        env:
+          # Threshold gates per W25 spec.
+          LHCI_A11Y: '0.95'
+          LHCI_PERF: '0.80'
+          LHCI_SEO: '0.90'
+          LHCI_BP: '0.90'
+        run: |
+          # `next start` listens on 3001 (per package.json `start` script).
+          nohup npm run start > /tmp/next-start.log 2>&1 &
+          echo $! > /tmp/next-start.pid
+          for _i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:3001 >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:3001 >/dev/null || (cat /tmp/next-start.log; exit 1)
+
+          # Inline LHCI config: audit `/`, assert each category meets the
+          # configured floor. `chrome-flags` keeps Chromium headless on CI.
+          cat > lighthouserc.json <<EOF
+          {
+            "ci": {
+              "collect": {
+                "url": ["http://127.0.0.1:3001/"],
+                "numberOfRuns": 3,
+                "settings": {
+                  "chromeFlags": "--no-sandbox --disable-dev-shm-usage --headless=new",
+                  "preset": "desktop"
+                }
+              },
+              "assert": {
+                "assertions": {
+                  "categories:accessibility":  ["error", {"minScore": ${LHCI_A11Y}}],
+                  "categories:performance":    ["error", {"minScore": ${LHCI_PERF}}],
+                  "categories:seo":            ["error", {"minScore": ${LHCI_SEO}}],
+                  "categories:best-practices": ["error", {"minScore": ${LHCI_BP}}]
+                }
+              },
+              "upload": {"target": "filesystem", "outputDir": ".lighthouseci"}
+            }
+          }
+          EOF
+
+          npx --no-install lhci autorun --config=lighthouserc.json
+
+      - name: Upload Lighthouse report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-report
+          path: web/.lighthouseci/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Stop next
+        if: always()
+        run: |
+          if [[ -f /tmp/next-start.pid ]]; then
+            kill "$(cat /tmp/next-start.pid)" 2>/dev/null || true
+          fi
+
+  # --------------------------------------------------------------------------
+  # NEW: Bundle-size budget. Fails the PR if `/` first-load JS exceeds 150 kB.
+  # Parses .next/app-build-manifest.json + measures the entry chunk total.
+  # --------------------------------------------------------------------------
+  bundle-size:
+    name: bundle-size budget (150 kB)
+    needs: lint-typecheck-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: web
+    env:
+      BUDGET_BYTES: '153600' # 150 * 1024
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Measure `/` first-load JS
+        id: measure
+        run: |
+          # Next 15 app-router emits app-build-manifest.json mapping each
+          # route to its JS chunk paths. We sum the on-disk sizes for `/`.
+          MANIFEST=.next/app-build-manifest.json
+          if [[ ! -f "$MANIFEST" ]]; then
+            echo "::error::missing $MANIFEST — Next build layout changed?"
+            exit 1
+          fi
+          TOTAL=$(node -e "
+            const fs = require('fs');
+            const path = require('path');
+            const m = JSON.parse(fs.readFileSync('$MANIFEST','utf8'));
+            // App router puts the root entry under 'pages' as '/page' or under
+            // a route group; we union all JS chunks tagged for the root path.
+            const buckets = m.pages || m.rootMainFiles || {};
+            const root = buckets['/page'] || buckets['/'] || [];
+            const main = (m.rootMainFiles || []);
+            const all = [...new Set([...root, ...main])];
+            let total = 0;
+            for (const rel of all) {
+              const p = path.join('.next', rel);
+              if (fs.existsSync(p)) total += fs.statSync(p).size;
+            }
+            console.log(total);
+          ")
+          echo "total_bytes=${TOTAL}" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Bundle size — \`/\`"
+            echo ""
+            echo "| metric | value |"
+            echo "|--------|------:|"
+            printf '| first-load JS | %s B (%.1f kB) |\n' "${TOTAL}" "$(awk "BEGIN{printf \"%.1f\", ${TOTAL}/1024}")"
+            printf '| budget | %s B (%.0f kB) |\n' "${BUDGET_BYTES}" "$(awk "BEGIN{printf \"%.0f\", ${BUDGET_BYTES}/1024}")"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Enforce 150 kB budget
+        run: |
+          TOTAL='${{ steps.measure.outputs.total_bytes }}'
+          if (( TOTAL > BUDGET_BYTES )); then
+            echo "::error::first-load JS ${TOTAL} B exceeds budget ${BUDGET_BYTES} B"
+            exit 1
+          fi
+          echo "ok: ${TOTAL} B <= ${BUDGET_BYTES} B"

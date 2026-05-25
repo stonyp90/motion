@@ -19,9 +19,15 @@
 /engine/infra/main.bicep               @stonyp90
 
 # --- CI/CD ---
+# Every workflow under .github/workflows/ requires @stonyp90 review.
+# This explicitly covers web-ci.yml, engine-ci.yml, azure-deploy.yml,
+# security.yml, and release.yml, plus anything Dependabot adds later.
 /.github/workflows/                    @stonyp90
+/.github/workflows/*.yml               @stonyp90
 /.github/dependabot.yml                @stonyp90
 /.github/CODEOWNERS                    @stonyp90
+# GitHub Environment protection rules (prod approval gate).
+/.github/environments/                 @stonyp90
 
 # --- Policy + governance ---
 /SECURITY.md                           @stonyp90

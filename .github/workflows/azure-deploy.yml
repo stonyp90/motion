@@ -1,5 +1,14 @@
 name: engine · Azure deploy
 
+# Split into:
+#   * `dev` — auto-deploys every push to main that touches engine/* (no
+#     manual approval, but still routed through the `dev` GitHub Environment
+#     so deploy secrets stay scoped).
+#   * `prod` — gated by the `prod` GitHub Environment which holds the
+#     required-reviewers protection (see .github/environments/prod.json).
+#     Reviewer approval triggers the same Bicep, with prod params, plus a
+#     post-deploy smoke (healthz + Keycloak token + /v1/themes).
+
 on:
   workflow_dispatch:
     inputs:
@@ -28,12 +37,20 @@ permissions:
   contents: read
 
 env:
-  ENV: ${{ github.event.inputs.env || 'dev' }}
   IMAGE_TAG: ${{ github.event.inputs.image_tag || github.sha }}
 
 jobs:
-  build-and-deploy:
+  # --------------------------------------------------------------------------
+  # Shared image build — runs once per workflow, reused by dev + prod.
+  # We use ACR Build (server-side) so we don't need a local Docker daemon.
+  # --------------------------------------------------------------------------
+  build-images:
+    name: build · ACR images
     runs-on: ubuntu-latest
+    environment: dev # reuse dev creds for the build, prod deploy re-runs against prod RG
+    timeout-minutes: 30
+    outputs:
+      image_tag: ${{ env.IMAGE_TAG }}
     steps:
       - uses: actions/checkout@v4
 
@@ -43,19 +60,19 @@ jobs:
           tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Resolve RG + ACR
+      - name: Resolve dev ACR (image registry)
         id: discover
         run: |
-          RG="rg-motion-forge-${ENV}"
+          RG="rg-motion-forge-dev"
           ACR=$(az acr list --resource-group "${RG}" --query "[0].name" -o tsv)
           if [[ -z "${ACR}" ]]; then
-            echo "no ACR in ${RG}; bootstrap with: cd engine/infra && ./deploy.sh --env ${ENV}" >&2
+            echo "no ACR in ${RG}; bootstrap with: cd engine/infra && ./deploy.sh --env dev" >&2
             exit 1
           fi
           echo "rg=${RG}"   >> "$GITHUB_OUTPUT"
           echo "acr=${ACR}" >> "$GITHUB_OUTPUT"
 
-      - name: Build + push images via ACR Build (no local Docker needed)
+      - name: Build + push images via ACR Build
         run: |
           # API image (Rust) — slow build, ~6 min on ACR
           az acr build --registry ${{ steps.discover.outputs.acr }} \
@@ -73,21 +90,172 @@ jobs:
             --platform linux/amd64 \
             engine
 
-      - name: Apply Bicep
+  # --------------------------------------------------------------------------
+  # Dev — auto on main, no manual approval. The `dev` GitHub Environment
+  # carries the dev-only AZURE_* secrets, scoped to that environment.
+  # --------------------------------------------------------------------------
+  deploy-dev:
+    name: deploy · dev
+    needs: build-images
+    if: |
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.env == 'dev')
+    runs-on: ubuntu-latest
+    environment:
+      name: dev
+      url: ${{ steps.summary.outputs.url }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Apply Bicep (dev)
         run: |
           az deployment group create \
-            --resource-group "${{ steps.discover.outputs.rg }}" \
+            --resource-group "rg-motion-forge-dev" \
             --template-file engine/infra/main.bicep \
-            --parameters "engine/infra/parameters.${ENV}.bicepparam" \
+            --parameters "engine/infra/parameters.dev.bicepparam" \
             --parameters "apiImageTag=${IMAGE_TAG}" "renderImageTag=${IMAGE_TAG}" \
             --query "properties.provisioningState" -o tsv
 
       - name: Print Front Door endpoint
+        id: summary
         run: |
-          FD_PROFILE=$(az afd profile list -g "${{ steps.discover.outputs.rg }}" --query '[0].name' -o tsv)
-          FD=$(az afd endpoint list --profile-name "$FD_PROFILE" -g "${{ steps.discover.outputs.rg }}" --query '[0].hostName' -o tsv)
-          echo "## motion · ${ENV} deploy"      >> $GITHUB_STEP_SUMMARY
-          echo "* Image tag: \`${IMAGE_TAG}\`"  >> $GITHUB_STEP_SUMMARY
-          echo "* Front Door: https://${FD}"    >> $GITHUB_STEP_SUMMARY
-          echo ""                               >> $GITHUB_STEP_SUMMARY
-          echo "Verify: \`curl https://${FD}/healthz\`" >> $GITHUB_STEP_SUMMARY
+          FD_PROFILE=$(az afd profile list -g "rg-motion-forge-dev" --query '[0].name' -o tsv)
+          FD=$(az afd endpoint list --profile-name "$FD_PROFILE" -g "rg-motion-forge-dev" --query '[0].hostName' -o tsv)
+          echo "url=https://${FD}" >> "$GITHUB_OUTPUT"
+          {
+            echo "## motion · dev deploy"
+            echo "* Image tag: \`${IMAGE_TAG}\`"
+            echo "* Front Door: https://${FD}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Post-deploy smoke (dev)
+        run: |
+          FD_PROFILE=$(az afd profile list -g "rg-motion-forge-dev" --query '[0].name' -o tsv)
+          FD=$(az afd endpoint list --profile-name "$FD_PROFILE" -g "rg-motion-forge-dev" --query '[0].hostName' -o tsv)
+          # Light smoke for dev — just healthz, since dev params may have
+          # auth disabled or Keycloak in a degraded state.
+          for _i in $(seq 1 20); do
+            if curl -sf "https://${FD}/healthz" >/dev/null; then
+              echo "dev healthz ok"; exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::dev healthz failed after retries"
+          exit 1
+
+  # --------------------------------------------------------------------------
+  # Prod — gated by the `prod` GitHub Environment + required reviewers
+  # (configured in .github/environments/prod.json and synced to GitHub via
+  # the API / Terraform). Reviewer approval is what releases this job.
+  #
+  # Triggers:
+  #   * Manual workflow_dispatch with env=prod  → primary path
+  #   * Pushes to main do NOT auto-promote — prod stays manual on purpose.
+  # --------------------------------------------------------------------------
+  deploy-prod:
+    name: deploy · prod (approval required)
+    needs: build-images
+    if: |
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.env == 'prod'
+    runs-on: ubuntu-latest
+    environment:
+      # `name: prod` is what binds this job to the `prod` Environment in
+      # GitHub; that Environment carries the required-reviewers rule,
+      # wait timer, and prod-only secrets. Without approval, this job
+      # sits in `waiting` and never executes.
+      name: prod
+      url: ${{ steps.summary.outputs.url }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Apply Bicep (prod)
+        run: |
+          az deployment group create \
+            --resource-group "rg-motion-forge-prod" \
+            --template-file engine/infra/main.bicep \
+            --parameters "engine/infra/parameters.prod.bicepparam" \
+            --parameters "apiImageTag=${IMAGE_TAG}" "renderImageTag=${IMAGE_TAG}" \
+            --query "properties.provisioningState" -o tsv
+
+      - name: Resolve prod Front Door endpoint
+        id: summary
+        run: |
+          FD_PROFILE=$(az afd profile list -g "rg-motion-forge-prod" --query '[0].name' -o tsv)
+          FD=$(az afd endpoint list --profile-name "$FD_PROFILE" -g "rg-motion-forge-prod" --query '[0].hostName' -o tsv)
+          {
+            echo "fd=${FD}"
+            echo "url=https://${FD}"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "## motion · prod deploy"
+            echo "* Image tag: \`${IMAGE_TAG}\`"
+            echo "* Front Door: https://${FD}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ----------------------------------------------------------------------
+      # Post-deploy smoke (prod) — three checks, all gating:
+      #   1. /healthz                          → API is up
+      #   2. Keycloak token-endpoint round-trip → IdP is live + creds valid
+      #   3. /v1/themes with the token         → auth-middleware respects JWT
+      # Secrets KEYCLOAK_SMOKE_USER / _PASS / _CLIENT_ID / _URL live in the
+      # `prod` environment scope.
+      # ----------------------------------------------------------------------
+      - name: Post-deploy smoke (prod)
+        env:
+          FD: ${{ steps.summary.outputs.fd }}
+          KC_URL:        ${{ secrets.KEYCLOAK_URL }}
+          KC_REALM:      ${{ secrets.KEYCLOAK_REALM }}
+          KC_CLIENT_ID:  ${{ secrets.KEYCLOAK_SMOKE_CLIENT_ID }}
+          KC_USER:       ${{ secrets.KEYCLOAK_SMOKE_USER }}
+          KC_PASS:       ${{ secrets.KEYCLOAK_SMOKE_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          echo "=== 1/3 healthz ==="
+          for _i in $(seq 1 30); do
+            if curl -sf "https://${FD}/healthz" >/dev/null; then
+              echo "ok"; break
+            fi
+            sleep 5
+          done
+          curl -sf "https://${FD}/healthz" >/dev/null
+
+          echo "=== 2/3 Keycloak token ==="
+          TOKEN=$(curl -sf \
+            -d "grant_type=password" \
+            -d "client_id=${KC_CLIENT_ID}" \
+            -d "username=${KC_USER}" \
+            -d "password=${KC_PASS}" \
+            "${KC_URL}/realms/${KC_REALM}/protocol/openid-connect/token" \
+            | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
+          if [[ -z "${TOKEN}" ]]; then
+            echo "::error::Keycloak token request returned empty access_token"
+            exit 1
+          fi
+          echo "token acquired (${#TOKEN} chars)"
+
+          echo "=== 3/3 /v1/themes with token ==="
+          STATUS=$(curl -s -o /tmp/themes.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${TOKEN}" \
+            "https://${FD}/v1/themes")
+          if [[ "${STATUS}" != "200" ]]; then
+            echo "::error::/v1/themes returned ${STATUS}"
+            head -c 500 /tmp/themes.json || true
+            exit 1
+          fi
+          echo "ok — /v1/themes returned 200"
