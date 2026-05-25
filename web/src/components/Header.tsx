@@ -1,6 +1,7 @@
 'use client';
 
-import { Github, ArrowRight, LogOut, User } from 'lucide-react';
+import { Download, Github, ArrowRight, LogOut, User } from 'lucide-react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ThemeToggle } from './ThemeToggle';
 import { MotionLogo } from './MotionLogo';
@@ -40,6 +41,14 @@ export function Header() {
 
         <div className="flex items-center gap-1">
           <ThemeToggle />
+          <Link
+            href={"/download" as never}
+            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-text-primary"
+            aria-label="Download IMTN desktop"
+          >
+            <Download className="h-4 w-4" />
+            <span className="hidden sm:inline">Download</span>
+          </Link>
           <a
             href="https://github.com/stonyp90/motion"
             target="_blank"

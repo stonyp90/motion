@@ -1,0 +1,101 @@
+name: web · deploy
+
+# Auto-deploy the IMTN web frontend to Vercel on every push to main
+# (production) and every PR (preview).
+#
+# Secrets required (set in repo Settings → Secrets and variables → Actions):
+#   - VERCEL_TOKEN       : personal access token from vercel.com/account/tokens
+#   - VERCEL_ORG_ID      : `team_xxx` or your personal user id
+#   - VERCEL_PROJECT_ID  : `prj_xxx` (from `.vercel/project.json` after `vercel link`)
+#
+# When secrets are missing the job exits cleanly with a skip message,
+# so a fresh fork doesn't bombard the user with red runs.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - '.github/workflows/web-deploy.yml'
+  pull_request:
+    paths:
+      - 'web/**'
+      - '.github/workflows/web-deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  deployments: write
+  pull-requests: write    # post the preview URL as a PR comment
+
+jobs:
+  deploy:
+    name: Deploy ${{ github.event_name == 'push' && 'prod' || 'preview' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check secrets
+        id: check
+        run: |
+          if [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_ORG_ID" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::Vercel secrets not set; skipping deploy. See web-deploy.yml header for the required secret names."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.check.outputs.skip != 'true'
+        with:
+          node-version: '22'
+
+      - name: Install Vercel CLI
+        if: steps.check.outputs.skip != 'true'
+        run: npm i -g vercel@latest
+
+      - name: Pull Vercel project config
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          vercel pull \
+            --yes \
+            --environment=${{ github.event_name == 'push' && 'production' || 'preview' }} \
+            --token=$VERCEL_TOKEN
+
+      - name: Build
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          vercel build \
+            ${{ github.event_name == 'push' && '--prod' || '' }} \
+            --token=$VERCEL_TOKEN
+
+      - name: Deploy
+        if: steps.check.outputs.skip != 'true'
+        id: deploy
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            URL=$(vercel deploy --prebuilt --prod --token=$VERCEL_TOKEN)
+          else
+            URL=$(vercel deploy --prebuilt --token=$VERCEL_TOKEN)
+          fi
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "🚀 Deployed to $URL" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment preview URL on PR
+        if: steps.check.outputs.skip != 'true' && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `🚀 **IMTN preview**: ${{ steps.deploy.outputs.url }}`,
+            });
