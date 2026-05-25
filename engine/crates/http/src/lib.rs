@@ -26,7 +26,12 @@ use axum::{
 };
 use motion_forge_figma::{ImportKind, fetch_frame, parse_figma_url, to_lottie_layer};
 use motion_forge_pipeline::{Composition, GenerateConfig, IterateConfig, Pipeline};
-use motion_forge_prompt_orchestrator::presets::{self, Preset, PresetSummary};
+use motion_forge_prompt_orchestrator::{
+    brief::{Brief, parse_brief},
+    llm,
+    presets::{self, Preset, PresetSummary},
+    script_synth::synthesize_script,
+};
 use motion_forge_style_extract::Theme;
 use motion_forge_web_export::{WebExportFormat, export as web_export};
 use serde::{Deserialize, Serialize};
@@ -70,15 +75,24 @@ pub async fn serve(bind: &str) -> Result<()> {
         tracing::info!(issuer = %auth_cfg.issuer, "Keycloak JWT validation enabled");
     }
 
-    // Protected routes: themes, generate, iterate, brief, export.
+    // Protected routes: themes, generate, iterate, brief, export, presets, web-export.
     // Registered both at flat paths (back-compat) and /v1/... (public API).
     let protected = Router::new()
         .route("/themes", get(themes))
-        .route("/v1/presets", get(list_presets))
-        .route("/v1/presets/:id", get(get_preset))
+        .route("/v1/themes", get(themes))
         .route("/generate", post(generate))
         .route("/iterate", post(iterate))
+        .route("/v1/generate", post(generate))
+        .route("/v1/iterate", post(iterate))
+        .route("/v1/presets", get(list_presets))
+        .route("/v1/presets/:id", get(get_preset))
+        .route("/v1/brief/parse", post(brief_parse))
+        .route("/v1/brief/synth", post(brief_synth))
         .route("/v1/web-export/:format", post(web_export_handler))
+        .layer(tower_http::limit::RequestBodyLimitLayer::new(
+            32 * 1024 * 1024,
+        ))
+        .layer(auth_layer)
         .layer(tower_http::cors::CorsLayer::permissive())
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state);
@@ -316,6 +330,33 @@ async fn web_export_handler(
         HeaderValue::from_str(&disposition).unwrap_or_else(|_| HeaderValue::from_static("inline")),
     );
     Ok((StatusCode::OK, headers, payload).into_response())
+}
+
+// ---- brief intake (W4) ----
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BriefParseRequest {
+    pub text: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BriefSynthRequest {
+    pub brief: String,
+    pub duration: f32,
+    pub scene_count: u32,
+}
+
+async fn brief_parse(Json(req): Json<BriefParseRequest>) -> Result<Json<Brief>, ApiError> {
+    let brief = parse_brief(&req.text).map_err(ApiError::bad_request)?;
+    Ok(Json(brief))
+}
+
+async fn brief_synth(Json(req): Json<BriefSynthRequest>) -> Result<Json<Brief>, ApiError> {
+    let backend = llm::auto_local_first("{\"scenes\":[]}").await;
+    let brief = synthesize_script(&*backend, &req.brief, req.duration, req.scene_count)
+        .await
+        .map_err(ApiError::internal)?;
+    Ok(Json(brief))
 }
 
 // ---- types ----
