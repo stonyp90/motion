@@ -447,6 +447,7 @@ fn render_to_mp4(lottie: &Path, out: &Path, comp: &Composition) -> Result<()> {
         frame_rate: comp.frame_rate as f64,
         bitrate_kbps: 6000,
         codec: Codec::H264,
+        format: motion_forge_render::OutputFormat::Mp4,
     };
     r.render(lottie, out, &config)
 }

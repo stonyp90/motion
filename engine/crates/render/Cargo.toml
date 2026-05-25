@@ -11,3 +11,14 @@ motion-forge-video-io.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+# `dotlottie-rust` does not exist on crates.io as of writing; the closest
+# is `dotlottie-rs = "0.1.0-alpha.1"` which still pulls in a heavy C++
+# tree (skia, harfbuzz). The .lottie format is just a zip with a JSON
+# manifest — we pack it directly with the `zip` crate instead. This keeps
+# the dep graph small and avoids the alpha-grade FFI churn.
+zip = { version = "4", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+tempfile = "3"
