@@ -1,124 +1,101 @@
 {
+  "version": 1,
   "characters": [
     {
       "id": "alex",
       "name": "Alex",
-      "archetype": "Person",
+      "archetype": "person",
       "file": "alex.json",
-      "format": "lottie",
-      "accent_hex": "#10b981",
-      "defaults": { "enter_from": "left", "scale": 0.35, "speaks": true },
-      "tags": ["person", "presenter", "neutral"]
+      "default_scale": 0.85,
+      "preferred_y": 0.7
     },
     {
       "id": "sam",
       "name": "Sam",
-      "archetype": "Person",
+      "archetype": "person",
       "file": "sam.json",
-      "format": "lottie",
-      "accent_hex": "#f59e0b",
-      "defaults": { "enter_from": "right", "scale": 0.35, "speaks": true },
-      "tags": ["person", "presenter", "energetic"]
+      "default_scale": 0.85,
+      "preferred_y": 0.7
     },
     {
       "id": "lucius-bot",
       "name": "Lucius",
-      "archetype": "Mascot",
+      "archetype": "mascot",
       "file": "lucius-bot.json",
-      "format": "lottie",
-      "accent_hex": "#10b981",
-      "defaults": { "enter_from": "center", "scale": 0.3, "speaks": true },
-      "tags": ["mascot", "bot", "ai", "guide"]
+      "default_scale": 0.8,
+      "preferred_y": 0.55
     },
     {
       "id": "office-worker",
       "name": "Office Worker",
-      "archetype": "Person",
+      "archetype": "person",
       "file": "office-worker.json",
-      "format": "lottie",
-      "accent_hex": "#0b1437",
-      "defaults": { "enter_from": "left", "scale": 0.32, "speaks": false },
-      "tags": ["person", "sitting", "desk", "before"]
+      "default_scale": 0.95,
+      "preferred_y": 0.65
     },
     {
       "id": "generic-product",
-      "name": "Generic Product",
-      "archetype": "ProductIcon",
+      "name": "Product",
+      "archetype": "product",
       "file": "generic-product.json",
-      "format": "lottie",
-      "accent_hex": "#10b981",
-      "defaults": { "enter_from": "center", "scale": 0.4 },
-      "tags": ["product", "card", "placeholder"]
+      "default_scale": 0.7,
+      "preferred_y": 0.6
     },
     {
       "id": "arrow",
       "name": "Arrow",
-      "archetype": "Icon",
+      "archetype": "icon",
       "file": "arrow.json",
-      "format": "lottie",
-      "accent_hex": "#10b981",
-      "defaults": { "enter_from": "left", "scale": 0.18 },
-      "tags": ["icon", "direction", "transition"]
+      "default_scale": 0.6,
+      "preferred_y": 0.5
     },
     {
       "id": "timesheet",
       "name": "Timesheet",
-      "archetype": "Icon",
+      "archetype": "icon",
       "file": "timesheet.json",
-      "format": "lottie",
-      "accent_hex": "#0b1437",
-      "defaults": { "enter_from": "center", "scale": 0.25 },
-      "tags": ["icon", "document", "time"]
+      "default_scale": 0.75,
+      "preferred_y": 0.55
     },
     {
       "id": "calendar",
       "name": "Calendar",
-      "archetype": "Icon",
+      "archetype": "icon",
       "file": "calendar.json",
-      "format": "lottie",
-      "accent_hex": "#0b1437",
-      "defaults": { "enter_from": "center", "scale": 0.25 },
-      "tags": ["icon", "calendar", "schedule"]
+      "default_scale": 0.75,
+      "preferred_y": 0.55
     },
     {
       "id": "dollar",
       "name": "Dollar",
-      "archetype": "Icon",
+      "archetype": "icon",
       "file": "dollar.json",
-      "format": "lottie",
-      "accent_hex": "#10b981",
-      "defaults": { "enter_from": "center", "scale": 0.2 },
-      "tags": ["icon", "money", "value"]
+      "default_scale": 0.6,
+      "preferred_y": 0.5
     },
     {
       "id": "clock",
       "name": "Clock",
-      "archetype": "Icon",
+      "archetype": "icon",
       "file": "clock.json",
-      "format": "lottie",
-      "accent_hex": "#0b1437",
-      "defaults": { "enter_from": "center", "scale": 0.22 },
-      "tags": ["icon", "time", "deadline"]
+      "default_scale": 0.7,
+      "preferred_y": 0.5
     },
     {
       "id": "magnifier",
       "name": "Magnifier",
-      "archetype": "Icon",
+      "archetype": "icon",
       "file": "magnifier.json",
-      "format": "lottie",
-      "accent_hex": "#0b1437",
-      "defaults": { "enter_from": "center", "scale": 0.22 },
-      "tags": ["icon", "search", "audit"]
+      "default_scale": 0.7,
+      "preferred_y": 0.55
     },
     {
       "id": "checkmark",
       "name": "Checkmark",
-      "archetype": "Icon",
+      "archetype": "icon",
       "file": "checkmark.json",
-      "format": "lottie",
-      "accent_hex": "#10b981",
-      "defaults": { "enter_from": "center", "scale": 0.22 },
-      "tags": ["icon", "success", "complete"]
+      "default_scale": 0.65,
+      "preferred_y": 0.5
     }
   ]
 }

@@ -101,9 +101,9 @@
            hover:bg-primary-800 hover:shadow-lift focus-visible:ring-2 focus-visible:ring-accent-500;
   }
   .btn-accent {
-    @apply inline-flex items-center justify-center gap-2 rounded-full bg-accent-500 px-6 py-3
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-accent-700 px-6 py-3
            text-sm font-semibold text-white shadow-card transition
-           hover:bg-accent-600 hover:shadow-glow;
+           hover:bg-accent-800 hover:shadow-glow;
   }
   .btn-ghost {
     @apply inline-flex items-center justify-center gap-2 rounded-full border border-border
@@ -139,4 +139,144 @@
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
+}
+/* ============================================================================
+   motion-forge — dark theme override
+   ----------------------------------------------------------------------------
+   Strategy
+   --------
+   Every semantic surface/text/border token in :root has a dark companion
+   here. The brand scales (primary-*, accent-*, secondary-*, neutral-*) are
+   intentionally NOT redefined — they're brand-immutable. Only the *semantic*
+   tokens flip: bg-*, text-*, border-*, and editor-* (kept in case /studio
+   re-uses any of these utilities on a dark surface).
+
+   Activation
+   ----------
+   The ThemeProvider writes data-theme="dark" on <html>. Because every
+   component already uses utilities derived from these tokens (bg-bg-primary,
+   text-text-primary, border-border-light, etc.), zero component code has to
+   change.
+
+   IDE register
+   ------------
+   - Backgrounds are soft-blacks (#0e1014, #14171c, #1a1e25) layered like an
+     editor (bg < panel < toolbar). Never pure #000 — it crushes shadows and
+     reads as "broken display."
+   - Text top-tier is off-white (#e8eaf0), not pure #fff. Reduces glare and
+     matches the Tablix-clean register the user asked for.
+   - Accent stays vivid emerald (#34d399, accent-400 instead of accent-500)
+     so it pops on dark without the muddy darkening that accent-500 (#10b981)
+     would suffer.
+
+   WCAG AA
+   -------
+   Body text pairs all >= 4.5:1. See INTEGRATION.md for the full audit.
+
+   APPEND-ONLY: add this block to apps/web/src/app/globals.css inside
+   `@layer base`, immediately after the closing brace of `:root { ... }`.
+   The existing :root[data-theme="dark"] block already in globals.css can be
+   replaced wholesale by this one — the prior version was tailored to the
+   studio's IDE surface, this version is tuned for the simplified home.
+   ============================================================================ */
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* --- Semantic surfaces -------------------------------------------------
+     Layered soft-blacks. bg-primary is the page; bg-secondary is the next
+     elevation (cards, sticky header tint); bg-tertiary is the third layer
+     (hover states, nested panels). bg-inverse becomes the off-white pill /
+     dark-on-light surface used for inverted CTAs and badges. */
+  --color-bg-primary:    #0e1014;
+  --color-bg-secondary:  #14171c;
+  --color-bg-tertiary:   #1a1e25;
+  --color-bg-inverse:    #f4f6fb;
+
+  /* --- Text -------------------------------------------------------------- */
+  --color-text-primary:   #e8eaf0;  /* off-white; 15.83:1 on bg-primary */
+  --color-text-secondary: #b8bdc7;  /* body-secondary; 10.10:1           */
+  --color-text-tertiary:  #7e8694;  /* muted captions; 5.19:1 (AA)       */
+  --color-text-inverse:   #0e1014;  /* used on light pills / accent fills */
+  --color-text-accent:    #34d399;  /* emerald-400; 9.90:1 (AAA)         */
+
+  /* --- Borders ---------------------------------------------------------
+     Three rungs of separation. border-light is barely-there (card edges
+     against bg-primary), border-default is the visible divider, border-dark
+     is the contrast edge for hover/focus. */
+  --color-border-light:   #23272f;
+  --color-border-default: #2e3340;
+  --color-border-dark:    #424757;
+
+  /* --- Editor surfaces (carried over, slightly deeper than the marketing
+     surfaces so the canvas pops if studio mounts inside the dark home) --- */
+  --color-editor-bg:        #16191f;
+  --color-editor-panel:     #1c2027;
+  --color-editor-toolbar:   #14171c;
+  --color-editor-border:    #2a2f38;
+  --color-editor-text:      #e8eaf0;
+  --color-editor-muted:     #8a92a1;
+  --color-editor-accent:    #34d399;
+  --color-editor-selection: #064e3b;
+}
+
+/* Honor OS preference on first paint when no explicit choice is stored
+   yet. The ThemeProvider's inline pre-hydration script overrides this with
+   localStorage on mount. Kept as a defense-in-depth fallback for users
+   with JS disabled. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+
+    --color-bg-primary:    #0e1014;
+    --color-bg-secondary:  #14171c;
+    --color-bg-tertiary:   #1a1e25;
+    --color-bg-inverse:    #f4f6fb;
+
+    --color-text-primary:   #e8eaf0;
+    --color-text-secondary: #b8bdc7;
+    --color-text-tertiary:  #7e8694;
+    --color-text-inverse:   #0e1014;
+    --color-text-accent:    #34d399;
+
+    --color-border-light:   #23272f;
+    --color-border-default: #2e3340;
+    --color-border-dark:    #424757;
+  }
+}
+
+/* --- Shadow re-tuning for dark mode --------------------------------------
+   The default shadows are tinted with primary-900 rgba (dark-ink on light).
+   On dark, those become invisible. We re-emit the same named shadows with
+   pure-black rgba so cards still lift off the surface. Tailwind utilities
+   like `shadow-card` resolve to these via the CSS-variable indirection in
+   tailwind.config (see INTEGRATION.md for the small tailwind change). */
+:root[data-theme="dark"] {
+  --shadow-soft: 0 1px 3px 0 rgba(0, 0, 0, 0.45), 0 1px 2px 0 rgba(0, 0, 0, 0.30);
+  --shadow-card: 0 4px 16px -2px rgba(0, 0, 0, 0.55), 0 2px 6px -2px rgba(0, 0, 0, 0.35);
+  --shadow-lift: 0 20px 40px -12px rgba(0, 0, 0, 0.70);
+  --shadow-glow: 0 0 0 1px rgba(52, 211, 153, 0.30), 0 8px 32px -4px rgba(52, 211, 153, 0.22);
+}
+:root {
+  --shadow-soft: 0 1px 3px 0 rgba(11, 20, 55, 0.05), 0 1px 2px 0 rgba(11, 20, 55, 0.03);
+  --shadow-card: 0 4px 16px -2px rgba(11, 20, 55, 0.08), 0 2px 6px -2px rgba(11, 20, 55, 0.04);
+  --shadow-lift: 0 20px 40px -12px rgba(11, 20, 55, 0.18);
+  --shadow-glow: 0 0 0 1px rgba(16, 185, 129, 0.20), 0 8px 32px -4px rgba(16, 185, 129, 0.18);
+}
+
+/* --- Hero gradient re-tune for dark mode --------------------------------
+   The light .bg-hero-grid blends bg-primary -> bg-secondary with emerald
+   and amber glows. On dark we want the same emerald glow but warmer at
+   the bottom so the page doesn't read as a flat slab of black. */
+:root[data-theme="dark"] {
+  --gradient-hero-grid:
+    linear-gradient(to bottom, var(--color-bg-primary) 0%, var(--color-bg-secondary) 100%),
+    radial-gradient(at 25% 0%, rgba(52, 211, 153, 0.12) 0%, transparent 50%),
+    radial-gradient(at 75% 100%, rgba(245, 158, 11, 0.08) 0%, transparent 50%);
+}
+:root {
+  --gradient-hero-grid:
+    linear-gradient(to bottom, var(--color-bg-primary) 0%, var(--color-bg-secondary) 100%),
+    radial-gradient(at 25% 0%, rgba(16, 185, 129, 0.08) 0%, transparent 50%),
+    radial-gradient(at 75% 100%, rgba(245, 158, 11, 0.05) 0%, transparent 50%);
 }

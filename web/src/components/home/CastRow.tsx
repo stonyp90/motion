@@ -16,9 +16,9 @@ import { Plus, X } from 'lucide-react';
 import type { CastEntry } from '@/lib/characters/manifest';
 
 export interface CastRowProps {
-  cast: CastEntry[];
-  onChange: (cast: CastEntry[]) => void;
-  onOpenDrawer: () => void;
+  cast?: CastEntry[];
+  onChange?: (cast: CastEntry[]) => void;
+  onOpenDrawer?: () => void;
   /** Optional label rendered before the chips. Defaults to "Cast". */
   label?: string;
   /** Maximum chips kept in the cast. Default 8. */
@@ -26,9 +26,9 @@ export interface CastRowProps {
 }
 
 export function CastRow({
-  cast,
-  onChange,
-  onOpenDrawer,
+  cast = [],
+  onChange = () => undefined,
+  onOpenDrawer = () => undefined,
   label = 'Cast',
   maxChips = 8,
 }: CastRowProps) {
@@ -115,3 +115,5 @@ function initials(name: string): string {
   if (parts.length === 0) return '?';
   return parts.map((p) => p[0]?.toUpperCase() ?? '').join('');
 }
+
+export default CastRow;

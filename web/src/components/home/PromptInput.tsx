@@ -94,7 +94,7 @@ export function PromptInput({
             type="button"
             onClick={onGenerate}
             disabled={!value.trim() || isGenerating}
-            className="inline-flex items-center gap-1.5 rounded-full bg-accent-500 px-4 py-1.5 text-sm font-semibold text-white shadow-card transition hover:bg-accent-600 hover:shadow-glow disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:shadow-none"
+            className="inline-flex items-center gap-1.5 rounded-full bg-accent-700 px-4 py-1.5 text-sm font-semibold text-white shadow-card transition hover:bg-accent-800 hover:shadow-glow disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:shadow-none"
             aria-label="Generate motion graphic"
           >
             {isGenerating ? (

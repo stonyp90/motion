@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { Github } from 'lucide-react';
+import { ThemeToggle } from './ThemeToggle';
 
 /**
  * Slim app header: logo + GitHub link + Sign in.
@@ -25,8 +26,9 @@ export function Header() {
         </Link>
 
         <div className="flex items-center gap-2">
+          <ThemeToggle />
           <a
-            href="https://github.com/"
+            href="https://github.com/stonyp90/motion"
             target="_blank"
             rel="noreferrer"
             className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-text-secondary transition hover:bg-bg-tertiary hover:text-text-primary"

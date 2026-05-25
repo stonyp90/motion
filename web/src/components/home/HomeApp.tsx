@@ -12,6 +12,7 @@ import { ControlsDrawer, type ControlsValue } from './ControlsDrawer';
 import { ExamplePromptChips } from './ExamplePromptChips';
 import CastRow from './CastRow';
 import VoiceButton from './VoiceButton';
+import { KPIStrip } from './KPIStrip';
 
 /**
  * Endpoint to POST the prompt to. Falls back to a same-origin path so
@@ -139,14 +140,6 @@ export function HomeApp() {
 
         {!prompt && <ExamplePromptChips onPick={setPrompt} />}
 
-        <p className="text-center font-mono text-xs text-text-tertiary">
-          90s first render
-          <span className="mx-2 text-text-tertiary">·</span>
-          sub-second iterations
-          <span className="mx-2 text-text-tertiary">·</span>
-          $0.18 / spot
-        </p>
-
         {error && (
           <p
             role="status"
@@ -162,6 +155,8 @@ export function HomeApp() {
           onRegenerate={handleGenerate}
         />
       </div>
+
+      <KPIStrip />
     </div>
   );
 }
