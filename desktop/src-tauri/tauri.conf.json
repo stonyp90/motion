@@ -8,19 +8,7 @@
     "devUrl": "http://localhost:3010"
   },
   "app": {
-    "windows": [
-      {
-        "title": "motion-forge",
-        "width": 1440,
-        "height": 900,
-        "minWidth": 1024,
-        "minHeight": 640,
-        "resizable": true,
-        "fullscreen": false,
-        "decorations": true,
-        "transparent": false
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     }

@@ -112,27 +112,20 @@ pub fn run() {
             );
             log::info!("opening window at {url}");
 
-            // Parse + open. If the URL is invalid we fall back to the
-            // default config; the user can still drive the app, just
-            // without the local-engine override.
-            match url.parse::<tauri::Url>() {
-                Ok(u) => {
-                    WebviewWindowBuilder::new(app, "main", WebviewUrl::External(u))
-                        .title("motion-forge")
-                        .inner_size(1440.0, 900.0)
-                        .min_inner_size(1024.0, 640.0)
-                        .resizable(true)
-                        .build()?;
-                }
-                Err(e) => {
-                    log::error!("URL parse failed ({e}) — opening default config");
-                    WebviewWindowBuilder::from_config(
-                        app,
-                        &app.config().app.windows[0].clone(),
-                    )?
-                    .build()?;
-                }
-            }
+            // Parse + open. The `windows[]` array in tauri.conf.json
+            // is intentionally empty so we own window creation here —
+            // the URL is per-launch dynamic (engine port + secret), so
+            // there's nothing useful to pre-declare statically.
+            let parsed: tauri::Url = url.parse().unwrap_or_else(|e| {
+                log::error!("URL parse failed ({e}) — falling back to {frontend}");
+                frontend.parse().expect("static frontend URL parses")
+            });
+            WebviewWindowBuilder::new(app, "main", WebviewUrl::External(parsed))
+                .title("motion-forge")
+                .inner_size(1440.0, 900.0)
+                .min_inner_size(1024.0, 640.0)
+                .resizable(true)
+                .build()?;
 
             Ok(())
         })
