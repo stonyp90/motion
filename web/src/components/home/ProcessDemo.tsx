@@ -1,6 +1,7 @@
 'use client';
 
 import { motion, AnimatePresence } from 'framer-motion';
+import dynamic from 'next/dynamic';
 import { useEffect, useState } from 'react';
 import {
   Bot,
@@ -17,6 +18,25 @@ import {
   Sparkles,
   User,
 } from 'lucide-react';
+
+/**
+ * Real Lottie player — dynamically imported so the ~80 kB
+ * lottie-web bundle doesn't block first paint of the hero. The
+ * player only mounts when the preview phase becomes active.
+ */
+const Lottie = dynamic(() => import('lottie-react').then((m) => m.default), {
+  ssr: false,
+  loading: () => null,
+});
+
+/** Real preset Lotties served from web/public. Pick one to play in
+ *  the preview phase — randomised per loop so repeat visitors don't
+ *  see the same clip every time. */
+const PREVIEW_LOTTIE_URLS = [
+  '/lottie/corporate.json',
+  '/lottie/playful.json',
+  '/lottie/minimalist.json',
+];
 
 /**
  * Self-running hero animation that explains the motion-forge loop.
@@ -104,6 +124,30 @@ export function ProcessDemo() {
   const [genProgress, setGenProgress] = useState(0);
   const [genStage, setGenStage] = useState(0);
   const [exportDone, setExportDone] = useState<Set<number>>(new Set());
+  const [previewIdx, setPreviewIdx] = useState(0);
+  const [lottieData, setLottieData] = useState<Record<string, unknown> | null>(
+    null,
+  );
+
+  // Preload all 3 preset Lotties once so the preview phase has zero
+  // network latency when it activates.
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all(
+      PREVIEW_LOTTIE_URLS.map((u) =>
+        fetch(u, { cache: 'force-cache' })
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null),
+      ),
+    ).then((all) => {
+      if (cancelled) return;
+      const first = all.find(Boolean);
+      if (first) setLottieData(first);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const started = Date.now();
@@ -155,6 +199,18 @@ export function ProcessDemo() {
         setExportDone(done);
       } else {
         setExportDone(new Set());
+      }
+
+      // Cycle the preview preset on each new loop so repeat visitors
+      // see different real Lotties (corporate / playful / minimalist).
+      const cycle = Math.floor((Date.now() - started) / LOOP_MS);
+      const idx = cycle % PREVIEW_LOTTIE_URLS.length;
+      if (idx !== previewIdx) {
+        setPreviewIdx(idx);
+        fetch(PREVIEW_LOTTIE_URLS[idx], { cache: 'force-cache' })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => d && setLottieData(d))
+          .catch(() => undefined);
       }
     };
 
@@ -351,7 +407,12 @@ export function ProcessDemo() {
                 transition={{ duration: 0.22, ease: [0.2, 0.8, 0.2, 1] }}
                 className="absolute inset-0 flex items-center justify-center p-7"
               >
-                <PreviewStage />
+                <PreviewStage
+                  lottieData={lottieData}
+                  presetLabel={
+                    ['corporate', 'playful', 'minimalist'][previewIdx] ?? ''
+                  }
+                />
               </motion.div>
             )}
 
@@ -463,59 +524,60 @@ function CastIcon({ member }: { member: CastMember }) {
   );
 }
 
-/* Preview stage — abstract three-shape composition that READS as a
- * motion-design clip without needing a real Lottie load. Native CSS
- * + framer-motion only, no runtime dep on lottie-react. */
-function PreviewStage() {
+/* Preview stage — plays a REAL Lottie from the preset library. The
+ * three preset JSONs in /public/lottie are full motion-design
+ * compositions produced by the actual motion-forge pipeline, so the
+ * demo shows the output the tool ships — not a mock of it.
+ *
+ * We dynamic-import lottie-react and only mount the player when the
+ * data is loaded; on the first 1-2 cycles the player may still be
+ * fetching, so a thin "Loading preview…" placeholder fills the
+ * frame. */
+function PreviewStage({
+  lottieData,
+  presetLabel,
+}: {
+  lottieData: Record<string, unknown> | null;
+  presetLabel: string;
+}) {
   return (
     <div className="relative aspect-video w-full max-w-md overflow-hidden rounded-2xl bg-primary-900 shadow-lift">
-      {/* Soft accent grid */}
+      {/* Brand-tint radial backdrop */}
       <div
         aria-hidden
-        className="absolute inset-0 opacity-30"
+        className="absolute inset-0 opacity-40"
         style={{
           backgroundImage:
-            'radial-gradient(circle at 15% 30%, rgba(52, 211, 153, 0.5) 0, transparent 28%), radial-gradient(circle at 85% 70%, rgba(245, 158, 11, 0.25) 0, transparent 32%)',
+            'radial-gradient(circle at 15% 30%, rgba(52, 211, 153, 0.35) 0, transparent 35%), radial-gradient(circle at 85% 70%, rgba(245, 158, 11, 0.18) 0, transparent 38%)',
         }}
       />
 
-      {/* Foreground shapes */}
-      <motion.div
-        aria-hidden
-        className="absolute left-[16%] top-[28%] h-16 w-16 rounded-2xl bg-accent-400"
-        animate={{
-          x: [0, 38, 0],
-          y: [0, -12, 0],
-          rotate: [0, 180, 360],
-          borderRadius: ['16px', '50%', '16px'],
-        }}
-        transition={{ duration: 3.2, repeat: Infinity, ease: 'easeInOut' }}
-      />
-      <motion.div
-        aria-hidden
-        className="absolute right-[18%] top-[44%] h-10 w-10 bg-secondary-400"
-        animate={{
-          x: [0, -22, 0],
-          scale: [1, 1.35, 1],
-          rotate: [0, -90, 0],
-        }}
-        transition={{ duration: 2.6, repeat: Infinity, ease: 'easeInOut', delay: 0.3 }}
-        style={{ borderRadius: 8 }}
-      />
-      <motion.div
-        aria-hidden
-        className="absolute bottom-[18%] left-1/2 h-1 w-32 -translate-x-1/2 rounded-full bg-accent-400/70"
-        animate={{ scaleX: [0.35, 1, 0.35], opacity: [0.35, 1, 0.35] }}
-        transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
-      />
+      {/* The actual Lottie composition */}
+      <div className="absolute inset-0 flex items-center justify-center">
+        {lottieData ? (
+          <Lottie
+            animationData={lottieData}
+            loop
+            autoplay
+            rendererSettings={{ preserveAspectRatio: 'xMidYMid meet' }}
+            style={{ width: '100%', height: '100%' }}
+          />
+        ) : (
+          <div className="font-mono text-2xs text-white/40">
+            loading preview…
+          </div>
+        )}
+      </div>
 
-      {/* Transport bar overlay */}
+      {/* Transport-bar overlays */}
       <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-full bg-black/35 px-2.5 py-1 font-mono text-2xs text-white/90 backdrop-blur-sm">
         <Play className="h-3 w-3 fill-white/90" strokeWidth={0} />
         00:08 · 01:00
       </div>
-      <div className="absolute bottom-3 right-3 font-mono text-2xs text-white/55">
-        1920×1080 · 30 fps
+      <div className="absolute bottom-3 right-3 flex items-center gap-1.5 font-mono text-2xs text-white/55">
+        <span>{presetLabel}</span>
+        <span className="opacity-50">·</span>
+        <span>1920×1080</span>
       </div>
     </div>
   );

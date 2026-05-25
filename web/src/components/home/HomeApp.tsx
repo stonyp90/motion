@@ -18,10 +18,12 @@ import { ProcessDemo } from './ProcessDemo';
 
 interface HomeAppProps {
   /**
-   * Server-supplied auth state. When false, the prompt input + cast +
-   * voice + Generate are replaced by `<SignInGate />`; the KPI strip,
-   * header, and footer stay public so anonymous visitors still see the
-   * value proposition.
+   * Server-supplied auth state. When false, the whole product surface
+   * (prompt input, cast, voice, controls, preview frame) is replaced
+   * by the hero motion demo + KPI strip. Anonymous visitors only see
+   * the brand, the looping live preview, and the numbers. The prompt
+   * and generator are gated behind sign-in — no draft input visible
+   * until the user has an account.
    */
   isAuthenticated?: boolean;
 }
@@ -141,6 +143,40 @@ export function HomeApp({ isAuthenticated = false }: HomeAppProps = {}) {
     [animation],
   );
 
+  if (!isAuthenticated) {
+    // Anonymous surface — hero + hero-motion + numbers. NO prompt,
+    // NO Generate, NO compute calls. Sign-in is the only CTA.
+    return (
+      <div className="flex w-full flex-col gap-12 px-4 py-12 sm:px-6 sm:py-16 lg:py-20">
+        <div className="mx-auto w-full max-w-3xl flex flex-col items-center gap-6 text-center">
+          <h1 className="h-display">
+            Motion graphics from a prompt.
+          </h1>
+          <p className="max-w-prose text-lg text-text-secondary">
+            Type a brief, cast your characters, ship a 60-second explainer
+            in 20 minutes — at one-tenth the cost.
+          </p>
+          <button
+            type="button"
+            onClick={() => signIn('keycloak', { callbackUrl: '/' })}
+            className="btn-accent py-3 text-base"
+            data-testid="hero-signin"
+          >
+            Sign in to start
+          </button>
+          <p className="text-xs text-text-tertiary">
+            Keycloak SSO · seat-based · enterprise on request
+          </p>
+        </div>
+
+        <ProcessDemo />
+
+        <KPIStrip />
+      </div>
+    );
+  }
+
+  // Authenticated surface — the real product.
   return (
     <div className="flex w-full flex-col gap-10 px-4 py-12 sm:px-6 sm:py-16 lg:py-20">
       <div className="mx-auto w-full max-w-3xl flex flex-col gap-8">
@@ -160,12 +196,6 @@ export function HomeApp({ isAuthenticated = false }: HomeAppProps = {}) {
 
         {!prompt && <ExamplePromptChips onPick={setPrompt} />}
 
-        {!isAuthenticated && (
-          <p className="text-center text-xs text-text-tertiary">
-            Free to try · sign-in only when you hit Generate
-          </p>
-        )}
-
         {error && (
           <p
             role="status"
@@ -181,8 +211,6 @@ export function HomeApp({ isAuthenticated = false }: HomeAppProps = {}) {
           onRegenerate={handleGenerate}
         />
       </div>
-
-      {!isAuthenticated && <ProcessDemo />}
 
       <KPIStrip />
     </div>
