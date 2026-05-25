@@ -205,7 +205,7 @@ fn validate_path(s: &str, label: &str) -> Result<PathBuf, ApiError> {
 // ---- handlers ----
 
 async fn healthz() -> Json<serde_json::Value> {
-    Json(serde_json::json!({ "status": "ok", "service": "motion-forge" }))
+    Json(serde_json::json!({ "status": "ok", "service": "imtn" }))
 }
 
 async fn openapi() -> impl IntoResponse {
@@ -1124,9 +1124,9 @@ fn short_id() -> String {
 const OPENAPI_JSON: &str = r##"{
   "openapi": "3.1.0",
   "info": {
-    "title": "motion-forge",
+    "title": "IMTN",
     "version": "0.1.0",
-    "description": "Public API for motion-forge.\n\nAuth: every endpoint except `/healthz` and `/openapi.json` requires one of:\n  - `Authorization: Bearer <Keycloak JWT>` (interactive users + the web app)\n  - `X-API-Key: mf_live_<id>_<secret>` (SDK / server callers)\n  - `Authorization: Bearer mf_live_<...>` (equivalent shape; SDKs that only know about Bearer headers can use this)\n\nRate limits: per-key sliding window. The free tier admits 60 rpm, pro 600 rpm, enterprise 6000 rpm. Every response carries `X-RateLimit-Limit` and `X-RateLimit-Remaining`; 429s additionally carry `Retry-After`."
+    "description": "Public API for IMTN — brand-grade video, generated from a prompt.\n\nAuth: every endpoint except `/healthz` and `/openapi.json` requires one of:\n  - `Authorization: Bearer <Keycloak JWT>` (interactive users + the web app)\n  - `X-API-Key: mf_live_<id>_<secret>` (SDK / server callers)\n  - `Authorization: Bearer mf_live_<...>` (equivalent shape; SDKs that only know about Bearer headers can use this)\n\nRate limits: per-key sliding window. The free tier admits 60 rpm, pro 600 rpm, enterprise 6000 rpm. Every response carries `X-RateLimit-Limit` and `X-RateLimit-Remaining`; 429s additionally carry `Retry-After`."
   },
   "security": [
     { "bearerAuth": [] },

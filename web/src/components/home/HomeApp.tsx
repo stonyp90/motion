@@ -383,7 +383,7 @@ export function HomeApp({ isAuthenticated: _ssrAuth = false }: HomeAppProps = {}
     <div className="flex w-full flex-col gap-10 px-4 py-12 sm:px-6 sm:py-16 lg:py-20">
       <div className="mx-auto w-full max-w-3xl flex flex-col gap-8">
         <h1 className="h-display text-center">
-          What motion graphic do you want to make?
+          Let&rsquo;s build.
         </h1>
 
         <PromptInput
