@@ -1,0 +1,14 @@
+{
+  "slug": "minimalist",
+  "name": "Minimalist Type",
+  "description": "Typography-led, sparse, slow. Two-color palette and one easing.",
+  "composition": { "width": 1920, "height": 1080, "frame_rate": 30 },
+  "default_duration_seconds": 25.0,
+  "palette_bias": [
+    { "hex": [245, 242, 237], "weight": 0.70 },
+    { "hex": [22, 22, 22], "weight": 0.30 }
+  ],
+  "easing_bias": "Standard",
+  "shot_rhythm_target": { "mean_seconds": 4.0, "stddev_seconds": 0.6 },
+  "system_prompt_addendum": "Type-first. One or two layers per shot. Hold each shot for at least 3 seconds."
+}

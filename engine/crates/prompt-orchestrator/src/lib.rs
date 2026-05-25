@@ -7,13 +7,22 @@
 #![recursion_limit = "256"]
 
 pub mod brief;
+pub mod characters;
 pub mod llm;
 pub mod script_synth;
+
+// W4's brief_to_timeline takes the same character reference shape W2
+// owns in `characters` — re-export so the public API stays single-named.
+pub use characters::CharacterRef;
 
 use anyhow::Result;
 use motion_forge_style_extract::{EasingLabel, StyleCard};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+
+pub use characters::{
+    Archetype, BehavioralDefaults, Character, CharacterRef, CharacterRegistry, VisualSpec,
+};
 
 /// A Lottie-shaped timeline emitted by the orchestrator before
 /// `lottie-gen` serializes it to disk.
@@ -45,12 +54,30 @@ pub struct Layer {
     pub keyframes: Vec<Keyframe>,
 }
 
+/// Type of a [`Layer`]. The four simple variants (Rect, Ellipse,
+/// Text, Image) keep the original string-enum wire format
+/// (`"kind": "Rect"`) so the LLM-facing JSON schema is unchanged.
+/// The `Character` variant carries fields and therefore serializes
+/// as `"kind": {"Character": {"id": "...", "pose": "..."}}` —
+/// character layers are injected by the orchestrator from the
+/// cast roster, not authored by the LLM, so the heterogeneous shape
+/// is not user-facing.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum LayerKind {
     Rect,
     Ellipse,
     Text,
     Image,
+    /// A reference to a [`characters::Character`] resolved at render
+    /// time by `motion_forge_lottie_gen::character_layer`. `id` MUST
+    /// match an entry in the orchestrator's [`CharacterRegistry`];
+    /// `pose` is an optional named-pose hint (currently advisory —
+    /// typed for the future "pose library" UX).
+    Character {
+        id: String,
+        #[serde(default)]
+        pose: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,6 +97,14 @@ pub struct PromptOrchestrator {
     pub frame_rate: f32,
     pub duration_seconds: f32,
     pub system_prompt_addendum: Option<String>,
+    /// Character roster the orchestrator can reference from a prompt.
+    /// Default is an empty registry; populate with
+    /// [`PromptOrchestrator::with_cast_registry`] to give the LLM a
+    /// list of named actors to mention by name.
+    pub cast_registry: Arc<CharacterRegistry>,
+    /// The subset of [`Self::cast_registry`] the LLM may use for this
+    /// particular orchestration. Empty = no characters.
+    pub cast: Vec<CharacterRef>,
 }
 
 impl PromptOrchestrator {
@@ -81,6 +116,8 @@ impl PromptOrchestrator {
             frame_rate: 30.0,
             duration_seconds: 6.0,
             system_prompt_addendum: None,
+            cast_registry: Arc::new(CharacterRegistry::new()),
+            cast: Vec::new(),
         }
     }
 
@@ -104,6 +141,22 @@ impl PromptOrchestrator {
         self
     }
 
+    /// Builder: install the character registry the orchestrator will
+    /// resolve [`CharacterRef`]s against.
+    pub fn with_cast_registry(mut self, registry: Arc<CharacterRegistry>) -> Self {
+        self.cast_registry = registry;
+        self
+    }
+
+    /// Builder: set the cast the LLM is allowed to mention for this
+    /// orchestration. Any id not in [`Self::cast_registry`] will be
+    /// surfaced as `"unknown character id=…"` in the system prompt
+    /// so the LLM doesn't silently hallucinate a sprite.
+    pub fn with_cast(mut self, cast: Vec<CharacterRef>) -> Self {
+        self.cast = cast;
+        self
+    }
+
     /// Run the prompt → timeline call.
     pub async fn orchestrate(
         &self,
@@ -111,9 +164,11 @@ impl PromptOrchestrator {
         style: &StyleCard,
     ) -> Result<LottieTimeline> {
         let style_summary = summarize_style(style);
+        let cast_summary = characters::summarize_cast(&self.cast_registry, &self.cast);
         let user = format!(
             "Generate a motion-design animation timeline for: \"{user_prompt}\"\n\n\
              Reference style:\n{style_summary}\n\n\
+             Cast:\n{cast_summary}\n\n\
              Constraints:\n\
              - Composition: {w}x{h} at {fps} fps.\n\
              - Total duration: exactly {dur:.2} seconds.\n\
@@ -414,17 +469,9 @@ fn pick_background(style: &StyleCard) -> [u8; 3] {
 // `pub mod` declarations at the top of the file are unioned.
 // =====================================================================
 
-/// Minimal placeholder for a character reference passed through to
-/// per-scene generation. W2 owns the real definition in
-/// `prompt-orchestrator::characters`; we re-export the same name from
-/// there once W2 merges. Until then this stub keeps the public
-/// `brief_to_timeline` signature stable.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct CharacterRef {
-    pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub role: Option<String>,
-}
+// CharacterRef now comes from `characters` (W2's real implementation);
+// see the `pub use characters::CharacterRef;` re-export at the top of
+// this file. The W4 stub that lived here is gone post-merge.
 
 /// Drive the per-scene generate path across every beat in a [`Brief`]
 /// and stitch the per-scene timelines into a single [`LottieTimeline`]
@@ -459,9 +506,9 @@ pub async fn brief_to_timeline(
     } else {
         let names: Vec<String> = cast
             .iter()
-            .map(|c| match &c.role {
-                Some(r) => format!("{} ({})", c.name, r),
-                None => c.name.clone(),
+            .map(|c| match &c.pose {
+                Some(p) => format!("{} ({})", c.id, p),
+                None => c.id.clone(),
             })
             .collect();
         format!("Recurring cast: {}.\n", names.join(", "))

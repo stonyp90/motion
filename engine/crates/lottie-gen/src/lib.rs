@@ -13,13 +13,17 @@
 
 #![recursion_limit = "256"]
 
+pub mod character_layer;
 pub mod panelize;
 
 use anyhow::{Context, Result};
-use motion_forge_prompt_orchestrator::{Keyframe, Layer, LayerKind, LottieTimeline, Shot};
+use motion_forge_prompt_orchestrator::{
+    CharacterRegistry, Keyframe, Layer, LayerKind, LottieTimeline, Shot,
+};
 use motion_forge_style_extract::EasingLabel;
 use serde_json::{Value, json};
 use std::path::Path;
+use std::sync::Arc;
 
 /// Write a pre-built Lottie `serde_json::Value` to disk as pretty JSON.
 /// Lets [`panelize`] callers reuse the same on-disk format as
@@ -34,11 +38,24 @@ pub trait LottieGenerator {
     fn write(&self, timeline: &LottieTimeline, out_path: &Path) -> Result<()>;
 }
 
-pub struct SerdeLottieGenerator;
+pub struct SerdeLottieGenerator {
+    pub character_registry: Arc<CharacterRegistry>,
+}
 
 impl SerdeLottieGenerator {
     pub fn new() -> Self {
-        Self
+        Self {
+            character_registry: Arc::new(CharacterRegistry::new()),
+        }
+    }
+
+    /// Builder: attach the character registry the generator will use
+    /// when resolving [`LayerKind::Character`] layers. Without this
+    /// the generator falls back to the empty registry and any
+    /// character layer renders as the magenta debug placeholder.
+    pub fn with_character_registry(mut self, registry: Arc<CharacterRegistry>) -> Self {
+        self.character_registry = registry;
+        self
     }
 }
 
@@ -50,7 +67,7 @@ impl Default for SerdeLottieGenerator {
 
 impl LottieGenerator for SerdeLottieGenerator {
     fn write(&self, timeline: &LottieTimeline, out_path: &Path) -> Result<()> {
-        let lottie = build_lottie(timeline);
+        let lottie = build_lottie(timeline, &self.character_registry);
         let body = serde_json::to_string_pretty(&lottie).context("serializing lottie")?;
         std::fs::write(out_path, body)
             .with_context(|| format!("writing {}", out_path.display()))?;
@@ -58,7 +75,7 @@ impl LottieGenerator for SerdeLottieGenerator {
     }
 }
 
-fn build_lottie(t: &LottieTimeline) -> Value {
+fn build_lottie(t: &LottieTimeline, registry: &CharacterRegistry) -> Value {
     let total_frames = (t.duration_seconds * t.frame_rate).max(1.0).round() as u32;
     let mut layers: Vec<Value> = Vec::new();
     let mut layer_index = 1u32;
@@ -78,6 +95,7 @@ fn build_lottie(t: &LottieTimeline) -> Value {
                 shot,
                 shot_in,
                 shot_out,
+                registry,
             ));
             layer_index += 1;
         }
@@ -85,6 +103,8 @@ fn build_lottie(t: &LottieTimeline) -> Value {
 
     // Lottie wants the topmost layer first.
     layers.reverse();
+
+    let assets = character_layer::collect_character_assets(registry, t);
 
     json!({
         "v": "5.7.0",
@@ -95,7 +115,7 @@ fn build_lottie(t: &LottieTimeline) -> Value {
         "h": t.composition_height,
         "nm": "motion-forge",
         "ddd": 0,
-        "assets": [],
+        "assets": assets,
         "layers": layers,
     })
 }
@@ -128,7 +148,18 @@ fn build_shape_layer(
     _shot: &Shot,
     shot_in: u32,
     shot_out: u32,
+    registry: &CharacterRegistry,
 ) -> Value {
+    // Character layers go through the dedicated builder so they can
+    // emit `refId` + a placeholder rect against the precomp asset.
+    if matches!(&layer.kind, LayerKind::Character { .. }) {
+        if let Some(v) =
+            character_layer::build_character_layer(registry, layer, t, index, shot_in, shot_out)
+        {
+            return v;
+        }
+    }
+
     let first = layer
         .keyframes
         .first()
@@ -139,7 +170,8 @@ fn build_shape_layer(
     let shape_bbox = first.size;
     let shape = match layer.kind {
         LayerKind::Ellipse => shape_group_ellipse(shape_bbox[0], shape_bbox[1], fill_hex),
-        // Text and Image fall through to a coloured rect placeholder.
+        // Text, Image, and any unmatched variant fall through to a
+        // coloured rect placeholder.
         _ => shape_group_rect(shape_bbox[0], shape_bbox[1], fill_hex),
     };
 
@@ -183,7 +215,7 @@ fn static_transform(cx: f32, cy: f32, _w: f32, _h: f32) -> Value {
     })
 }
 
-fn animated_transform(keyframes: &[Keyframe], fps: f32) -> Value {
+pub(crate) fn animated_transform(keyframes: &[Keyframe], fps: f32) -> Value {
     if keyframes.len() < 2 {
         let kf = keyframes.first().cloned().unwrap_or(Keyframe {
             time_seconds: 0.0,
@@ -304,7 +336,7 @@ fn shape_group_ellipse(w: f32, h: f32, fill: [u8; 3]) -> Value {
     })
 }
 
-fn fill_shape(fill: [u8; 3]) -> Value {
+pub(crate) fn fill_shape(fill: [u8; 3]) -> Value {
     json!({
         "ty": "fl",
         "c": { "a": 0, "k": [fill[0] as f32 / 255.0, fill[1] as f32 / 255.0, fill[2] as f32 / 255.0, 1.0] },
@@ -314,7 +346,7 @@ fn fill_shape(fill: [u8; 3]) -> Value {
     })
 }
 
-fn shape_transform() -> Value {
+pub(crate) fn shape_transform() -> Value {
     json!({
         "ty": "tr",
         "p": { "a": 0, "k": [0, 0] },

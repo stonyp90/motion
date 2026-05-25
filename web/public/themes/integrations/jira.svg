@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Jira">
+  <title>Jira</title>
+  <!-- Stylised three stacked rhombi (recognisable Jira mark). -->
+  <path d="M32 4 L52 24 L32 44 L12 24 Z" fill="#2684ff"/>
+  <path d="M32 20 L48 36 L32 52 L16 36 Z" fill="#1d6fe6" opacity="0.85"/>
+  <path d="M32 36 L44 48 L32 60 L20 48 Z" fill="#0d5dca" opacity="0.7"/>
+</svg>

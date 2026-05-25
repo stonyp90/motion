@@ -1,0 +1,16 @@
+{
+  "slug": "tech-reveal",
+  "name": "Tech Product Reveal",
+  "description": "Sharp, dark, monochrome with a single accent. Sharp easings, mid-paced.",
+  "composition": { "width": 1920, "height": 1080, "frame_rate": 60 },
+  "default_duration_seconds": 20.0,
+  "palette_bias": [
+    { "hex": [10, 10, 14], "weight": 0.50 },
+    { "hex": [230, 232, 240], "weight": 0.25 },
+    { "hex": [0, 240, 200], "weight": 0.20 },
+    { "hex": [60, 60, 70], "weight": 0.05 }
+  ],
+  "easing_bias": "Sharp",
+  "shot_rhythm_target": { "mean_seconds": 2.0, "stddev_seconds": 0.3 },
+  "system_prompt_addendum": "Cinematic dark background. One accent color used sparingly for emphasis. Crisp transitions."
+}

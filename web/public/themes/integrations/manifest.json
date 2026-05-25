@@ -1,0 +1,76 @@
+{
+  "characters": [
+    {
+      "id": "jira",
+      "name": "Jira",
+      "archetype": "Logo",
+      "file": "jira.svg",
+      "format": "svg",
+      "accent_hex": "#2684ff",
+      "tags": ["integration", "atlassian", "tracker"]
+    },
+    {
+      "id": "github",
+      "name": "GitHub",
+      "archetype": "Logo",
+      "file": "github.svg",
+      "format": "svg",
+      "accent_hex": "#0b1437",
+      "tags": ["integration", "scm", "developer"]
+    },
+    {
+      "id": "linear",
+      "name": "Linear",
+      "archetype": "Logo",
+      "file": "linear.svg",
+      "format": "svg",
+      "accent_hex": "#5e6ad2",
+      "tags": ["integration", "tracker"]
+    },
+    {
+      "id": "azure-devops",
+      "name": "Azure DevOps",
+      "archetype": "Logo",
+      "file": "azure-devops.svg",
+      "format": "svg",
+      "accent_hex": "#0078d4",
+      "tags": ["integration", "microsoft", "tracker"]
+    },
+    {
+      "id": "slack",
+      "name": "Slack",
+      "archetype": "Logo",
+      "file": "slack.svg",
+      "format": "svg",
+      "accent_hex": "#4a154b",
+      "tags": ["integration", "chat"]
+    },
+    {
+      "id": "teams",
+      "name": "Microsoft Teams",
+      "archetype": "Logo",
+      "file": "teams.svg",
+      "format": "svg",
+      "accent_hex": "#4b53bc",
+      "tags": ["integration", "microsoft", "chat"]
+    },
+    {
+      "id": "excel",
+      "name": "Excel",
+      "archetype": "Logo",
+      "file": "excel.svg",
+      "format": "svg",
+      "accent_hex": "#107c41",
+      "tags": ["integration", "microsoft", "spreadsheet"]
+    },
+    {
+      "id": "google-calendar",
+      "name": "Google Calendar",
+      "archetype": "Logo",
+      "file": "google-calendar.svg",
+      "format": "svg",
+      "accent_hex": "#4285f4",
+      "tags": ["integration", "google", "calendar"]
+    }
+  ]
+}
