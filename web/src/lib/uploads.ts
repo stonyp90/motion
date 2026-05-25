@@ -8,7 +8,7 @@
  * `reference_video` (or, post-merge, `reference_images: [...]`).
  */
 
-export type UploadedKind = 'video' | 'image' | 'audio' | 'text' | 'binary';
+export type UploadedKind = 'video' | 'image' | 'audio' | 'pdf' | 'text' | 'binary';
 
 export interface UploadedFile {
   kind: UploadedKind;
@@ -31,9 +31,11 @@ export interface UploadResponse {
 export function classifyFile(file: File): UploadedKind {
   const type = file.type || '';
   const name = file.name.toLowerCase();
+  // PDF first — same priority as the engine-side classify().
+  if (type === 'application/pdf' || /\.pdf$/i.test(name)) return 'pdf';
   if (type.startsWith('video/') || /\.(mp4|mov|webm|mkv)$/i.test(name)) return 'video';
-  if (type.startsWith('image/') || /\.(png|jpe?g|gif|webp)$/i.test(name)) return 'image';
-  if (type.startsWith('audio/') || /\.(wav|mp3|ogg)$/i.test(name)) return 'audio';
+  if (type.startsWith('image/') || /\.(png|jpe?g|gif|webp|avif)$/i.test(name)) return 'image';
+  if (type.startsWith('audio/') || /\.(wav|mp3|ogg|m4a)$/i.test(name)) return 'audio';
   if (type.startsWith('text/') || /\.(txt|md|json|csv)$/i.test(name)) return 'text';
   return 'binary';
 }

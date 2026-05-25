@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef } from 'react';
-import { Film, Image as ImageIcon, FileText, Music, Paperclip, X } from 'lucide-react';
+import { File as FileIcon, FileText, Film, Image as ImageIcon, Music, Paperclip, X } from 'lucide-react';
 import { classifyFile, humanBytes, type UploadedKind } from '@/lib/uploads';
 
 export interface PendingFile {
@@ -18,6 +18,7 @@ const ICONS: Record<UploadedKind, typeof Film> = {
   video: Film,
   image: ImageIcon,
   audio: Music,
+  pdf: FileIcon,
   text: FileText,
   binary: Paperclip,
 };
@@ -66,7 +67,7 @@ export function AttachButton({ onPick, disabled }: AttachButtonProps) {
         ref={inputRef}
         type="file"
         multiple
-        accept="video/*,image/*,audio/*,text/*,.txt,.md,.json,.csv"
+        accept="video/*,image/*,audio/*,application/pdf,.pdf,text/*,.txt,.md,.json,.csv"
         className="sr-only"
         onChange={(e) => {
           const list = e.target.files;

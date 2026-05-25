@@ -1,24 +1,22 @@
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
 import { HomeApp } from '@/components/home/HomeApp';
-import { auth } from '@/lib/auth';
 
 /**
- * The home is the app. Server-side we resolve the session so the
- * prompt input, cast, voice, and Generate button are only rendered
- * for authenticated users — anonymous visitors see the brand H1 +
- * KPI strip + a sign-in CTA. This stops anyone from posting a
- * prompt to the engine (which burns compute credits) without auth.
+ * The home is the app. Auth state is now read client-side from the
+ * zustand store (`@/stores/auth-store`) — populated by `/login`,
+ * `/signup`, or restored from `localStorage` on mount. The SSR pass
+ * always renders the anonymous surface; the hydrated client flips to
+ * the authenticated surface once the store says so. This avoids
+ * passing a cookie-derived flag down the tree just to drive a single
+ * branch — and keeps the server pass cacheable.
  */
-export default async function Home() {
-  const session = await auth();
-  const isAuthenticated = !!session?.user;
-
+export default function Home() {
   return (
     <main className="flex min-h-screen flex-col bg-bg-primary">
       <Header />
       <div className="flex-1">
-        <HomeApp isAuthenticated={isAuthenticated} />
+        <HomeApp />
       </div>
       <Footer />
     </main>

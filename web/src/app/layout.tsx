@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import { ThemeProvider } from '@/components/ThemeProvider';
-import { AuthSessionProvider } from '@/components/AuthSessionProvider';
+import { AuthInitializer } from '@/components/auth/AuthInitializer';
 import './globals.css';
 
 // Inter — modern neutral sans, OpenType variable, broad weight coverage.
@@ -53,9 +53,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: themeFoucScript }} />
       </head>
       <body>
-        <AuthSessionProvider>
-          <ThemeProvider>{children}</ThemeProvider>
-        </AuthSessionProvider>
+        <ThemeProvider>
+          <AuthInitializer />
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );

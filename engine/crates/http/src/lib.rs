@@ -274,7 +274,16 @@ async fn iterate(
     } else {
         None
     };
-    let work_dir = validate_path(&req.work_dir, "work_dir")?;
+    // Iterate now accepts an optional work_dir: when missing, create a
+    // fresh one (parity with /v1/generate) so the web can fire iterate
+    // for a prompt-only render without a prior session.
+    let work_dir = match req.work_dir.as_deref() {
+        Some(s) => validate_path(s, "work_dir")?,
+        None => std::env::temp_dir().join(format!("mf-iter-{}", short_id())),
+    };
+    if !work_dir.exists() {
+        std::fs::create_dir_all(&work_dir).map_err(ApiError::internal)?;
+    }
     let out_lottie = match req.out_lottie.as_deref() {
         Some(s) => validate_path(s, "out_lottie")?,
         None => work_dir.join("iterate.lottie.json"),
@@ -407,7 +416,13 @@ async fn upload_handler(
 fn classify(content_type: Option<&str>, filename: &str) -> String {
     let ct = content_type.unwrap_or("");
     let lower = filename.to_ascii_lowercase();
-    if ct.starts_with("video/")
+    // PDFs come first: many browsers send application/pdf but we
+    // also accept the extension so a stray .pdf with text/plain
+    // mime still classifies correctly. PDFs are first-class because
+    // the brief-intake path commonly receives them.
+    if ct == "application/pdf" || lower.ends_with(".pdf") {
+        "pdf".into()
+    } else if ct.starts_with("video/")
         || lower.ends_with(".mp4")
         || lower.ends_with(".mov")
         || lower.ends_with(".webm")
@@ -420,18 +435,21 @@ fn classify(content_type: Option<&str>, filename: &str) -> String {
         || lower.ends_with(".jpeg")
         || lower.ends_with(".gif")
         || lower.ends_with(".webp")
+        || lower.ends_with(".avif")
     {
         "image".into()
     } else if ct.starts_with("audio/")
         || lower.ends_with(".wav")
         || lower.ends_with(".mp3")
         || lower.ends_with(".ogg")
+        || lower.ends_with(".m4a")
     {
         "audio".into()
     } else if ct.starts_with("text/")
         || lower.ends_with(".txt")
         || lower.ends_with(".md")
         || lower.ends_with(".json")
+        || lower.ends_with(".csv")
     {
         "text".into()
     } else {
@@ -502,19 +520,41 @@ pub struct GenerateRequest {
     pub work_dir: Option<String>,
     pub out_lottie: Option<String>,
     pub out_video: Option<String>,
+    /// Optional model id (e.g. `ollama/llava`, `openai/gpt-4o`).
+    /// Today the engine picks the backend from env; this field is
+    /// captured so the call is forward-compatible.
+    #[serde(default)]
+    pub model: Option<String>,
+    /// Optional list of per-server-path image references to ground
+    /// the orchestration on (e.g. brand frames, storyboard sketches).
+    #[serde(default)]
+    pub reference_images: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IterateRequest {
-    pub work_dir: String,
+    /// Optional — when missing we create a fresh work-dir, so the
+    /// web can call /v1/iterate without an existing project.
+    #[serde(default)]
+    pub work_dir: Option<String>,
     pub prompt: String,
     pub theme: Option<String>,
     pub width: Option<u32>,
     pub height: Option<u32>,
     pub fps: Option<f32>,
+    /// Accept either `duration_seconds` (canonical) or `duration`
+    /// (legacy / shorthand) via alias.
+    #[serde(default, alias = "duration")]
     pub duration_seconds: Option<f32>,
+    /// Alias of `theme` to match the web's `preset` field name.
+    #[serde(default, alias = "preset")]
+    pub preset: Option<String>,
     pub out_lottie: Option<String>,
     pub out_video: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub reference_images: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

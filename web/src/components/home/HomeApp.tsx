@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useState } from 'react';
-import { signIn, useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 import { ArrowRight } from 'lucide-react';
+import { selectIsAuthenticated, useAuthStore } from '@/stores/auth-store';
 import {
   clone,
   downloadJson,
@@ -77,7 +78,30 @@ const DEFAULT_CONTROLS: ControlsValue = {
  *
  * State stays in plain useState; zustand was overkill for this surface.
  */
-export function HomeApp({ isAuthenticated = false }: HomeAppProps = {}) {
+/**
+ * Engine response shape — paths to files on the engine host, not the
+ * Lottie body. We follow up with `/api/engine/file?path=...` to load
+ * the actual JSON into the preview (see [api/engine/file/route.ts]).
+ */
+interface GenerateResponse {
+  work_dir: string;
+  output_lottie: string;
+  output_video?: string;
+  backend_name: string;
+  shots: number;
+  duration_seconds: number;
+}
+
+export function HomeApp({ isAuthenticated: _ssrAuth = false }: HomeAppProps = {}) {
+  const router = useRouter();
+  // Trust the client store once it has hydrated. `_ssrAuth` is kept on
+  // the prop signature for callers that still server-side resolve, but
+  // the source of truth is the zustand state populated by /login + /signup.
+  const hydrated = useAuthStore((s) => s.hydrated);
+  const storeAuth = useAuthStore(selectIsAuthenticated);
+  const bearer = useAuthStore((s) => s.accessToken) ?? undefined;
+  const isAuthenticated = hydrated ? storeAuth : _ssrAuth;
+
   const [prompt, setPrompt] = useState('');
   const [controls, setControls] = useState<ControlsValue>(DEFAULT_CONTROLS);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -85,10 +109,11 @@ export function HomeApp({ isAuthenticated = false }: HomeAppProps = {}) {
   const [error, setError] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<PendingFile[]>([]);
   const [model, setModel] = useState<ModelChoice>('ollama/llava');
-  // NextAuth session — gives us the Keycloak access token to attach
-  // as a Bearer on every engine call.
-  const { data: session } = useSession();
-  const bearer = (session as unknown as { accessToken?: string } | null)?.accessToken;
+  // Session work-dir, surfaced by `/v1/uploads` and by every
+  // successful generate. Iterate REQUIRES this to refine an existing
+  // animation, so we keep it across re-renders and only clear it
+  // when the user removes all attachments + presses "new session".
+  const [workDir, setWorkDir] = useState<string | null>(null);
 
   const loadFallback = useCallback(async (): Promise<LottieJson | null> => {
     try {
@@ -102,11 +127,11 @@ export function HomeApp({ isAuthenticated = false }: HomeAppProps = {}) {
 
   const handleGenerate = useCallback(async () => {
     if (!prompt.trim() || isGenerating) return;
-    // Anonymous Generate clicks hand off to Keycloak with the draft
-    // preserved as a callbackUrl param.
+    // Anonymous Generate clicks bounce to /login with the draft
+    // preserved as a `next` param so the page re-opens primed.
     if (!isAuthenticated) {
-      const callbackUrl = `/?prompt=${encodeURIComponent(prompt)}`;
-      signIn('keycloak', { callbackUrl });
+      const next = `/?prompt=${encodeURIComponent(prompt)}`;
+      router.push(`/login?next=${encodeURIComponent(next)}`);
       return;
     }
     setIsGenerating(true);
@@ -114,17 +139,22 @@ export function HomeApp({ isAuthenticated = false }: HomeAppProps = {}) {
     const auth = bearer ? { Authorization: `Bearer ${bearer}` } : undefined;
 
     try {
-      // 1. If the user attached any files that haven't been pushed
-      //    yet, upload them first so the engine has server-side paths.
+      // 1. Push any pending attachments through `/v1/uploads` so the
+      //    engine has server-side paths to consume. The endpoint also
+      //    hands back the session `work_dir`, which iterate later
+      //    needs to refine the same generation.
       let referenceVideo: string | undefined;
-      let referenceImages: string[] = [];
+      let nextWorkDir = workDir;
       const pending = attachments.filter((a) => !a.serverPath && !a.error);
       if (pending.length > 0) {
         const resp = await uploadFiles(
           pending.map((a) => a.file),
           bearer,
         );
-        // mirror back the server paths into the attachments state
+        nextWorkDir = resp.work_dir;
+        setWorkDir(resp.work_dir);
+        // Mirror server paths back into the attachment chips so the
+        // user sees "uploaded" affordance and we can skip re-upload.
         setAttachments((prev) =>
           prev.map((a) => {
             const idx = pending.findIndex((p) => p.id === a.id);
@@ -135,7 +165,6 @@ export function HomeApp({ isAuthenticated = false }: HomeAppProps = {}) {
         );
         for (const f of resp.files) {
           if (f.kind === 'video' && !referenceVideo) referenceVideo = f.path;
-          else if (f.kind === 'image') referenceImages.push(f.path);
         }
       }
       // Pull already-uploaded paths in (e.g. user uploaded earlier,
@@ -143,49 +172,69 @@ export function HomeApp({ isAuthenticated = false }: HomeAppProps = {}) {
       for (const a of attachments) {
         if (!a.serverPath) continue;
         if (a.kind === 'video' && !referenceVideo) referenceVideo = a.serverPath;
-        if (a.kind === 'image') referenceImages.push(a.serverPath);
       }
 
-      // 2. Pick the right endpoint:
-      //    - If there's a reference video → /v1/generate (full pipeline)
-      //    - Otherwise → /v1/iterate (prompt-only, faster)
+      // 2. Pick the right engine endpoint per the schema in
+      //    engine/crates/http/src/lib.rs:
+      //      - generate REQUIRES `reference_video` (full pipeline,
+      //        produces a fresh style.json in the work-dir).
+      //      - iterate REQUIRES `work_dir` from a prior generate.
+      //    First-time prompts without a reference video have nowhere
+      //    to land — surface that explicitly rather than 500'ing.
       let response: Response;
       if (referenceVideo) {
         response = await fetch(GENERATE_ENDPOINT, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...(auth ?? {}) },
           body: JSON.stringify({
+            work_dir: nextWorkDir ?? undefined,
             reference_video: referenceVideo,
-            reference_images: referenceImages,
             prompt,
             theme: controls.preset,
             duration_seconds: controls.duration,
-            model,
           }),
         });
-      } else {
+      } else if (nextWorkDir) {
         response = await fetch(ITERATE_ENDPOINT, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...(auth ?? {}) },
           body: JSON.stringify({
+            work_dir: nextWorkDir,
             prompt,
-            duration: controls.duration,
-            preset: controls.preset,
-            model,
-            reference_images: referenceImages,
+            theme: controls.preset,
+            duration_seconds: controls.duration,
           }),
         });
+      } else {
+        throw new Error(
+          'attach a reference video (or any media) to start — iterate refines an existing session',
+        );
       }
 
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const json = (await response.json()) as LottieJson;
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        throw new Error(`HTTP ${response.status}${body ? ` — ${body.slice(0, 200)}` : ''}`);
+      }
+      const result = (await response.json()) as GenerateResponse;
+      setWorkDir(result.work_dir);
+
+      // 3. Engine returns *paths*; fetch the Lottie body via the
+      //    Next.js proxy route so the browser can render it.
+      const lottieResp = await fetch(
+        `/api/engine/file?path=${encodeURIComponent(result.output_lottie)}`,
+      );
+      if (!lottieResp.ok) {
+        throw new Error(`could not read output_lottie: HTTP ${lottieResp.status}`);
+      }
+      const json = (await lottieResp.json()) as LottieJson;
       if (!Array.isArray(json.layers)) throw new Error('not a lottie document');
       setAnimation(json);
+      void model; // model is captured for future engine support; engine ignores it today
     } catch (e) {
       const fb = await loadFallback();
       if (fb) {
         setAnimation(fb);
-        setError(`Using ${controls.preset} preset (backend unavailable: ${String(e)})`);
+        setError(`Using ${controls.preset} preset (engine: ${String(e)})`);
       } else {
         setError(`Generate failed: ${String(e)}`);
       }
@@ -200,6 +249,7 @@ export function HomeApp({ isAuthenticated = false }: HomeAppProps = {}) {
     loadFallback,
     isAuthenticated,
     attachments,
+    workDir,
     model,
     bearer,
   ]);
@@ -243,7 +293,7 @@ export function HomeApp({ isAuthenticated = false }: HomeAppProps = {}) {
           </p>
           <button
             type="button"
-            onClick={() => signIn('keycloak', { callbackUrl: '/' })}
+            onClick={() => router.push('/login')}
             className="btn-accent group mt-1 px-8 py-3.5 text-base"
             data-testid="hero-signin"
           >
