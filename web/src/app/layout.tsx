@@ -1,17 +1,26 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
+import { Inter, Space_Grotesk } from 'next/font/google';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import { AuthInitializer } from '@/components/auth/AuthInitializer';
 import './globals.css';
 
-// Inter — modern neutral sans, OpenType variable, broad weight coverage.
-// We wire it through CSS var --font-sans (set in tailwind.config.ts) so
-// every utility class that resolves to var(--font-sans) — body text,
-// .h-display, .h-section, headings, buttons — picks it up automatically.
+// Body font — Inter for paragraphs, buttons, form fields, anything
+// that needs the maximum legibility budget. Variable, swap-loaded.
 const inter = Inter({
   subsets: ['latin'],
   display: 'swap',
   variable: '--font-sans',
+});
+
+// Display font — Space Grotesk for the IMTN wordmark and section
+// headlines. Geometric, slightly mechanical, reads premium-tech at
+// large sizes. Pairs cleanly with Inter (matching x-height) so the
+// type system stays cohesive.
+const spaceGrotesk = Space_Grotesk({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-display',
+  weight: ['400', '500', '600', '700'],
 });
 
 // FOUC guard: set data-theme on <html> before React hydrates, based on
@@ -30,17 +39,17 @@ const themeFoucScript = `
 `;
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://motion-forge.io'),
+  metadataBase: new URL('https://imtn.io'),
   title: {
-    default: 'motion-forge — prompt-based motion graphics',
-    template: '%s · motion-forge',
+    default: 'IMTN — prompt-based motion graphics',
+    template: '%s · IMTN',
   },
   description:
-    'Type a prompt, get a motion graphic. 90s first render, sub-second iterations, $0.18 per spot.',
+    'Type a prompt, get a motion graphic. Local engine + local models, no cloud round-trip. 90s first render, sub-second iterations.',
   openGraph: {
-    title: 'motion-forge — prompt-based motion graphics',
+    title: 'IMTN — prompt-based motion graphics',
     description:
-      'Type a prompt, get a motion graphic. 90s first render, sub-second iterations, $0.18 per spot.',
+      'Type a prompt, get a motion graphic. Local engine + local models, no cloud round-trip. 90s first render, sub-second iterations.',
     type: 'website',
   },
   twitter: { card: 'summary_large_image' },
@@ -48,7 +57,11 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={inter.variable} suppressHydrationWarning>
+    <html
+      lang="en"
+      className={`${inter.variable} ${spaceGrotesk.variable}`}
+      suppressHydrationWarning
+    >
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeFoucScript }} />
       </head>

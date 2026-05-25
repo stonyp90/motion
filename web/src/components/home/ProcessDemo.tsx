@@ -478,8 +478,9 @@ export function ProcessDemo() {
                   })}
                 </div>
                 <p className="max-w-md text-center text-xs text-text-secondary">
-                  Same Lottie, three containers. The pack ships every scene
-                  separately for designers who want to recut.
+                  One video, every format your channels need. Ship the
+                  master plus each scene separately if your designers
+                  want to recut.
                 </p>
               </motion.div>
             )}

@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    inmtn_desktop_lib::run();
+    imtn_desktop_lib::run();
 }

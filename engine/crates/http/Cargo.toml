@@ -34,6 +34,7 @@ sysinfo = { version = "0.32", default-features = false, features = ["system"] }
 sha2 = "0.10"
 rand = "0.8"
 dashmap = "6"
+async-trait = "0.1"
 
 [dev-dependencies]
 reqwest = { workspace = true, features = ["blocking"] }

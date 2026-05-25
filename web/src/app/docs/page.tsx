@@ -4,9 +4,9 @@ import { Footer } from '@/components/Footer';
 import { DocsViewer } from '@/components/docs/DocsViewer';
 
 export const metadata: Metadata = {
-  title: 'API · motion-forge',
+  title: 'API · IMTN',
   description:
-    'OpenAPI 3.1 reference for the motion-forge public API — generate, iterate, presets, exports, and API key management.',
+    'OpenAPI 3.1 reference for the IMTN public API — generate, iterate, presets, exports, and API key management.',
 };
 
 /**

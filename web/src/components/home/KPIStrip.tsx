@@ -102,27 +102,27 @@ const KPIS: ReadonlyArray<Kpi> = [
   {
     value: '20 min',
     label: 'Brief to finished spot',
-    detail: 'A 60-second explainer, end-to-end. Agencies quote 20 days.',
+    detail: 'A polished 60-second explainer, same day. Agencies quote 20 days.',
   },
   {
-    value: '90 s',
-    label: 'First render latency',
-    detail: 'Script segmentation, casting, Lottie compose, MP4 export.',
+    value: '1 day',
+    label: 'Pilot to first launch',
+    detail: 'Onboarding, brand setup, first three videos shipped in 24 hours.',
   },
   {
-    value: '<1 s',
-    label: 'Iteration after a change',
-    detail: 'Only the touched scene re-renders; the rest is cached.',
+    value: '90 %',
+    label: 'Lower production cost',
+    detail: 'Per-video spend in dollars, not the four-figure agency invoice.',
   },
   {
-    value: '$0.18',
-    label: 'Cost per finished spot',
-    detail: 'Marginal compute on a mid-tier GPU. Down from $5k+ at an agency.',
+    value: '∞',
+    label: 'Iterations per campaign',
+    detail: 'Re-cut to a new tagline, new audience, new market in seconds.',
   },
 ] as const;
 
 const OKRS: ReadonlyArray<string> = [
-  'Cut explainer-video turnaround from weeks to hours.',
-  'Make every iteration cheaper than a Slack thread.',
-  'Keep brand assets on your network, never on a vendor cloud.',
+  'Turn campaign briefs into shippable video the same day.',
+  'Let marketing and brand teams own the production loop.',
+  'Keep every asset and prompt on enterprise-grade infrastructure.',
 ] as const;

@@ -154,7 +154,7 @@ export function PromptInput({
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
         onPaste={handlePaste}
-        placeholder="Describe the motion graphic you want — a launch teaser, a pricing explainer, a quarterly recap…"
+        placeholder="Describe what you want to show — a launch teaser, a pricing explainer, a quarterly recap…"
         rows={4}
         className="block w-full resize-none overflow-y-auto border-0 bg-transparent px-5 py-4 font-sans text-base leading-relaxed text-text-primary placeholder:font-mono placeholder:text-sm placeholder:text-text-tertiary focus:outline-none"
         style={{ minHeight: MIN_HEIGHT, maxHeight: MAX_HEIGHT }}

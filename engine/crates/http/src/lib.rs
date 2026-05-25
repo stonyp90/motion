@@ -15,8 +15,11 @@
 
 pub mod api_keys;
 pub mod auth;
+pub mod notifications;
 pub mod rate_limit;
 pub mod stt_route;
+pub mod timefmt;
+pub mod usage;
 
 use anyhow::Result;
 use axum::{
@@ -44,8 +47,10 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::api_keys::{ApiKeyStore, IssuedApiKey, Tier};
-use crate::auth::{Claims, KeycloakAuthLayer, KeycloakConfig, PrincipalKind};
+use crate::auth::{Claims, KeycloakAuthLayer, KeycloakConfig, Principal, PrincipalKind};
+use crate::notifications::{EmailService, EventKind, NotificationPrefs, NotificationPrefsStore};
 use crate::rate_limit::RateLimitLayer;
+use crate::usage::{UsageEvent, UsageLog, UsageReport};
 use axum::Extension;
 use stt_route::{SttRouteConfig, stt_stream_handler};
 
@@ -53,6 +58,9 @@ use stt_route::{SttRouteConfig, stt_stream_handler};
 struct AppState {
     pipeline: Arc<Pipeline>,
     api_keys: ApiKeyStore,
+    notif_prefs: NotificationPrefsStore,
+    email: Arc<dyn EmailService>,
+    usage: UsageLog,
 }
 
 pub async fn serve(bind: &str) -> Result<()> {
@@ -60,10 +68,24 @@ pub async fn serve(bind: &str) -> Result<()> {
     // open is fatal because it's the source of truth for non-JWT auth.
     let api_keys = ApiKeyStore::from_env()
         .map_err(|e| anyhow::anyhow!("failed to open API key store: {e}"))?;
+    let notif_prefs = NotificationPrefsStore::from_env()
+        .map_err(|e| anyhow::anyhow!("failed to open notification prefs store: {e}"))?;
+    let usage = UsageLog::from_env()
+        .map_err(|e| anyhow::anyhow!("failed to open usage log: {e}"))?;
+    let email = notifications::email_service_from_env();
+    tracing::info!(
+        backend = std::env::var("MOTION_FORGE_EMAIL_BACKEND")
+            .unwrap_or_else(|_| "stub".into())
+            .as_str(),
+        "email backend selected"
+    );
 
     let state = AppState {
         pipeline: Arc::new(Pipeline::new()),
         api_keys: api_keys.clone(),
+        notif_prefs,
+        email,
+        usage,
     };
     let stt_state = Arc::new(SttRouteConfig::from_env());
     if stt_state.model_path.is_none() {
@@ -109,6 +131,10 @@ pub async fn serve(bind: &str) -> Result<()> {
         .route("/v1/metrics", get(metrics_handler))
         .route("/v1/api-keys", post(api_keys_issue).get(api_keys_list))
         .route("/v1/api-keys/:id", axum::routing::delete(api_keys_revoke))
+        .route("/v1/me", get(me_handler))
+        .route("/v1/me/notifications", get(notifications_get).put(notifications_put))
+        .route("/v1/me/notifications/test", post(notifications_test))
+        .route("/v1/me/usage", get(usage_get))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(
             // 256 MiB — large enough for a typical reference video
             // (a 60-second 4K H.264 clip lands ~80 MB) without
@@ -662,6 +688,117 @@ async fn api_keys_revoke(
         return Err(ApiError::not_found("key not found or already revoked"));
     }
     Ok(Json(serde_json::json!({ "revoked": id })))
+}
+
+// ---- me / notifications / usage ----
+
+/// Extract the calling JWT user's sub + email. Returns 403 for API-key /
+/// fallback principals (these surfaces are user-only).
+fn require_user(
+    claims: Option<&Claims>,
+    principal_kind: Option<&PrincipalKind>,
+) -> Result<(String, Option<String>, Option<String>), ApiError> {
+    match (claims, principal_kind) {
+        (Some(c), Some(PrincipalKind::User)) => {
+            Ok((c.sub.clone(), c.email.clone(), c.preferred_username.clone()))
+        }
+        _ => Err(ApiError::forbidden(
+            "this endpoint requires a logged-in user; bearer JWT only",
+        )),
+    }
+}
+
+async fn me_handler(
+    claims: Option<Extension<Claims>>,
+    principal: Option<Extension<Principal>>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let claims = claims.map(|e| e.0);
+    let kind = principal.as_ref().map(|p| &p.0.kind);
+    let (sub, email, username) = require_user(claims.as_ref(), kind)?;
+    let claims = claims.expect("require_user enforces claims is Some");
+    Ok(Json(serde_json::json!({
+        "sub": sub,
+        "email": email,
+        "username": username,
+        "name": claims.preferred_username.or(claims.email.clone()),
+        "issuer": claims.iss,
+        "roles": claims
+            .realm_access
+            .as_ref()
+            .map(|r| r.roles.clone())
+            .unwrap_or_default(),
+        "principal_kind": "user",
+    })))
+}
+
+async fn notifications_get(
+    State(state): State<AppState>,
+    claims: Option<Extension<Claims>>,
+    principal: Option<Extension<Principal>>,
+) -> Result<Json<NotificationPrefs>, ApiError> {
+    let claims = claims.map(|e| e.0);
+    let kind = principal.as_ref().map(|p| &p.0.kind);
+    let (sub, email, _) = require_user(claims.as_ref(), kind)?;
+    let mut p = state.notif_prefs.get(&sub).await;
+    // Seed the email from the JWT on first read if user hasn't set
+    // their own — saves the user a step in the UI.
+    if p.email.is_none() {
+        p.email = email;
+    }
+    Ok(Json(p))
+}
+
+async fn notifications_put(
+    State(state): State<AppState>,
+    claims: Option<Extension<Claims>>,
+    principal: Option<Extension<Principal>>,
+    Json(prefs): Json<NotificationPrefs>,
+) -> Result<Json<NotificationPrefs>, ApiError> {
+    let claims = claims.map(|e| e.0);
+    let kind = principal.as_ref().map(|p| &p.0.kind);
+    let (sub, _, _) = require_user(claims.as_ref(), kind)?;
+    let saved = state
+        .notif_prefs
+        .put(&sub, prefs)
+        .await
+        .map_err(ApiError::internal)?;
+    Ok(Json(saved))
+}
+
+async fn notifications_test(
+    State(state): State<AppState>,
+    claims: Option<Extension<Claims>>,
+    principal: Option<Extension<Principal>>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let claims = claims.map(|e| e.0);
+    let kind = principal.as_ref().map(|p| &p.0.kind);
+    let (sub, jwt_email, _) = require_user(claims.as_ref(), kind)?;
+    let prefs = state.notif_prefs.get(&sub).await;
+    let to = prefs
+        .email
+        .or(jwt_email)
+        .ok_or_else(|| ApiError::bad_request("no email on file"))?;
+    state
+        .email
+        .send(&to, "IMTN — notification test", "Notifications are wired up.")
+        .await
+        .map_err(|e| ApiError::internal(e.to_string()))?;
+    Ok(Json(serde_json::json!({
+        "sent_to": to,
+        "backend": std::env::var("MOTION_FORGE_EMAIL_BACKEND").unwrap_or_else(|_| "stub".into()),
+    })))
+}
+
+async fn usage_get(
+    State(state): State<AppState>,
+    claims: Option<Extension<Claims>>,
+    principal: Option<Extension<Principal>>,
+) -> Result<Json<UsageReport>, ApiError> {
+    let claims = claims.map(|e| e.0);
+    let kind = principal.as_ref().map(|p| &p.0.kind);
+    let (sub, _, _) = require_user(claims.as_ref(), kind)?;
+    let report = state.usage.aggregate_for(&format!("user:{sub}"), 30);
+    Ok(Json(report))
 }
 
 // ---- uploads ----

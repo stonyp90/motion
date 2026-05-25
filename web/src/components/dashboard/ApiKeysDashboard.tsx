@@ -151,7 +151,7 @@ export function ApiKeysDashboard() {
           API keys
         </h1>
         <p className="text-sm text-text-secondary">
-          Use these to call the motion-forge engine from SDKs, CLIs, and
+          Use these to call the IMTN engine from SDKs, CLIs, and
           server-side scripts.{' '}
           <code className="rounded bg-bg-tertiary px-1.5 py-0.5 font-mono text-xs">
             mf_live_…

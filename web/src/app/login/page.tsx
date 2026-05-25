@@ -5,7 +5,7 @@ import { LoginForm } from '@/components/auth/LoginForm';
 
 export const metadata: Metadata = {
   title: 'Sign in',
-  description: 'Sign in to motion-forge.',
+  description: 'Sign in to IMTN.',
 };
 
 export default function LoginPage({

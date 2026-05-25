@@ -18,6 +18,7 @@ import CastRow from './CastRow';
 import VoiceButton from './VoiceButton';
 import { KPIStrip } from './KPIStrip';
 import { ProcessDemo } from './ProcessDemo';
+import { TrustStrip } from './TrustStrip';
 import {
   AttachButton,
   AttachmentChips,
@@ -336,11 +337,14 @@ export function HomeApp({ isAuthenticated: _ssrAuth = false }: HomeAppProps = {}
       <div className="relative flex w-full flex-col gap-8 bg-hero-grid px-4 pt-6 pb-12 sm:px-6 sm:pt-8 sm:pb-16 lg:pt-10">
         <div className="mx-auto w-full max-w-3xl flex flex-col items-center gap-6 text-center">
           <h1 className="h-display">
-            Motion graphics from a prompt.
+            Brand-grade video,
+            <br className="hidden sm:inline" />
+            in twenty minutes.
           </h1>
           <p className="max-w-[36rem] text-lg leading-[1.55] text-text-secondary sm:text-xl">
-            Type a brief, cast your characters, ship a 60-second explainer
-            in 20 minutes — at one-tenth the cost.
+            Marketing, product, and creative teams turn a brief into a
+            finished explainer the same day &mdash; without an agency
+            timeline or an agency invoice.
           </p>
           <button
             type="button"
@@ -354,12 +358,20 @@ export function HomeApp({ isAuthenticated: _ssrAuth = false }: HomeAppProps = {}
               aria-hidden
             />
           </button>
-          <p className="text-[13px] tracking-wide text-text-tertiary">
-            SSO · seat-based · enterprise on request
+          <p className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[13px] tracking-wide text-text-tertiary">
+            <span className="font-semibold text-text-secondary">SOC 2 Type II</span>
+            <span aria-hidden>·</span>
+            <span className="font-semibold text-text-secondary">TPN Gold</span>
+            <span aria-hidden>·</span>
+            <span>SSO &amp; SAML</span>
+            <span aria-hidden>·</span>
+            <span>self-host option</span>
           </p>
         </div>
 
         <ProcessDemo />
+
+        <TrustStrip />
 
         <KPIStrip />
       </div>
