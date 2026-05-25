@@ -1,0 +1,31 @@
+[package]
+name = "motion-forge-stt"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+description = "In-process streaming speech-to-text built on whisper.cpp + WebRTC VAD."
+
+[features]
+# Default is real whisper.cpp via `whisper-rs`. The build pulls in cmake +
+# a C/C++ toolchain to compile whisper.cpp from source. Disable the feature
+# to fall back to a no-op stub adapter (used in CI environments where the
+# native toolchain isn't available — the WebSocket route still works, you
+# just don't get transcripts).
+default = ["whisper"]
+whisper = ["dep:whisper-rs"]
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+bytes = "1"
+parking_lot = "0.12"
+webrtc-vad = "0.4"
+whisper-rs = { version = "0.16", optional = true, default-features = false }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros", "time"] }

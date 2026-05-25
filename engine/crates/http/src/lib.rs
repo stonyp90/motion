@@ -12,6 +12,7 @@
 //! without re-running the slow segmentation phases.
 
 pub mod auth;
+pub mod stt_route;
 
 use anyhow::Result;
 use axum::{
@@ -33,6 +34,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::auth::{KeycloakAuthLayer, KeycloakConfig};
+use stt_route::{SttRouteConfig, stt_stream_handler};
 
 #[derive(Clone)]
 struct AppState {
@@ -43,6 +45,30 @@ pub async fn serve(bind: &str) -> Result<()> {
     let state = AppState {
         pipeline: Arc::new(Pipeline::new()),
     };
+    let stt_state = Arc::new(SttRouteConfig::from_env());
+    if stt_state.model_path.is_none() {
+        tracing::warn!(
+            env = stt_route::MODEL_PATH_ENV,
+            "voice STT route disabled — set the env var to a whisper.cpp GGUF model to enable /v1/stt/stream"
+        );
+    } else if let Some(p) = stt_state.model_path.as_ref() {
+        if p.exists() {
+            tracing::info!(model = %p.display(), "voice STT route enabled at /v1/stt/stream");
+        } else {
+            tracing::warn!(
+                model = %p.display(),
+                "voice STT model env var is set but the file is missing on disk"
+            );
+        }
+    }
+
+    // The STT WebSocket route is mounted as a separate sub-router because
+    // axum binds router state by type and we don't want to widen `AppState`
+    // for this single endpoint. WS upgrades skip the JSON-only handlers
+    // above and don't need the pipeline either.
+    let stt_router = Router::new()
+        .route("/v1/stt/stream", get(stt_stream_handler))
+        .with_state(stt_state);
 
     // Pull Keycloak settings from env. If KEYCLOAK_ISSUER is empty we
     // run in degraded-auth mode: every request without the static
@@ -74,20 +100,20 @@ pub async fn serve(bind: &str) -> Result<()> {
         .route("/v1/iterate", post(iterate))
         .route("/v1/brief/parse", post(brief_parse))
         .route("/v1/brief/synth", post(brief_synth))
-        .layer(auth_layer);
+        .layer(auth_layer)
+        .with_state(state);
 
     // Routes that stay open: liveness, OpenAPI discovery, and the
-    // streaming-STT WebSocket route W3 is adding (the route handler
-    // itself lives in W3's crate; we just keep this `/v1/stt/stream`
-    // path out of the auth layer so voice works without sign-in).
-    // The actual handler is not wired here yet — W3's PR will add it.
+    // streaming-STT WebSocket route (W3) — voice should work without
+    // sign-in so users can dictate before they've authenticated.
+    // The STT route lives in its own sub-router with its own state.
     let app = Router::new()
         .route("/healthz", get(healthz))
         .route("/openapi.json", get(openapi))
         .merge(protected)
+        .merge(stt_router)
         .layer(tower_http::cors::CorsLayer::permissive())
-        .layer(tower_http::trace::TraceLayer::new_for_http())
-        .with_state(state);
+        .layer(tower_http::trace::TraceLayer::new_for_http());
 
     let listener = tokio::net::TcpListener::bind(bind)
         .await
