@@ -95,6 +95,15 @@ impl NotificationPrefsStore {
         })
     }
 
+    /// Test helper — open against an arbitrary dir without env lookup.
+    pub fn open_for_test(dir: PathBuf) -> Self {
+        let _ = std::fs::create_dir_all(&dir);
+        Self {
+            inner: Arc::new(RwLock::new(())),
+            dir,
+        }
+    }
+
     fn path_for(&self, owner_sub: &str) -> PathBuf {
         // Sanitize: only [a-zA-Z0-9-_] is allowed; everything else
         // becomes `_` so a hostile sub claim can't escape the dir.

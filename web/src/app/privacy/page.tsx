@@ -4,7 +4,7 @@ import { Footer } from '@/components/Footer';
 
 export const metadata: Metadata = {
   title: 'Privacy',
-  description: 'How motion-forge handles your data and uploads.',
+  description: 'How IMTN handles your data and uploads.',
 };
 
 /**
@@ -24,30 +24,32 @@ export default function PrivacyPage() {
           <p className="text-sm text-text-tertiary">Effective May 2026</p>
           <div className="mt-10 flex flex-col gap-6 text-base leading-[1.7] text-text-secondary">
             <p>
-              motion-forge is a single-tenant rendering pipeline for motion graphics.
-              The principles below describe how we handle the data you bring in.
+              IMTN turns a brief into a finished motion graphic. The principles
+              below describe how we handle the data you bring in.
             </p>
             <Section title="What we collect">
-              Sign-in is provided by Keycloak SSO; we store your email + display name and
-              the access tokens needed to authenticate you against the engine. We do not
-              track behavior beyond the engine logs needed to debug a failed render.
+              Sign-in is provided by your enterprise SSO (Okta, Azure AD, Google
+              Workspace, Ping, or your own identity provider). We store your email +
+              display name and the session tokens needed to sign you in. We do not
+              track behaviour beyond the request logs needed to debug a failed render.
             </Section>
             <Section title="Uploads">
-              Reference videos, images, and briefs you attach are written to a per-session
-              work-dir on the engine host. The work-dir is scoped by a random session id
-              and is not addressable without that id. We do not move uploads off-host or
-              share them with third parties.
+              Reference videos, images, and briefs you attach are written to a
+              per-session workspace scoped by a random id, not addressable without it.
+              We do not move uploads off your tenant or share them with third parties.
             </Section>
             <Section title="Generated assets">
-              Lotties + MP4s produced by the engine live next to their session work-dir.
-              You can export them locally; nothing is published or shared automatically.
+              Animations and videos produced by IMTN live alongside their session
+              workspace. You can export them locally; nothing is published or shared
+              automatically.
             </Section>
             <Section title="Retention">
-              Session work-dirs are subject to the operator&apos;s retention policy and may
-              be cleared at any time. Do not treat the engine as durable storage.
+              Session workspaces follow your tenant&apos;s retention policy and may
+              be cleared at any time. Long-term assets should live in your DAM,
+              not IMTN.
             </Section>
             <Section title="Contact">
-              Questions or deletion requests: <a className="text-text-accent underline-offset-2 hover:underline" href="mailto:hello@motion-forge.io">hello@motion-forge.io</a>.
+              Questions or deletion requests: <a className="text-text-accent underline-offset-2 hover:underline" href="mailto:hello@imtn.io">hello@imtn.io</a>.
             </Section>
           </div>
         </div>

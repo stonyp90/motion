@@ -1578,9 +1578,13 @@ mod tests {
         let addr = listener.local_addr().unwrap();
 
         let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("notifications")).unwrap();
         let state = AppState {
             pipeline: Arc::new(Pipeline::new()),
             api_keys: ApiKeyStore::open(tmp.path().join("k.json")).unwrap(),
+            notif_prefs: NotificationPrefsStore::open_for_test(tmp.path().join("notifications")),
+            email: std::sync::Arc::new(crate::notifications::StubEmailService),
+            usage: UsageLog::open_for_test(tmp.path().join("usage.jsonl")),
         };
         let app = Router::new()
             .route("/healthz", get(healthz))

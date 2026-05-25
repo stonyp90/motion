@@ -32,11 +32,11 @@ export function DocsViewer({
           servers: [
             {
               url: engineBase,
-              description: 'motion-forge engine (local dev)',
+              description: 'IMTN engine (local dev)',
             },
             {
-              url: 'https://api.motion-forge.io',
-              description: 'motion-forge engine (production)',
+              url: 'https://api.imtn.io',
+              description: 'IMTN engine (production)',
             },
           ],
         }}

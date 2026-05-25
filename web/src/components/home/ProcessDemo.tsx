@@ -223,7 +223,7 @@ export function ProcessDemo() {
 
   return (
     <section
-      aria-label="motion-forge process demo"
+      aria-label="IMTN process demo"
       className="mx-auto w-full max-w-3xl"
     >
       {/* Phase rail */}

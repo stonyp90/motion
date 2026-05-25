@@ -57,6 +57,17 @@ impl UsageLog {
         })
     }
 
+    /// Test helper — open at an arbitrary file without env lookup.
+    pub fn open_for_test(file: PathBuf) -> Self {
+        if let Some(parent) = file.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        Self {
+            inner: Arc::new(Mutex::new(())),
+            file,
+        }
+    }
+
     /// Append a single record. Failures are logged at WARN — we don't
     /// want a usage-log write error to fail an otherwise-successful
     /// generate call.
@@ -92,7 +103,10 @@ impl UsageLog {
     pub fn aggregate_for(&self, principal_id: &str, lookback_days: usize) -> UsageReport {
         let _g = self.inner.lock().expect("usage mutex poisoned");
         let Ok(f) = std::fs::File::open(&self.file) else {
-            return UsageReport::empty();
+            // No log yet — return an "empty" report that still names the
+            // principal and the requested window so the dashboard chart
+            // can render axes correctly.
+            return UsageReport::empty_for(principal_id, lookback_days);
         };
         let mut by_day: BTreeMap<String, DayBucket> = BTreeMap::new();
         let mut total = DayBucket::default();
@@ -189,11 +203,11 @@ pub struct UsageReport {
 }
 
 impl UsageReport {
-    fn empty() -> Self {
+    fn empty_for(principal_id: &str, lookback_days: usize) -> Self {
         Self {
-            principal_id: String::new(),
+            principal_id: principal_id.into(),
             generated_at: now_rfc3339(),
-            lookback_days: 0,
+            lookback_days,
             total: DayBucket::default(),
             by_day: vec![],
             by_model: vec![],
