@@ -124,16 +124,6 @@ enum Command {
         out_lottie: Option<PathBuf>,
     },
 
-    /// Transcribe an audio file to text via the Whisper sidecar (local).
-    /// Prints the text to stdout so it can be piped into --prompt.
-    Transcribe {
-        input: PathBuf,
-        #[arg(long, default_value = "tiny")]
-        model: String,
-        #[arg(long)]
-        language: Option<String>,
-    },
-
     /// Build a polished panelized Lottie from a directory of illustrations
     /// (PNG/JPEG). Ken-burns + crossfade between panels, optional headline
     /// card, themed background — no LLM needed; the output IS the source art
@@ -286,11 +276,6 @@ async fn main() -> Result<()> {
             })
             .await
         }
-        Command::Transcribe {
-            input,
-            model,
-            language,
-        } => cmd_transcribe(input, model, language),
         Command::Panelize {
             dir,
             theme,
@@ -564,33 +549,6 @@ fn cmd_render(input: PathBuf, output: PathBuf) -> Result<()> {
     Ok(())
 }
 
-fn cmd_transcribe(input: PathBuf, model: String, language: Option<String>) -> Result<()> {
-    use std::process::Command;
-    let workspace = workspace_root()?;
-    let script = workspace.join("scripts/transcribe.py");
-    let python = workspace.join(".venv/bin/python");
-    let mut cmd = Command::new(python);
-    cmd.arg(script)
-        .arg("--input")
-        .arg(&input)
-        .arg("--model")
-        .arg(&model);
-    if let Some(lang) = language {
-        cmd.arg("--language").arg(lang);
-    }
-    cmd.stderr(std::process::Stdio::inherit());
-    let output = cmd.output().with_context(|| "spawning whisper sidecar")?;
-    if !output.status.success() {
-        anyhow::bail!(
-            "whisper sidecar failed with status {:?}",
-            output.status.code()
-        );
-    }
-    // Pass the transcribed text straight through on stdout so it can be piped.
-    std::io::Write::write_all(&mut std::io::stdout(), &output.stdout)?;
-    Ok(())
-}
-
 struct PanelizeArgs {
     dir: PathBuf,
     theme: Option<String>,
@@ -734,16 +692,3 @@ fn derive_work_dir(out: &std::path::Path, label: &str) -> PathBuf {
     parent.join(format!("{stem}-work"))
 }
 
-fn workspace_root() -> Result<PathBuf> {
-    // Walk up from CARGO_MANIFEST_DIR (the cli crate) to the workspace root.
-    let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    for _ in 0..5 {
-        if p.join("Cargo.toml").exists() && p.join("crates").exists() {
-            return Ok(p);
-        }
-        if !p.pop() {
-            break;
-        }
-    }
-    Err(anyhow::anyhow!("could not locate workspace root"))
-}

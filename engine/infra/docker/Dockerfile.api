@@ -9,9 +9,11 @@
 FROM rust:1.95-slim-bookworm AS builder
 WORKDIR /src
 
-# Cache the dependency layer.
+# Cache the dependency layer. `cmake`, `clang`, and `build-essential` are
+# needed so `whisper-rs` can compile its bundled whisper.cpp from source.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config ca-certificates curl \
+    cmake clang build-essential libssl-dev libstdc++-12-dev \
  && rm -rf /var/lib/apt/lists/*
 
 COPY Cargo.toml Cargo.lock ./
@@ -25,8 +27,10 @@ FROM debian:bookworm-slim AS runtime
 WORKDIR /app
 
 # Only the ffmpeg binary — no libav*-dev needed; we use ffmpeg-sidecar.
+# libstdc++ + libgomp are needed at runtime by the statically-bundled
+# whisper.cpp (it links the system C++ runtime + OpenMP).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates ffmpeg tini \
+    ca-certificates ffmpeg tini libgomp1 libstdc++6 \
  && rm -rf /var/lib/apt/lists/*
 
 # Non-root user
@@ -35,9 +39,13 @@ RUN useradd --create-home --uid 10001 motionforge
 COPY --from=builder /src/target/release/motion-forge /usr/local/bin/motion-forge
 COPY --chown=motionforge:motionforge themes /app/themes
 
+# Mount the whisper GGUF model at this path (read-only volume) and the
+# server will auto-enable /v1/stt/stream. Run scripts/fetch-whisper-model.sh
+# in the build host or download in an init container.
 ENV MOTION_FORGE_THEMES_DIR=/app/themes \
     RUST_LOG=info,motion_forge=info \
-    MOTION_FORGE_LLM_TIMEOUT_SEC=30
+    MOTION_FORGE_LLM_TIMEOUT_SEC=30 \
+    MOTION_FORGE_STT_MODEL_PATH=/app/models/ggml-large-v3-turbo-q5_0.bin
 
 USER motionforge
 EXPOSE 7755

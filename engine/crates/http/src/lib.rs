@@ -11,6 +11,8 @@
 //! sit behind a desktop UI that lets users iterate verbally or by prompt
 //! without re-running the slow segmentation phases.
 
+pub mod stt_route;
+
 use anyhow::Result;
 use axum::{
     Json, Router,
@@ -25,6 +27,8 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use stt_route::{stt_stream_handler, SttRouteConfig};
+
 #[derive(Clone)]
 struct AppState {
     pipeline: Arc<Pipeline>,
@@ -34,6 +38,30 @@ pub async fn serve(bind: &str) -> Result<()> {
     let state = AppState {
         pipeline: Arc::new(Pipeline::new()),
     };
+    let stt_state = Arc::new(SttRouteConfig::from_env());
+    if stt_state.model_path.is_none() {
+        tracing::warn!(
+            env = stt_route::MODEL_PATH_ENV,
+            "voice STT route disabled — set the env var to a whisper.cpp GGUF model to enable /v1/stt/stream"
+        );
+    } else if let Some(p) = stt_state.model_path.as_ref() {
+        if p.exists() {
+            tracing::info!(model = %p.display(), "voice STT route enabled at /v1/stt/stream");
+        } else {
+            tracing::warn!(
+                model = %p.display(),
+                "voice STT model env var is set but the file is missing on disk"
+            );
+        }
+    }
+
+    // The STT WebSocket route is mounted as a separate sub-router because
+    // axum binds router state by type and we don't want to widen `AppState`
+    // for this single endpoint. WS upgrades skip the JSON-only handlers
+    // above and don't need the pipeline either.
+    let stt_router = Router::new()
+        .route("/v1/stt/stream", get(stt_stream_handler))
+        .with_state(stt_state);
 
     let app = Router::new()
         .route("/healthz", get(healthz))
@@ -41,9 +69,10 @@ pub async fn serve(bind: &str) -> Result<()> {
         .route("/themes", get(themes))
         .route("/generate", post(generate))
         .route("/iterate", post(iterate))
+        .with_state(state)
+        .merge(stt_router)
         .layer(tower_http::cors::CorsLayer::permissive())
-        .layer(tower_http::trace::TraceLayer::new_for_http())
-        .with_state(state);
+        .layer(tower_http::trace::TraceLayer::new_for_http());
 
     let listener = tokio::net::TcpListener::bind(bind)
         .await

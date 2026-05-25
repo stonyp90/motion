@@ -24,8 +24,7 @@ fi
   ultralytics \
   scenedetect \
   lottie \
-  cairosvg \
-  openai-whisper
+  cairosvg
 
 echo "python sidecar deps installed:"
 "$VENV/bin/python" - <<'PY'
@@ -33,7 +32,7 @@ import sys
 import importlib
 
 for name in ("numpy", "cv2", "PIL", "torch", "ultralytics",
-             "scenedetect", "lottie", "cairosvg", "whisper"):
+             "scenedetect", "lottie", "cairosvg"):
     try:
         m = importlib.import_module(name)
         print(f"  {name:<14} {getattr(m, '__version__', '?')}")
@@ -41,3 +40,8 @@ for name in ("numpy", "cv2", "PIL", "torch", "ultralytics",
         print(f"  {name:<14} MISSING — {e}", file=sys.stderr)
         sys.exit(1)
 PY
+
+echo
+echo "speech-to-text (whisper.cpp) moved in-process — no python deps needed."
+echo "Run scripts/fetch-whisper-model.sh to download the GGUF model on demand,"
+echo "then export MOTION_FORGE_STT_MODEL_PATH=<path/to/ggml-large-v3-turbo-q5_0.bin>."

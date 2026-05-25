@@ -38,14 +38,17 @@ motion/
                   │                                      │
                   │  CLI: motion-forge {generate,        │
                   │       iterate, panelize, render,     │
-                  │       transcribe, serve, themes}     │
+                  │       serve, themes}                 │
                   │                                      │
                   │  HTTP: axum at /generate, /iterate,  │
                   │        /themes, /healthz,            │
-                  │        /openapi.json                 │
+                  │        /openapi.json,                │
+                  │        /v1/stt/stream (WebSocket)    │
                   │                                      │
                   │  Sidecars: ultralytics (SAM 2/YOLO), │
-                  │  PySceneDetect, lottie py, Whisper   │
+                  │  PySceneDetect, lottie py            │
+                  │  In-process: whisper.cpp via         │
+                  │  whisper-rs (streaming voice STT)    │
                   │                                      │
                   │  Infra: Bicep for Azure              │
                   │  (ACA Workload Profiles + Front      │
@@ -62,8 +65,13 @@ cd engine
 # build the Rust workspace
 cargo build --release
 
-# Python sidecars (SAM 2, scene detection, Lottie rasterizer, Whisper)
+# Python sidecars (SAM 2, scene detection, Lottie rasterizer)
 ./scripts/setup-python.sh
+
+# Voice STT — download the whisper.cpp GGUF model (~574 MB) and export the path.
+# Only required if you want /v1/stt/stream to accept browser microphones.
+./scripts/fetch-whisper-model.sh
+export MOTION_FORGE_STT_MODEL_PATH=$(pwd)/models/whisper/ggml-large-v3-turbo-q5_0.bin
 
 # end-to-end on the bundled fixture (~90s on a 2s reference clip)
 ./target/release/motion-forge generate \
