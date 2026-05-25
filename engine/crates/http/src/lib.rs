@@ -4,6 +4,8 @@
 //! - `GET  /healthz`          — liveness probe
 //! - `GET  /openapi.json`     — OpenAPI 3.1 spec (hand-written; small surface)
 //! - `GET  /themes`           — list bundled themes
+//! - `GET  /v1/presets`       — list the starter preset library (id + metadata only)
+//! - `GET  /v1/presets/{id}`  — full preset spec + preview Lottie
 //! - `POST /generate`         — run the full pipeline on a reference video
 //! - `POST /iterate`          — re-prompt against an existing work-dir
 //!
@@ -14,12 +16,13 @@
 use anyhow::Result;
 use axum::{
     Json, Router,
-    extract::State,
+    extract::{Path, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
 use motion_forge_pipeline::{Composition, GenerateConfig, IterateConfig, Pipeline};
+use motion_forge_prompt_orchestrator::presets::{self, Preset, PresetSummary};
 use motion_forge_style_extract::Theme;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -39,6 +42,8 @@ pub async fn serve(bind: &str) -> Result<()> {
         .route("/healthz", get(healthz))
         .route("/openapi.json", get(openapi))
         .route("/themes", get(themes))
+        .route("/v1/presets", get(list_presets))
+        .route("/v1/presets/:id", get(get_preset))
         .route("/generate", post(generate))
         .route("/iterate", post(iterate))
         .layer(tower_http::cors::CorsLayer::permissive())
@@ -121,6 +126,25 @@ async fn themes() -> Json<ThemesResponse> {
         })
         .collect();
     Json(ThemesResponse { themes: entries })
+}
+
+async fn list_presets() -> Result<Json<PresetsResponse>, ApiError> {
+    let presets = presets::all_presets().map_err(ApiError::internal)?;
+    Ok(Json(PresetsResponse { presets }))
+}
+
+async fn get_preset(Path(id): Path<String>) -> Result<Json<Preset>, ApiError> {
+    let preset = presets::load_preset(&id).map_err(|e| {
+        let msg = e.to_string();
+        if msg.contains("no preset") {
+            ApiError::not_found(msg)
+        } else if msg.contains("must be a single path segment") {
+            ApiError::bad_request(msg)
+        } else {
+            ApiError::internal(msg)
+        }
+    })?;
+    Ok(Json(preset))
 }
 
 async fn generate(
@@ -268,6 +292,11 @@ pub struct ThemesResponse {
 }
 
 #[derive(Debug, Serialize)]
+pub struct PresetsResponse {
+    pub presets: Vec<PresetSummary>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct ThemeEntry {
     pub slug: String,
     pub name: String,
@@ -289,6 +318,12 @@ impl ApiError {
     fn bad_request<E: std::fmt::Display>(e: E) -> Self {
         Self {
             status: StatusCode::BAD_REQUEST,
+            message: e.to_string(),
+        }
+    }
+    fn not_found<E: std::fmt::Display>(e: E) -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
             message: e.to_string(),
         }
     }
@@ -345,6 +380,46 @@ const OPENAPI_JSON: &str = r##"{
               }
             }
           }
+        }
+      }
+    },
+    "/v1/presets": {
+      "get": {
+        "summary": "List starter presets",
+        "description": "Curated templates a user can pick on the home page instead of starting from a blank prompt. Each entry is metadata only; fetch /v1/presets/{id} for the full spec + preview Lottie.",
+        "responses": {
+          "200": {
+            "description": "Preset catalogue",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PresetsResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/presets/{id}": {
+      "get": {
+        "summary": "Fetch a single preset including its preview Lottie",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Full preset spec + preview Lottie",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Preset" }
+              }
+            }
+          },
+          "404": { "description": "No preset with that id" }
         }
       }
     },
@@ -462,6 +537,90 @@ const OPENAPI_JSON: &str = r##"{
             "items": { "$ref": "#/components/schemas/ThemeEntry" }
           }
         }
+      },
+      "PresetSummary": {
+        "type": "object",
+        "required": ["id", "name", "tagline", "category", "duration_sec", "width", "height", "frame_rate", "brief_skeleton"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "tagline": { "type": "string" },
+          "category": { "type": "string" },
+          "duration_sec": { "type": "number" },
+          "width": { "type": "integer" },
+          "height": { "type": "integer" },
+          "frame_rate": { "type": "number" },
+          "theme_slug": { "type": ["string", "null"] },
+          "brief_skeleton": { "type": "string" }
+        }
+      },
+      "PresetsResponse": {
+        "type": "object",
+        "required": ["presets"],
+        "properties": {
+          "presets": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/PresetSummary" }
+          }
+        }
+      },
+      "Preset": {
+        "type": "object",
+        "required": ["id", "name", "tagline", "category", "duration_sec", "composition", "suggested_cast", "brief_skeleton", "preview", "preview_lottie"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "tagline": { "type": "string" },
+          "category": { "type": "string" },
+          "duration_sec": { "type": "number" },
+          "composition": {
+            "type": "object",
+            "required": ["width", "height", "frame_rate"],
+            "properties": {
+              "width": { "type": "integer" },
+              "height": { "type": "integer" },
+              "frame_rate": { "type": "number" }
+            }
+          },
+          "theme_slug": { "type": ["string", "null"] },
+          "transparent_background": { "type": "boolean" },
+          "loop": { "type": "boolean" },
+          "sticker_count": { "type": ["integer", "null"] },
+          "export_format": { "type": ["string", "null"] },
+          "suggested_cast": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "kind", "role"],
+              "properties": {
+                "id": { "type": "string" },
+                "kind": { "type": "string" },
+                "role": { "type": "string" },
+                "note": { "type": ["string", "null"] }
+              }
+            }
+          },
+          "brief_skeleton": { "type": "string" },
+          "placeholders": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "label", "type"],
+              "properties": {
+                "id": { "type": "string" },
+                "label": { "type": "string" },
+                "type": { "type": "string" },
+                "required": { "type": "boolean" },
+                "default": {}
+              }
+            }
+          },
+          "preview": { "type": "string", "description": "Filename of the preview Lottie within the preset directory." },
+          "preview_lottie": {
+            "type": "object",
+            "description": "Raw Lottie JSON envelope (v5.7.0)."
+          }
+        }
       }
     }
   }
@@ -513,6 +672,8 @@ mod tests {
             .route("/healthz", get(healthz))
             .route("/openapi.json", get(openapi))
             .route("/themes", get(themes))
+            .route("/v1/presets", get(list_presets))
+            .route("/v1/presets/:id", get(get_preset))
             .route("/generate", post(generate))
             .route("/iterate", post(iterate))
             .with_state(state);
@@ -529,12 +690,44 @@ mod tests {
         assert_eq!(openapi_resp.status(), 200);
         let body: serde_json::Value = openapi_resp.json().await.unwrap();
         assert_eq!(body["openapi"], "3.1.0");
+        assert!(body["paths"]["/v1/presets"].is_object());
+        assert!(body["paths"]["/v1/presets/{id}"].is_object());
 
         let themes_resp = reqwest::get(format!("{base}/themes")).await.unwrap();
         assert_eq!(themes_resp.status(), 200);
         let body: serde_json::Value = themes_resp.json().await.unwrap();
         // Themes directory might not be present in every test env; tolerate.
         assert!(body["themes"].is_array());
+
+        // Presets endpoint: tolerate the directory being missing in some
+        // build contexts but require the route to respond cleanly.
+        let presets_resp = reqwest::get(format!("{base}/v1/presets")).await.unwrap();
+        let presets_status = presets_resp.status();
+        assert!(
+            presets_status == 200 || presets_status == 500,
+            "unexpected /v1/presets status: {presets_status}"
+        );
+        if presets_status == 200 {
+            let body: serde_json::Value = presets_resp.json().await.unwrap();
+            assert!(body["presets"].is_array());
+            let arr = body["presets"].as_array().unwrap();
+            // When the dir is present we expect the full 10-preset library.
+            if !arr.is_empty() {
+                assert_eq!(arr.len(), 10);
+                let detail_resp = reqwest::get(format!("{base}/v1/presets/logo-reveal"))
+                    .await
+                    .unwrap();
+                assert_eq!(detail_resp.status(), 200);
+                let detail: serde_json::Value = detail_resp.json().await.unwrap();
+                assert_eq!(detail["id"], "logo-reveal");
+                assert!(detail["preview_lottie"]["w"].as_u64().unwrap() > 0);
+
+                let missing = reqwest::get(format!("{base}/v1/presets/no-such-preset"))
+                    .await
+                    .unwrap();
+                assert_eq!(missing.status(), 404);
+            }
+        }
 
         server.abort();
     }

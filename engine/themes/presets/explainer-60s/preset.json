@@ -1,0 +1,42 @@
+{
+  "id": "explainer-60s",
+  "name": "60-Second Explainer",
+  "tagline": "20-scene Chrono-style explainer with narration beats.",
+  "category": "explainer",
+  "duration_sec": 60.0,
+  "composition": {
+    "width": 1920,
+    "height": 1080,
+    "frame_rate": 30
+  },
+  "theme_slug": "explainer",
+  "suggested_cast": [
+    {
+      "id": "narrator",
+      "kind": "voice",
+      "role": "primary",
+      "note": "Voiceover persona — warm, conversational. Drives the beats."
+    },
+    {
+      "id": "icon_set",
+      "kind": "image",
+      "role": "secondary",
+      "note": "Pick 6-10 icons that illustrate the product surface area."
+    },
+    {
+      "id": "headline_card",
+      "kind": "text",
+      "role": "secondary",
+      "note": "Reusable card for the hook, sub-points, and CTA."
+    }
+  ],
+  "brief_skeleton": "Explain {PRODUCT} in 60 seconds. Beat 1 (0-6s): hook on {PAIN_POINT}. Beat 2 (6-24s): introduce {SOLUTION}. Beat 3 (24-48s): show three concrete benefits. Beat 4 (48-60s): CTA to {NEXT_STEP}.",
+  "scene_count": 20,
+  "placeholders": [
+    { "id": "PRODUCT", "label": "Product or feature", "type": "string", "required": true },
+    { "id": "PAIN_POINT", "label": "The pain you solve", "type": "string", "required": true },
+    { "id": "SOLUTION", "label": "How you solve it (one sentence)", "type": "string", "required": true },
+    { "id": "NEXT_STEP", "label": "Call to action", "type": "string", "default": "Sign up at the link below." }
+  ],
+  "preview": "preview.lottie.json"
+}

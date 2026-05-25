@@ -177,10 +177,28 @@ enum Command {
     /// List bundled themes.
     Themes,
 
+    /// Browse the starter preset library.
+    #[command(subcommand)]
+    Presets(PresetsCommand),
+
     /// Start an HTTP server with an OpenAPI spec at /openapi.json.
     Serve {
         #[arg(long, default_value = "127.0.0.1:7755")]
         bind: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum PresetsCommand {
+    /// List every starter preset (id, name, tagline, dimensions).
+    List,
+    /// Show the full spec for a single preset, including its preview Lottie metadata.
+    Show {
+        /// Preset id, e.g. `logo-reveal`.
+        id: String,
+        /// Print the preview Lottie payload too (large; off by default).
+        #[arg(long)]
+        with_preview: bool,
     },
 }
 
@@ -317,6 +335,10 @@ async fn main() -> Result<()> {
             out_video,
         }),
         Command::Themes => cmd_themes(),
+        Command::Presets(PresetsCommand::List) => cmd_presets_list(),
+        Command::Presets(PresetsCommand::Show { id, with_preview }) => {
+            cmd_presets_show(&id, with_preview)
+        }
         Command::Serve { bind } => motion_forge_http::serve(&bind).await,
     }
 }
@@ -720,6 +742,51 @@ fn cmd_themes() -> Result<()> {
             Err(e) => println!("  {slug:<14} (failed to load: {e})"),
         }
     }
+    Ok(())
+}
+
+fn cmd_presets_list() -> Result<()> {
+    use motion_forge_prompt_orchestrator::presets;
+    let summaries = presets::all_presets().context("listing presets")?;
+    if summaries.is_empty() {
+        println!("(no presets found — set MOTION_FORGE_THEMES_DIR or run from the workspace root)");
+        return Ok(());
+    }
+    println!("Starter presets ({}):", summaries.len());
+    for s in &summaries {
+        println!(
+            "  {:<24} {}\n    {}\n    {}x{}@{}fps, {}s · theme: {}\n    brief: {}",
+            s.id,
+            s.name,
+            s.tagline,
+            s.width,
+            s.height,
+            s.frame_rate,
+            s.duration_sec,
+            s.theme_slug.as_deref().unwrap_or("(none)"),
+            s.brief_skeleton,
+        );
+    }
+    Ok(())
+}
+
+fn cmd_presets_show(id: &str, with_preview: bool) -> Result<()> {
+    use motion_forge_prompt_orchestrator::presets;
+    let mut p = presets::load_preset(id).with_context(|| format!("loading preset '{id}'"))?;
+    if !with_preview {
+        // Replace the preview payload with a tiny stub so the printout
+        // stays terminal-friendly. Users who want it pass --with-preview.
+        let stub = serde_json::json!({
+            "_omitted": "pass --with-preview to include the full Lottie",
+            "w": p.preview_lottie["w"],
+            "h": p.preview_lottie["h"],
+            "fr": p.preview_lottie["fr"],
+            "op": p.preview_lottie["op"],
+            "layers": p.preview_lottie["layers"].as_array().map(|a| a.len()).unwrap_or(0),
+        });
+        p.preview_lottie = stub;
+    }
+    println!("{}", serde_json::to_string_pretty(&p)?);
     Ok(())
 }
 

@@ -1,0 +1,3 @@
+# Product Launch Teaser
+
+A 20-second three-act asset built for the moment a new product hits the world: a countdown to set anticipation, a reveal to land the news, and a CTA to convert the moment into action. The preview cycles three concentric digit rings (3, 2, 1), expands a horizontal reveal slab with a glow ring behind it, then slides up a CTA card from the bottom — the actual render swaps the rings for typeset digits, the slab for the product logo, and the card for the launch date plus URL. The `tech-reveal` theme drives a navy + violet + amber palette that reads "announcement" rather than "advertisement." Use this on launch day to anchor the homepage hero, the social feed pinned post, and the email header in one consistent visual language.

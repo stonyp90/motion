@@ -1,0 +1,40 @@
+{
+  "id": "social-ad-1x1",
+  "name": "Square Feed Ad",
+  "tagline": "15-second square ad sized for the social feed.",
+  "category": "ad",
+  "duration_sec": 15.0,
+  "composition": {
+    "width": 1080,
+    "height": 1080,
+    "frame_rate": 30
+  },
+  "theme_slug": "playful",
+  "suggested_cast": [
+    {
+      "id": "headline_card",
+      "kind": "text",
+      "role": "primary",
+      "note": "Opening headline — sets the offer in the first 3 seconds."
+    },
+    {
+      "id": "product_shot",
+      "kind": "image",
+      "role": "primary",
+      "note": "Three feature beats (3-11s) each highlighting one benefit."
+    },
+    {
+      "id": "cta_button",
+      "kind": "text",
+      "role": "secondary",
+      "note": "Final card with the CTA and brand mark."
+    }
+  ],
+  "brief_skeleton": "Square feed ad. 0-3s: bold headline {HOOK}. 3-11s: three feature beats for {PRODUCT}. 11-15s: end card with {CTA}.",
+  "placeholders": [
+    { "id": "HOOK", "label": "Opening headline", "type": "string", "required": true },
+    { "id": "PRODUCT", "label": "Product to feature", "type": "string", "required": true },
+    { "id": "CTA", "label": "Call to action", "type": "string", "default": "Learn more." }
+  ],
+  "preview": "preview.lottie.json"
+}

@@ -1,0 +1,27 @@
+{
+  "id": "loader",
+  "name": "Loader Spinner",
+  "tagline": "2-second seamless loop in brand accent.",
+  "category": "ui",
+  "duration_sec": 2.0,
+  "composition": {
+    "width": 200,
+    "height": 200,
+    "frame_rate": 30
+  },
+  "theme_slug": "minimalist",
+  "loop": true,
+  "suggested_cast": [
+    {
+      "id": "spinner_dot",
+      "kind": "shape",
+      "role": "primary",
+      "note": "Single dot replicated around a ring — fades chase around the circle."
+    }
+  ],
+  "brief_skeleton": "Seamless 2s loading spinner in {BRAND_ACCENT}. Smooth, perpetual rotation.",
+  "placeholders": [
+    { "id": "BRAND_ACCENT", "label": "Accent color (hex)", "type": "color", "default": "#10b981" }
+  ],
+  "preview": "preview.lottie.json"
+}

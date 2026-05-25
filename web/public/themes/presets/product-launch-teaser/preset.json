@@ -1,0 +1,41 @@
+{
+  "id": "product-launch-teaser",
+  "name": "Product Launch Teaser",
+  "tagline": "20-second countdown + reveal + CTA.",
+  "category": "launch",
+  "duration_sec": 20.0,
+  "composition": {
+    "width": 1920,
+    "height": 1080,
+    "frame_rate": 30
+  },
+  "theme_slug": "tech-reveal",
+  "suggested_cast": [
+    {
+      "id": "countdown_digit",
+      "kind": "text",
+      "role": "primary",
+      "note": "Three concentric digit rings that flash 3 -> 2 -> 1."
+    },
+    {
+      "id": "logo_mark",
+      "kind": "image",
+      "role": "primary",
+      "note": "The product or company mark dropped into the reveal slab."
+    },
+    {
+      "id": "cta_button",
+      "kind": "text",
+      "role": "secondary",
+      "note": "End-card CTA with the launch date and a destination URL."
+    }
+  ],
+  "brief_skeleton": "Tease the launch of {PRODUCT}. 0-6s: countdown 3-2-1. 6-14s: reveal {PRODUCT} with {HEADLINE}. 14-20s: CTA card with {LAUNCH_DATE} and {URL}.",
+  "placeholders": [
+    { "id": "PRODUCT", "label": "Product being launched", "type": "string", "required": true },
+    { "id": "HEADLINE", "label": "Reveal headline", "type": "string", "required": true },
+    { "id": "LAUNCH_DATE", "label": "Launch date", "type": "string", "required": true },
+    { "id": "URL", "label": "Destination URL", "type": "string", "default": "yourcompany.com/launch" }
+  ],
+  "preview": "preview.lottie.json"
+}

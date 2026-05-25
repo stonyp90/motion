@@ -1,0 +1,3 @@
+# Logo Reveal
+
+A 6-second square animation that builds anticipation with a brand-color pulse and lands on the logo locked in center. Use this preset when you want a stand-alone bumper for social avatars, intros, or login splashes — square aspect plays equally well on YouTube, Instagram, and Slack. The pulse uses two breathing rings (brand primary + secondary accent) so the reveal feels like a heartbeat rather than a hard pop; the mark itself bounces into place with a quick rotation, then locks dead-center while a subtle wordmark plate fades in beneath. Drop in any logo PNG/SVG via the cast slot and the rest tunes around it.

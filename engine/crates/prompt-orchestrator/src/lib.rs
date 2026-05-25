@@ -7,6 +7,7 @@
 #![recursion_limit = "256"]
 
 pub mod llm;
+pub mod presets;
 
 use anyhow::Result;
 use motion_forge_style_extract::{EasingLabel, StyleCard};

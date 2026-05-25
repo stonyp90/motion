@@ -1,0 +1,29 @@
+{
+  "id": "sticker-pack-dotlottie",
+  "name": "Sticker Pack (.lottie)",
+  "tagline": "6 looping 256-px stickers exported as a .lottie pack.",
+  "category": "stickers",
+  "duration_sec": 3.0,
+  "composition": {
+    "width": 256,
+    "height": 256,
+    "frame_rate": 30
+  },
+  "theme_slug": "playful",
+  "loop": true,
+  "sticker_count": 6,
+  "export_format": "dotlottie",
+  "suggested_cast": [
+    {
+      "id": "sticker_shape",
+      "kind": "shape",
+      "role": "primary",
+      "note": "One shape concept per sticker — keep silhouette bold, palette punchy."
+    }
+  ],
+  "brief_skeleton": "6 sticker concepts for {THEME}. Each sticker loops at 3s, 256x256. Bold, friendly, pack-ready.",
+  "placeholders": [
+    { "id": "THEME", "label": "Sticker theme (e.g. 'coffee shop', 'cyber pets')", "type": "string", "required": true }
+  ],
+  "preview": "preview.lottie.json"
+}

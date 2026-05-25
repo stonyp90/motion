@@ -1,0 +1,33 @@
+{
+  "id": "logo-reveal",
+  "name": "Logo Reveal",
+  "tagline": "6-second logo lock-up with a brand-color pulse.",
+  "category": "brand",
+  "duration_sec": 6.0,
+  "composition": {
+    "width": 1080,
+    "height": 1080,
+    "frame_rate": 30
+  },
+  "theme_slug": "tech-reveal",
+  "suggested_cast": [
+    {
+      "id": "logo_mark",
+      "kind": "image",
+      "role": "primary",
+      "note": "Drop in the customer's logo (PNG / SVG). Center, framed by the pulse."
+    },
+    {
+      "id": "wordmark",
+      "kind": "text",
+      "role": "secondary",
+      "note": "Optional wordmark beneath the mark — fades in after the lock-up."
+    }
+  ],
+  "brief_skeleton": "Reveal {LOGO}. Background pulses to {BRAND_COLOR}. End on logo locked in center.",
+  "placeholders": [
+    { "id": "LOGO", "label": "Logo file or name", "type": "string", "required": true },
+    { "id": "BRAND_COLOR", "label": "Brand color (hex)", "type": "color", "default": "#3884ff" }
+  ],
+  "preview": "preview.lottie.json"
+}
