@@ -1,18 +1,20 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import {
   Camera,
   Download,
   FileJson,
   Loader2,
+  Maximize2,
   Package,
   Pause,
   Play,
 } from 'lucide-react';
 import type { LottieJson } from '@/lib/lottie/transform';
 import { durationSeconds } from '@/lib/lottie/transform';
+import { PreviewFullscreen } from './PreviewFullscreen';
 
 const Lottie = dynamic(() => import('lottie-react').then((m) => m.default), {
   ssr: false,
@@ -58,6 +60,7 @@ export function PreviewFrame({
 }: Props) {
   const [isPlaying, setIsPlaying] = useState(true);
   const [isCapturing, setIsCapturing] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const stageRef = useRef<HTMLDivElement>(null);
   const lottieRef = useRef<unknown>(null);
 
@@ -68,6 +71,31 @@ export function PreviewFrame({
     if (isPlaying) inst.pause?.();
     else inst.play?.();
   };
+
+  // Keyboard shortcuts on the embedded preview:
+  //   F     → enter fullscreen
+  //   Space → toggle play/pause
+  //
+  // Scoped so we don't fire when the user is typing in the prompt or
+  // some other input/textarea. Fullscreen mode owns its own shortcuts
+  // (Esc / F to close, Space to toggle) — see PreviewFullscreen.tsx.
+  useEffect(() => {
+    if (isFullscreen) return; // PreviewFullscreen handles keys while open.
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea') return;
+      if ((e.key === 'f' || e.key === 'F') && animation) {
+        e.preventDefault();
+        setIsFullscreen(true);
+      } else if (e.key === ' ' && animation) {
+        e.preventDefault();
+        togglePlay();
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFullscreen, animation]);
 
   const handleCapture = async () => {
     if (!animation || !stageRef.current || !onCaptureFrame || isCapturing) return;
@@ -98,19 +126,50 @@ export function PreviewFrame({
   return (
     <div className="flex flex-col gap-3">
       <div className="overflow-hidden rounded-2xl border border-border-light bg-bg-secondary shadow-card">
-        <div ref={stageRef} className="relative aspect-video w-full bg-primary-900">
+        <div ref={stageRef} className="group/stage relative aspect-video w-full bg-primary-900">
           {animation ? (
-            <Lottie
-              animationData={animation}
-              loop
-              autoplay={isPlaying}
-              lottieRef={lottieRef as never}
-              rendererSettings={{ preserveAspectRatio: 'xMidYMid meet' }}
-              style={{ width: '100%', height: '100%' }}
-            />
+            <>
+              <Lottie
+                animationData={animation}
+                loop
+                autoplay={isPlaying}
+                lottieRef={lottieRef as never}
+                rendererSettings={{ preserveAspectRatio: 'xMidYMid meet' }}
+                style={{ width: '100%', height: '100%' }}
+              />
+              {/* Floating Maximize button — fades in on hover (group/stage)
+                  so it stays out of the way during playback but is one
+                  glance away. Mirrors the Krea / Runway pattern. */}
+              <button
+                type="button"
+                onClick={() => setIsFullscreen(true)}
+                aria-label="Open fullscreen preview (F)"
+                title="Fullscreen (F)"
+                data-testid="open-fullscreen"
+                className="absolute right-3 top-3 inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-black/40 px-2.5 py-1.5 text-xs font-medium text-white/80 opacity-0 backdrop-blur-sm transition group-hover/stage:opacity-100 hover:border-white/30 hover:bg-black/60 hover:text-white focus-visible:opacity-100"
+              >
+                <Maximize2 className="h-3.5 w-3.5" />
+                <span className="font-mono text-2xs">F</span>
+              </button>
+            </>
           ) : (
-            <div className="grid h-full w-full place-items-center text-text-inverse/40">
-              <p className="text-sm">Your motion graphic will appear here</p>
+            // Alive empty state — Krea / Runway pattern. Shows the
+            // composition's intended aspect with a subtle grid + a
+            // typographic stand-in so the canvas doesn't read as a
+            // dead black void before the first generation lands.
+            <div className="grid h-full w-full place-items-center bg-[radial-gradient(circle_at_30%_30%,rgba(16,185,129,0.10),transparent_60%),radial-gradient(circle_at_70%_70%,rgba(110,231,183,0.08),transparent_55%)] text-text-inverse/60">
+              <div className="flex flex-col items-center gap-3 text-center">
+                <span
+                  aria-hidden
+                  className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent-400"
+                />
+                <p className="text-sm font-medium text-text-inverse/80">
+                  Your motion graphic will appear here
+                </p>
+                <p className="font-mono text-2xs uppercase tracking-[0.18em] text-text-inverse/40">
+                  Write a brief or pick a starter below
+                </p>
+              </div>
             </div>
           )}
         </div>
@@ -162,6 +221,17 @@ export function PreviewFrame({
               Capture frame
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => setIsFullscreen(true)}
+            disabled={!animation}
+            className="inline-flex items-center gap-1.5 rounded-full border border-border-light px-3 py-1 text-xs font-medium text-text-secondary transition hover:border-accent-300 hover:bg-accent-50 hover:text-accent-700 disabled:cursor-not-allowed disabled:opacity-50"
+            title="Open fullscreen preview (F)"
+          >
+            <Maximize2 className="h-3.5 w-3.5" />
+            Fullscreen
+            <span className="font-mono text-2xs text-text-tertiary">F</span>
+          </button>
           {onRegenerate && (
             <button
               type="button"
@@ -174,6 +244,12 @@ export function PreviewFrame({
           )}
         </div>
       </div>
+
+      <PreviewFullscreen
+        open={isFullscreen}
+        onClose={() => setIsFullscreen(false)}
+        animation={animation ?? null}
+      />
 
       {/* Export row — three side-by-side buttons */}
       <div className="flex flex-wrap items-center justify-end gap-2">
