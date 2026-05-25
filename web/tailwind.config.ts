@@ -1,25 +1,25 @@
 import type { Config } from 'tailwindcss';
 
 const config: Config = {
-  // `dark:` variants hang off the studio's existing `[data-theme="dark"]`
-  // attribute on <html>, so we don't need a second toggle. The `selector`
-  // strategy is Tailwind 3.4+; the second arg overrides the default `.dark`
-  // class with the data-attribute we already use.
+  // Dark mode hangs off the `[data-theme="dark"]` attribute that
+  // ThemeProvider (and its FOUC-guard inline script in layout.tsx) writes
+  // onto <html>. The `selector` strategy is Tailwind 3.4+; the second arg
+  // overrides the default `.dark` class with the data-attribute we use.
   darkMode: ['selector', '[data-theme="dark"]'],
   content: [
     './src/pages/**/*.{js,ts,jsx,tsx,mdx}',
     './src/components/**/*.{js,ts,jsx,tsx,mdx}',
     './src/app/**/*.{js,ts,jsx,tsx,mdx}',
   ],
-  // The /brand kit page renders swatches via dynamic class names like
-  // `bg-motion-${stop}` and `bg-primary-${stop}`. Tailwind's JIT can't
-  // scan those, so safelist every stop in each palette family.
+  // The /brand kit catalogs every palette stop via dynamic class names
+  // like `bg-primary-${stop}`. Tailwind's JIT can't scan those, so
+  // safelist every stop in each scale.
   safelist: [
-    ...[50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950].map((s) => `bg-motion-${s}`),
     ...[50, 100, 200, 300, 400, 500, 600, 700, 800, 900].flatMap((s) => [
       `bg-primary-${s}`,
       `bg-accent-${s}`,
       `bg-secondary-${s}`,
+      `bg-neutral-${s}`,
     ]),
   ],
   theme: {
@@ -30,29 +30,6 @@ const config: Config = {
     },
     extend: {
       colors: {
-        // ---- New themed brand scale (HSL with alpha-value support) -------
-        // Drives the `bg-motion-*`, `text-motion-*`, `border-motion-*` etc.
-        // surfaces and flips automatically under [data-theme="dark"].
-        motion: {
-          50:  'hsl(var(--motion-50) / <alpha-value>)',
-          100: 'hsl(var(--motion-100) / <alpha-value>)',
-          200: 'hsl(var(--motion-200) / <alpha-value>)',
-          300: 'hsl(var(--motion-300) / <alpha-value>)',
-          400: 'hsl(var(--motion-400) / <alpha-value>)',
-          500: 'hsl(var(--motion-500) / <alpha-value>)',
-          600: 'hsl(var(--motion-600) / <alpha-value>)',
-          700: 'hsl(var(--motion-700) / <alpha-value>)',
-          800: 'hsl(var(--motion-800) / <alpha-value>)',
-          900: 'hsl(var(--motion-900) / <alpha-value>)',
-          950: 'hsl(var(--motion-950) / <alpha-value>)',
-          DEFAULT: 'hsl(var(--motion-500) / <alpha-value>)',
-        },
-        // ---- Layered surfaces (themed, HSL with alpha-value) -------------
-        surface: {
-          inset:   'hsl(var(--surface-inset) / <alpha-value>)',
-          overlay: 'hsl(var(--surface-overlay) / <alpha-value>)',
-        },
-        // ---- Original static brand palette (hex, theme-independent) ------
         // Primary — deep ink. Calm authority for the executive audience.
         primary: {
           50: 'var(--color-primary-50)',
@@ -124,7 +101,6 @@ const config: Config = {
           light: 'var(--color-border-light)',
           DEFAULT: 'var(--color-border-default)',
           dark: 'var(--color-border-dark)',
-          hover: 'hsl(var(--border-hover) / <alpha-value>)',
         },
       },
       fontSize: {
@@ -137,19 +113,36 @@ const config: Config = {
         sans: ['var(--font-sans)', 'system-ui', '-apple-system', 'sans-serif'],
         mono: ['var(--font-mono)', 'ui-monospace', 'SFMono-Regular', 'monospace'],
       },
+      // Shadows resolve through CSS vars so the dark-mode re-tunes in
+      // globals.css (`:root[data-theme="dark"] { --shadow-soft: ... }`)
+      // actually flip the values that `shadow-card` / `shadow-lift` emit.
       boxShadow: {
-        soft: '0 1px 3px 0 rgba(11, 20, 55, 0.05), 0 1px 2px 0 rgba(11, 20, 55, 0.03)',
-        card: '0 4px 16px -2px rgba(11, 20, 55, 0.08), 0 2px 6px -2px rgba(11, 20, 55, 0.04)',
-        lift: '0 20px 40px -12px rgba(11, 20, 55, 0.18)',
-        glow: '0 0 0 1px rgba(16, 185, 129, 0.2), 0 8px 32px -4px rgba(16, 185, 129, 0.18)',
-        // Motion-themed shadows that follow the dark-mode flip.
-        motion: '0 20px 40px -12px hsl(var(--motion-500) / 0.25)',
-        'motion-lg': '0 25px 50px -12px hsl(var(--motion-500) / 0.35)',
-        'motion-glow': '0 0 0 1px hsl(var(--motion-500) / 0.2), 0 8px 32px -4px hsl(var(--motion-500) / 0.18)',
+        soft: 'var(--shadow-soft)',
+        card: 'var(--shadow-card)',
+        lift: 'var(--shadow-lift)',
+        glow: 'var(--shadow-glow)',
       },
+      // Same indirection for the hero gradient — globals.css defines
+      // --gradient-hero-grid per theme so the emerald/amber glow warms
+      // up in dark mode without component code changing.
       backgroundImage: {
-        'hero-grid':
-          'linear-gradient(to bottom, var(--color-bg-primary) 0%, var(--color-bg-secondary) 100%), radial-gradient(at 25% 0%, rgba(16, 185, 129, 0.08) 0%, transparent 50%), radial-gradient(at 75% 100%, rgba(245, 158, 11, 0.05) 0%, transparent 50%)',
+        'hero-grid': 'var(--gradient-hero-grid)',
+      },
+      // Easing and duration tokens are documented in globals.css under the
+      // "motion-forge — motion principles" block. Expose them to Tailwind
+      // so authors can reach for `duration-base` / `ease-out-quart` instead
+      // of inline arbitrary values when they need one-off transitions.
+      transitionDuration: {
+        instant: 'var(--dur-instant)',
+        fast: 'var(--dur-fast)',
+        base: 'var(--dur-base)',
+        slow: 'var(--dur-slow)',
+      },
+      transitionTimingFunction: {
+        'out-quart': 'var(--ease-out-quart)',
+        snap: 'var(--ease-snap)',
+        'in-quart': 'var(--ease-in-quart)',
+        spring: 'var(--ease-spring)',
       },
     },
   },

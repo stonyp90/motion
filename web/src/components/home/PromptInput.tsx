@@ -28,6 +28,7 @@ interface Props {
 }
 
 const MIN_HEIGHT = 96; // px — about 4 lines
+const MAX_HEIGHT = 360; // px — cap on autoresize before scroll kicks in
 
 /**
  * Autoresize textarea with an embedded control row and a Generate
@@ -53,8 +54,16 @@ export function PromptInput({
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
+    // Reset to auto so scrollHeight reflects content, not previous size.
+    // Empty textarea: clamp to MIN_HEIGHT instead of letting it grow to
+    // some quirky scrollHeight default. Filled: grow to fit, cap at MAX.
     el.style.height = 'auto';
-    el.style.height = `${Math.max(MIN_HEIGHT, el.scrollHeight)}px`;
+    if (!value.trim()) {
+      el.style.height = `${MIN_HEIGHT}px`;
+      return;
+    }
+    const next = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, el.scrollHeight));
+    el.style.height = `${next}px`;
   }, [value]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -79,8 +88,8 @@ export function PromptInput({
         onKeyDown={handleKeyDown}
         placeholder="Describe the motion graphic you want — a launch teaser, a pricing explainer, a quarterly recap…"
         rows={4}
-        className="block w-full resize-none border-0 bg-transparent px-5 py-4 font-sans text-base leading-relaxed text-text-primary placeholder:font-mono placeholder:text-sm placeholder:text-text-tertiary focus:outline-none"
-        style={{ minHeight: MIN_HEIGHT }}
+        className="block w-full resize-none overflow-y-auto border-0 bg-transparent px-5 py-4 font-sans text-base leading-relaxed text-text-primary placeholder:font-mono placeholder:text-sm placeholder:text-text-tertiary focus:outline-none"
+        style={{ minHeight: MIN_HEIGHT, maxHeight: MAX_HEIGHT }}
       />
 
       <div className="flex items-center justify-between gap-3 border-t border-border-light px-4 py-2.5">

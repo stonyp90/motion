@@ -13,6 +13,17 @@ import { ExamplePromptChips } from './ExamplePromptChips';
 import CastRow from './CastRow';
 import VoiceButton from './VoiceButton';
 import { KPIStrip } from './KPIStrip';
+import { SignInGate } from './SignInGate';
+
+interface HomeAppProps {
+  /**
+   * Server-supplied auth state. When false, the prompt input + cast +
+   * voice + Generate are replaced by `<SignInGate />`; the KPI strip,
+   * header, and footer stay public so anonymous visitors still see the
+   * value proposition.
+   */
+  isAuthenticated?: boolean;
+}
 
 /**
  * Endpoint to POST the prompt to. Falls back to a same-origin path so
@@ -50,7 +61,7 @@ const DEFAULT_CONTROLS: ControlsValue = {
  *
  * State stays in plain useState; zustand was overkill for this surface.
  */
-export function HomeApp() {
+export function HomeApp({ isAuthenticated = false }: HomeAppProps = {}) {
   const [prompt, setPrompt] = useState('');
   const [controls, setControls] = useState<ControlsValue>(DEFAULT_CONTROLS);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -69,6 +80,13 @@ export function HomeApp() {
 
   const handleGenerate = useCallback(async () => {
     if (!prompt.trim() || isGenerating) return;
+    // Defense in depth: even though the server-side gate hides this
+    // button for anonymous users, refuse to fire the request if the
+    // gate was somehow bypassed (e.g. devtools-injected click).
+    if (!isAuthenticated) {
+      setError('Sign in to generate.');
+      return;
+    }
     setIsGenerating(true);
     setError(null);
     try {
@@ -99,7 +117,7 @@ export function HomeApp() {
     } finally {
       setIsGenerating(false);
     }
-  }, [prompt, isGenerating, controls.duration, controls.preset, loadFallback]);
+  }, [prompt, isGenerating, controls.duration, controls.preset, loadFallback, isAuthenticated]);
 
   const handleExport = useCallback(
     (kind: ExportKind) => {
@@ -128,17 +146,23 @@ export function HomeApp() {
           What motion graphic do you want to make?
         </h1>
 
-        <PromptInput
-          value={prompt}
-          onChange={setPrompt}
-          onGenerate={handleGenerate}
-          isGenerating={isGenerating}
-          castSlot={<CastRow />}
-          voiceSlot={<VoiceButton />}
-          controlsSlot={<ControlsDrawer value={controls} onChange={setControls} />}
-        />
+        {isAuthenticated ? (
+          <>
+            <PromptInput
+              value={prompt}
+              onChange={setPrompt}
+              onGenerate={handleGenerate}
+              isGenerating={isGenerating}
+              castSlot={<CastRow />}
+              voiceSlot={<VoiceButton />}
+              controlsSlot={<ControlsDrawer value={controls} onChange={setControls} />}
+            />
 
-        {!prompt && <ExamplePromptChips onPick={setPrompt} />}
+            {!prompt && <ExamplePromptChips onPick={setPrompt} />}
+          </>
+        ) : (
+          <SignInGate />
+        )}
 
         {error && (
           <p
@@ -149,11 +173,13 @@ export function HomeApp() {
           </p>
         )}
 
-        <PreviewFrame
-          animation={animation}
-          onExport={handleExport}
-          onRegenerate={handleGenerate}
-        />
+        {isAuthenticated && (
+          <PreviewFrame
+            animation={animation}
+            onExport={handleExport}
+            onRegenerate={handleGenerate}
+          />
+        )}
       </div>
 
       <KPIStrip />
