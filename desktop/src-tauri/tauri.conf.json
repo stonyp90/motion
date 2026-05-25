@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "motion-forge",
+  "productName": "inmtn",
   "version": "0.1.0",
-  "identifier": "io.motion-forge.desktop",
+  "identifier": "io.inmtn.desktop",
   "build": {
     "frontendDist": "http://localhost:3010",
     "devUrl": "http://localhost:3010"
@@ -17,9 +17,9 @@
     "active": true,
     "targets": "all",
     "category": "DeveloperTool",
-    "shortDescription": "Generate motion graphics from a prompt",
-    "longDescription": "motion-forge runs your prompt-to-Lottie pipeline locally with bundled engine and Ollama sidecars. No cloud round-trip required.",
-    "copyright": "Copyright (c) 2026 motion-forge",
+    "shortDescription": "Motion graphics from a prompt — local engine + local models",
+    "longDescription": "inmtn runs the motion-forge prompt-to-Lottie pipeline on your machine with bundled engine and Ollama sidecars. No cloud round-trip required.",
+    "copyright": "Copyright (c) 2026 inmtn",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

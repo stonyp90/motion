@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    motion_forge_desktop_lib::run();
+    inmtn_desktop_lib::run();
 }

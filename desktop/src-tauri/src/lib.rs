@@ -121,7 +121,7 @@ pub fn run() {
                 frontend.parse().expect("static frontend URL parses")
             });
             WebviewWindowBuilder::new(app, "main", WebviewUrl::External(parsed))
-                .title("motion-forge")
+                .title("inmtn")
                 .inner_size(1440.0, 900.0)
                 .min_inner_size(1024.0, 640.0)
                 .resizable(true)
