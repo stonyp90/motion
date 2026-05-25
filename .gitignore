@@ -1,0 +1,53 @@
+# --- Rust workspace (engine/) ---
+engine/target/
+engine/Cargo.lock.bak
+engine/**/*.rs.bk
+
+# --- Python sidecar venv + caches ---
+engine/.venv/
+engine/__pycache__/
+**/__pycache__/
+**/*.pyc
+
+# --- Web (web/) ---
+web/node_modules/
+web/.next/
+web/out/
+web/tsconfig.tsbuildinfo
+web/next-env.d.ts
+web/.vercel/
+
+# --- Models (downloaded by ultralytics; never commit) ---
+*.pt
+engine/models/*
+!engine/models/.gitkeep
+!engine/models/README.md
+~/.cache/ultralytics/
+
+# --- Generated demo MP4s (regen via `engine` panelize) ---
+**/public/demos/*.mp4
+engine/fixtures/*.mp4
+engine/fixtures/*.mov
+
+# --- Local environment + secrets ---
+.env
+.env.local
+.env.*.local
+*.local
+
+# --- OS noise ---
+.DS_Store
+Thumbs.db
+
+# --- IDE ---
+.idea/
+.vscode/
+*.iml
+.cursor/
+.claude/
+
+# --- Build / log artefacts ---
+*.log
+target/
+dist/
+build/

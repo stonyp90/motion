@@ -1,0 +1,32 @@
+# motion-forge render job — CPU-backed Lottie -> MP4 worker.
+#
+# Pulls a render request off the queue, fetches the Lottie JSON from
+# Blob, renders to MP4 via the lottie Python package + ffmpeg, uploads
+# the MP4 back to Blob, marks the job complete in Cosmos.
+
+FROM python:3.12-slim-bookworm AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates ffmpeg libcairo2 libpango-1.0-0 libpangocairo-1.0-0 \
+    libgl1 libglib2.0-0 tini \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+RUN python3 -m pip install \
+    lottie cairosvg pillow \
+    opencv-python-headless numpy \
+    azure-identity azure-storage-blob azure-storage-queue azure-cosmos
+
+COPY scripts/render_lottie.py /app/render_lottie.py
+COPY infra/docker/worker_render.py /app/worker_render.py
+
+RUN useradd --create-home --uid 10001 motionforge \
+ && chown -R motionforge:motionforge /app
+USER motionforge
+
+ENTRYPOINT ["/usr/bin/tini", "--", "python3", "/app/worker_render.py"]

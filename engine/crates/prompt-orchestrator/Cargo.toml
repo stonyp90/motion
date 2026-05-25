@@ -1,0 +1,20 @@
+[package]
+name = "motion-forge-prompt-orchestrator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+motion-forge-style-extract.workspace = true
+motion-forge-decompose.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+async-trait.workspace = true
+reqwest.workspace = true
+schemars.workspace = true
+tokio.workspace = true

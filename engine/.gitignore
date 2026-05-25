@@ -1,0 +1,34 @@
+/target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# Python venv (recreate via scripts/setup-python.sh)
+/.venv/
+__pycache__/
+*.pyc
+# Ultralytics auto-downloads model weights into the cwd by default.
+/*.pt
+/sam2*.pt
+/yolo*.pt
+
+# Model weights (download via scripts/fetch-models.sh)
+/models/*
+!/models/.gitkeep
+!/models/README.md
+
+# Test fixtures larger than a few KB - documented in fixtures/README.md
+/fixtures/*.mp4
+/fixtures/*.mov
+/fixtures/*.exr
+
+# Local env
+.env
+.env.local
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.iml

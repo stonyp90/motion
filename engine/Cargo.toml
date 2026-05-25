@@ -1,0 +1,44 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+edition = "2024"
+version = "0.0.1"
+license = "MIT OR Apache-2.0"
+authors = ["Anthony Paquet <anthonypaquet1508@gmail.com>"]
+rust-version = "1.85"
+
+[workspace.dependencies]
+motion-forge-video-io = { path = "crates/video-io" }
+motion-forge-segment = { path = "crates/segment" }
+motion-forge-decompose = { path = "crates/decompose" }
+motion-forge-style-extract = { path = "crates/style-extract" }
+motion-forge-prompt-orchestrator = { path = "crates/prompt-orchestrator" }
+motion-forge-lottie-gen = { path = "crates/lottie-gen" }
+motion-forge-render = { path = "crates/render" }
+motion-forge-pipeline = { path = "crates/pipeline" }
+motion-forge-http = { path = "crates/http" }
+
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "sync", "io-util"] }
+rayon = "1"
+crossbeam-channel = "0.5"
+clap = { version = "4", features = ["derive", "env"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+async-trait = "0.1"
+ffmpeg-sidecar = "2.5"
+base64 = "0.22"
+palette = { version = "0.7", default-features = false, features = ["std"] }
+kmeans_colors = { version = "0.7", default-features = false, features = ["palette_color"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+schemars = { version = "0.8", default-features = false, features = ["derive"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

@@ -1,0 +1,20 @@
+[package]
+name = "motion-forge-style-extract"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+motion-forge-video-io.workspace = true
+motion-forge-segment.workspace = true
+motion-forge-decompose.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+palette.workspace = true
+kmeans_colors.workspace = true
+image.workspace = true

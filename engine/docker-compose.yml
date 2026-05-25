@@ -1,0 +1,37 @@
+services:
+  ffmpeg-builder:
+    image: jrottenberg/ffmpeg:7.1-alpine
+    container_name: motion-forge-ffmpeg
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["ffmpeg -version && sleep infinity"]
+    volumes:
+      - ./fixtures:/fixtures
+      - ./target/ffmpeg-out:/out
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: motion-forge-postgres
+    environment:
+      POSTGRES_USER: motionforge
+      POSTGRES_PASSWORD: motionforge
+      POSTGRES_DB: motionforge
+    ports:
+      - "5435:5432"
+    volumes:
+      - motion-forge-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U motionforge"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  model-server:
+    image: nginx:alpine
+    container_name: motion-forge-models
+    ports:
+      - "8090:80"
+    volumes:
+      - ./models:/usr/share/nginx/html:ro
+
+volumes:
+  motion-forge-pgdata:

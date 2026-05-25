@@ -1,0 +1,24 @@
+[package]
+name = "motion-forge-pipeline"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+motion-forge-video-io.workspace = true
+motion-forge-segment.workspace = true
+motion-forge-decompose.workspace = true
+motion-forge-style-extract.workspace = true
+motion-forge-prompt-orchestrator.workspace = true
+motion-forge-lottie-gen.workspace = true
+motion-forge-render.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+rayon.workspace = true
+crossbeam-channel.workspace = true
+serde.workspace = true
+serde_json.workspace = true

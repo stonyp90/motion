@@ -1,0 +1,45 @@
+# motion-forge segment job — GPU-backed SAM 2 / YOLO11 worker.
+#
+# Pulls a segment request off the queue, runs ultralytics inference,
+# uploads the segmentation manifest to Blob, posts a render request to
+# the render queue (when applicable).
+#
+# Base: NVIDIA CUDA + cuDNN runtime so ultralytics finds the GPU.
+
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04 AS runtime
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-pip python3-venv \
+    ca-certificates ffmpeg libgl1 libglib2.0-0 tini \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Python deps for the segment sidecar (mirrors scripts/setup-python.sh).
+RUN python3 -m pip install --break-system-packages \
+    "torch>=2.4" "torchvision>=0.19" \
+    ultralytics \
+    opencv-python-headless pillow numpy
+
+# Pre-warm the SAM 2 weights into the image (≈ 150 MB). Skips a
+# cold-start download on the first segmentation job.
+RUN python3 - <<'PY'
+from ultralytics import SAM, YOLO
+SAM('sam2.1_t.pt')
+YOLO('yolo11n-seg.pt')
+print('weights warmed')
+PY
+
+COPY scripts/segment_video.py /app/segment_video.py
+COPY infra/docker/worker_segment.py /app/worker_segment.py
+
+RUN useradd --create-home --uid 10001 motionforge \
+ && chown -R motionforge:motionforge /app
+USER motionforge
+
+ENTRYPOINT ["/usr/bin/tini", "--", "python3", "/app/worker_segment.py"]

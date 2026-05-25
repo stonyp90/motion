@@ -1,0 +1,1219 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.43.8.12551",
+      "templateHash": "11338616254411577582"
+    }
+  },
+  "parameters": {
+    "env": {
+      "type": "string",
+      "defaultValue": "dev",
+      "minLength": 2,
+      "maxLength": 8,
+      "metadata": {
+        "description": "Environment slug used in resource names. Lowercase letters and digits only."
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure region for every resource."
+      }
+    },
+    "apiImageTag": {
+      "type": "string",
+      "defaultValue": "latest",
+      "metadata": {
+        "description": "Image tag for mf-api. The CI pipeline bumps this on every revision."
+      }
+    },
+    "segmentImageTag": {
+      "type": "string",
+      "defaultValue": "latest",
+      "metadata": {
+        "description": "Image tag for the segment job."
+      }
+    },
+    "renderImageTag": {
+      "type": "string",
+      "defaultValue": "latest",
+      "metadata": {
+        "description": "Image tag for the render job."
+      }
+    },
+    "gpuProfileType": {
+      "type": "string",
+      "defaultValue": "Consumption-GPU-NC8as-T4",
+      "metadata": {
+        "description": "GPU workload-profile SKU for the segment job. Default NC8as-T4 (~$1.20/hr). Requires GPU quota."
+      }
+    },
+    "enableGpuProfile": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Enable the GPU workload profile + segment job. Set false on subscriptions without GPU quota; the API + render pipeline still deploys."
+      }
+    },
+    "cpuProfileName": {
+      "type": "string",
+      "defaultValue": "d4-render",
+      "metadata": {
+        "description": "CPU workload-profile SKU name. Default D4 (4 vCPU / 16 GiB)."
+      }
+    },
+    "enableOpenAi": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Enable Azure OpenAI account + deployment. Requires Cognitive Services access (often gated on personal subs). When false, the API falls back to MOTION_FORGE_LLM_BACKEND env (anthropic, openai, ollama, mock)."
+      }
+    },
+    "openAiDeploymentName": {
+      "type": "string",
+      "defaultValue": "gpt-5",
+      "metadata": {
+        "description": "Azure OpenAI model deployment name (e.g., gpt-5, gpt-4o, phi-4)."
+      }
+    },
+    "openAiModelName": {
+      "type": "string",
+      "defaultValue": "gpt-5",
+      "metadata": {
+        "description": "OpenAI model name as published in Azure OpenAI service catalog."
+      }
+    },
+    "openAiModelVersion": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "OpenAI model version. Empty string uses the deployment default."
+      }
+    },
+    "frontDoorSku": {
+      "type": "string",
+      "defaultValue": "Standard_AzureFrontDoor",
+      "allowedValues": [
+        "Standard_AzureFrontDoor",
+        "Premium_AzureFrontDoor"
+      ],
+      "metadata": {
+        "description": "Front Door SKU. Standard_AzureFrontDoor is sufficient for dev; Premium for prod (adds WAF + private link origins)."
+      }
+    },
+    "apiMinReplicas": {
+      "type": "int",
+      "defaultValue": 1,
+      "minValue": 0,
+      "maxValue": 10,
+      "metadata": {
+        "description": "Min replicas for the API. Keep at 1 for the no-cold-start guarantee."
+      }
+    },
+    "apiMaxReplicas": {
+      "type": "int",
+      "defaultValue": 10,
+      "minValue": 1,
+      "maxValue": 100,
+      "metadata": {
+        "description": "Max replicas for the API."
+      }
+    },
+    "tags": {
+      "type": "object",
+      "defaultValue": {
+        "project": "motion-forge",
+        "env": "[parameters('env')]",
+        "managedBy": "bicep"
+      },
+      "metadata": {
+        "description": "Tags applied to every resource."
+      }
+    }
+  },
+  "variables": {
+    "suffix": "[uniqueString(resourceGroup().id, parameters('env'))]",
+    "names": {
+      "identity": "[format('mid-mf-{0}-{1}', parameters('env'), variables('suffix'))]",
+      "acr": "[format('crmf{0}{1}', parameters('env'), take(variables('suffix'), 8))]",
+      "blob": "[format('stmf{0}{1}', parameters('env'), take(variables('suffix'), 8))]",
+      "files": "[format('stmfshare{0}{1}', parameters('env'), take(variables('suffix'), 8))]",
+      "cosmos": "[format('cosmos-mf-{0}-{1}', parameters('env'), variables('suffix'))]",
+      "redis": "[format('redis-mf-{0}-{1}', parameters('env'), variables('suffix'))]",
+      "keyVault": "[format('kv-mf-{0}-{1}', parameters('env'), take(variables('suffix'), 8))]",
+      "workspace": "[format('log-mf-{0}-{1}', parameters('env'), variables('suffix'))]",
+      "appInsights": "[format('appi-mf-{0}-{1}', parameters('env'), variables('suffix'))]",
+      "openAi": "[format('oai-mf-{0}-{1}', parameters('env'), variables('suffix'))]",
+      "acaEnv": "[format('cae-mf-{0}-{1}', parameters('env'), variables('suffix'))]",
+      "apiApp": "[format('ca-mf-api-{0}', parameters('env'))]",
+      "segmentJob": "[format('caj-mf-segment-{0}', parameters('env'))]",
+      "renderJob": "[format('caj-mf-render-{0}', parameters('env'))]",
+      "jobQueue": "jobs",
+      "outputContainer": "outputs",
+      "workdirContainer": "workdirs",
+      "fdProfile": "[format('fd-mf-{0}-{1}', parameters('env'), variables('suffix'))]",
+      "fdEndpoint": "[format('mf-{0}-{1}', parameters('env'), variables('suffix'))]"
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+      "apiVersion": "2024-11-30",
+      "name": "[variables('names').identity]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]"
+    },
+    {
+      "type": "Microsoft.OperationalInsights/workspaces",
+      "apiVersion": "2023-09-01",
+      "name": "[variables('names').workspace]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "properties": {
+        "sku": {
+          "name": "PerGB2018"
+        },
+        "retentionInDays": 30,
+        "features": {
+          "enableLogAccessUsingOnlyResourcePermissions": true
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Insights/components",
+      "apiVersion": "2020-02-02",
+      "name": "[variables('names').appInsights]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "kind": "web",
+      "properties": {
+        "Application_Type": "web",
+        "WorkspaceResourceId": "[resourceId('Microsoft.OperationalInsights/workspaces', variables('names').workspace)]",
+        "IngestionMode": "LogAnalytics",
+        "publicNetworkAccessForIngestion": "Enabled",
+        "publicNetworkAccessForQuery": "Enabled"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.OperationalInsights/workspaces', variables('names').workspace)]"
+      ]
+    },
+    {
+      "type": "Microsoft.ContainerRegistry/registries",
+      "apiVersion": "2024-11-01-preview",
+      "name": "[variables('names').acr]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "sku": {
+        "name": "Premium"
+      },
+      "properties": {
+        "adminUserEnabled": false,
+        "publicNetworkAccess": "Enabled",
+        "zoneRedundancy": "Disabled"
+      }
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr)]",
+      "name": "[guid(resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity), 'AcrPull')]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity), '2024-11-30').principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr)]",
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2024-01-01",
+      "name": "[variables('names').blob]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "kind": "StorageV2",
+      "properties": {
+        "accessTier": "Hot",
+        "minimumTlsVersion": "TLS1_2",
+        "allowBlobPublicAccess": false,
+        "allowSharedKeyAccess": false,
+        "supportsHttpsTrafficOnly": true,
+        "networkAcls": {
+          "defaultAction": "Allow"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices",
+      "apiVersion": "2024-01-01",
+      "name": "[format('{0}/{1}', variables('names').blob, 'default')]",
+      "properties": {
+        "deleteRetentionPolicy": {
+          "enabled": true,
+          "days": 7
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('names').blob)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+      "apiVersion": "2024-01-01",
+      "name": "[format('{0}/{1}/{2}', variables('names').blob, 'default', variables('names').workdirContainer)]",
+      "properties": {
+        "publicAccess": "None"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/blobServices', variables('names').blob, 'default')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+      "apiVersion": "2024-01-01",
+      "name": "[format('{0}/{1}/{2}', variables('names').blob, 'default', variables('names').outputContainer)]",
+      "properties": {
+        "publicAccess": "None"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/blobServices', variables('names').blob, 'default')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/managementPolicies",
+      "apiVersion": "2024-01-01",
+      "name": "[format('{0}/{1}', variables('names').blob, 'default')]",
+      "properties": {
+        "policy": {
+          "rules": [
+            {
+              "name": "workdirs-tiering",
+              "enabled": true,
+              "type": "Lifecycle",
+              "definition": {
+                "filters": {
+                  "blobTypes": [
+                    "blockBlob"
+                  ],
+                  "prefixMatch": [
+                    "[variables('names').workdirContainer]"
+                  ]
+                },
+                "actions": {
+                  "baseBlob": {
+                    "tierToCool": {
+                      "daysAfterModificationGreaterThan": 7
+                    },
+                    "tierToArchive": {
+                      "daysAfterModificationGreaterThan": 30
+                    },
+                    "delete": {
+                      "daysAfterModificationGreaterThan": 180
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "outputs-tiering",
+              "enabled": true,
+              "type": "Lifecycle",
+              "definition": {
+                "filters": {
+                  "blobTypes": [
+                    "blockBlob"
+                  ],
+                  "prefixMatch": [
+                    "[variables('names').outputContainer]"
+                  ]
+                },
+                "actions": {
+                  "baseBlob": {
+                    "tierToCool": {
+                      "daysAfterModificationGreaterThan": 30
+                    },
+                    "tierToArchive": {
+                      "daysAfterModificationGreaterThan": 90
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('names').blob)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/queueServices",
+      "apiVersion": "2024-01-01",
+      "name": "[format('{0}/{1}', variables('names').blob, 'default')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('names').blob)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/queueServices/queues",
+      "apiVersion": "2024-01-01",
+      "name": "[format('{0}/{1}/{2}', variables('names').blob, 'default', variables('names').jobQueue)]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/queueServices', variables('names').blob, 'default')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('names').blob)]",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('names').blob), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity), 'StorageBlobDataContributor')]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity), '2024-11-30').principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity)]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('names').blob)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('names').blob)]",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('names').blob), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity), 'StorageQueueDataContributor')]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '974c5e8b-45b9-4653-ba55-5f855dd0fb88')]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity), '2024-11-30').principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity)]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('names').blob)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2024-01-01",
+      "name": "[variables('names').files]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "sku": {
+        "name": "Premium_LRS"
+      },
+      "kind": "FileStorage",
+      "properties": {
+        "minimumTlsVersion": "TLS1_2",
+        "supportsHttpsTrafficOnly": true,
+        "networkAcls": {
+          "defaultAction": "Allow"
+        },
+        "azureFilesIdentityBasedAuthentication": {
+          "directoryServiceOptions": "None"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/fileServices",
+      "apiVersion": "2024-01-01",
+      "name": "[format('{0}/{1}', variables('names').files, 'default')]",
+      "properties": {
+        "protocolSettings": {
+          "smb": {
+            "versions": "SMB3.1.1"
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('names').files)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/fileServices/shares",
+      "apiVersion": "2024-01-01",
+      "name": "[format('{0}/{1}/{2}', variables('names').files, 'default', 'models')]",
+      "properties": {
+        "shareQuota": 100,
+        "enabledProtocols": "NFS",
+        "accessTier": "Premium"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/fileServices', variables('names').files, 'default')]"
+      ]
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts",
+      "apiVersion": "2024-11-15",
+      "name": "[variables('names').cosmos]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "kind": "GlobalDocumentDB",
+      "properties": {
+        "databaseAccountOfferType": "Standard",
+        "locations": [
+          {
+            "locationName": "[parameters('location')]",
+            "failoverPriority": 0,
+            "isZoneRedundant": false
+          }
+        ],
+        "capabilities": [
+          {
+            "name": "EnableServerless"
+          }
+        ],
+        "consistencyPolicy": {
+          "defaultConsistencyLevel": "Session"
+        },
+        "disableLocalAuth": true,
+        "publicNetworkAccess": "Enabled"
+      }
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases",
+      "apiVersion": "2024-11-15",
+      "name": "[format('{0}/{1}', variables('names').cosmos, 'motion_forge')]",
+      "properties": {
+        "resource": {
+          "id": "motion_forge"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos)]"
+      ]
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers",
+      "apiVersion": "2024-11-15",
+      "name": "[format('{0}/{1}/{2}', variables('names').cosmos, 'motion_forge', 'projects')]",
+      "properties": {
+        "resource": {
+          "id": "projects",
+          "partitionKey": {
+            "paths": [
+              "/tenantId"
+            ],
+            "kind": "Hash"
+          },
+          "indexingPolicy": {
+            "indexingMode": "consistent",
+            "automatic": true
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases', variables('names').cosmos, 'motion_forge')]"
+      ]
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers",
+      "apiVersion": "2024-11-15",
+      "name": "[format('{0}/{1}/{2}', variables('names').cosmos, 'motion_forge', 'jobs')]",
+      "properties": {
+        "resource": {
+          "id": "jobs",
+          "partitionKey": {
+            "paths": [
+              "/jobId"
+            ],
+            "kind": "Hash"
+          },
+          "defaultTtl": 2592000,
+          "indexingPolicy": {
+            "indexingMode": "consistent",
+            "automatic": true
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases', variables('names').cosmos, 'motion_forge')]"
+      ]
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments",
+      "apiVersion": "2024-11-15",
+      "name": "[format('{0}/{1}', variables('names').cosmos, guid(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity), 'data-contributor'))]",
+      "properties": {
+        "roleDefinitionId": "[format('{0}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002', resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos))]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity), '2024-11-30').principalId]",
+        "scope": "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos)]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos)]",
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Cache/redis",
+      "apiVersion": "2024-11-01",
+      "name": "[variables('names').redis]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "properties": {
+        "sku": {
+          "name": "Basic",
+          "family": "C",
+          "capacity": 0
+        },
+        "enableNonSslPort": false,
+        "minimumTlsVersion": "1.2",
+        "publicNetworkAccess": "Enabled",
+        "redisConfiguration": {
+          "aad-enabled": "true"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.KeyVault/vaults",
+      "apiVersion": "2024-11-01",
+      "name": "[variables('names').keyVault]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "properties": {
+        "sku": {
+          "name": "standard",
+          "family": "A"
+        },
+        "tenantId": "[subscription().tenantId]",
+        "enableRbacAuthorization": true,
+        "enableSoftDelete": true,
+        "softDeleteRetentionInDays": 7,
+        "enablePurgeProtection": null,
+        "publicNetworkAccess": "Enabled"
+      }
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.KeyVault/vaults', variables('names').keyVault)]",
+      "name": "[guid(resourceId('Microsoft.KeyVault/vaults', variables('names').keyVault), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity), 'KeyVaultSecretsUser')]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity), '2024-11-30').principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.KeyVault/vaults', variables('names').keyVault)]",
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity)]"
+      ]
+    },
+    {
+      "condition": "[parameters('enableOpenAi')]",
+      "type": "Microsoft.CognitiveServices/accounts",
+      "apiVersion": "2024-10-01",
+      "name": "[variables('names').openAi]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "kind": "OpenAI",
+      "sku": {
+        "name": "S0"
+      },
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "customSubDomainName": "[variables('names').openAi]",
+        "publicNetworkAccess": "Enabled",
+        "disableLocalAuth": true
+      }
+    },
+    {
+      "condition": "[parameters('enableOpenAi')]",
+      "type": "Microsoft.CognitiveServices/accounts/deployments",
+      "apiVersion": "2024-10-01",
+      "name": "[format('{0}/{1}', variables('names').openAi, parameters('openAiDeploymentName'))]",
+      "sku": {
+        "name": "Standard",
+        "capacity": 50
+      },
+      "properties": {
+        "model": {
+          "format": "OpenAI",
+          "name": "[parameters('openAiModelName')]",
+          "version": "[if(empty(parameters('openAiModelVersion')), null(), parameters('openAiModelVersion'))]"
+        },
+        "versionUpgradeOption": "OnceCurrentVersionExpired"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.CognitiveServices/accounts', variables('names').openAi)]"
+      ]
+    },
+    {
+      "condition": "[parameters('enableOpenAi')]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.CognitiveServices/accounts', variables('names').openAi)]",
+      "name": "[guid(resourceGroup().id, resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity), 'CognitiveServicesOpenAIUser')]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd')]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity), '2024-11-30').principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity)]",
+        "[resourceId('Microsoft.CognitiveServices/accounts', variables('names').openAi)]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/managedEnvironments",
+      "apiVersion": "2025-01-01",
+      "name": "[variables('names').acaEnv]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "properties": {
+        "appLogsConfiguration": {
+          "destination": "log-analytics",
+          "logAnalyticsConfiguration": {
+            "customerId": "[reference(resourceId('Microsoft.OperationalInsights/workspaces', variables('names').workspace), '2023-09-01').customerId]",
+            "sharedKey": "[listKeys(resourceId('Microsoft.OperationalInsights/workspaces', variables('names').workspace), '2023-09-01').primarySharedKey]"
+          }
+        },
+        "workloadProfiles": "[if(parameters('enableGpuProfile'), createArray(createObject('name', 'Consumption', 'workloadProfileType', 'Consumption'), createObject('name', parameters('cpuProfileName'), 'workloadProfileType', 'D4', 'minimumCount', 0, 'maximumCount', 3), createObject('name', 'gpu-t4', 'workloadProfileType', parameters('gpuProfileType'), 'minimumCount', 0, 'maximumCount', 2)), createArray(createObject('name', 'Consumption', 'workloadProfileType', 'Consumption'), createObject('name', parameters('cpuProfileName'), 'workloadProfileType', 'D4', 'minimumCount', 0, 'maximumCount', 3)))]",
+        "zoneRedundant": false
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.OperationalInsights/workspaces', variables('names').workspace)]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/managedEnvironments/storages",
+      "apiVersion": "2025-01-01",
+      "name": "[format('{0}/{1}', variables('names').acaEnv, 'models')]",
+      "properties": {
+        "nfsAzureFile": {
+          "server": "[format('{0}.file.{1}', variables('names').files, environment().suffixes.storage)]",
+          "shareName": "[format('/{0}/models', variables('names').files)]",
+          "accessMode": "ReadOnly"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/managedEnvironments', variables('names').acaEnv)]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('names').files)]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2025-01-01",
+      "name": "[variables('names').apiApp]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "identity": {
+        "type": "UserAssigned",
+        "userAssignedIdentities": {
+          "[format('{0}', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity))]": {}
+        }
+      },
+      "properties": {
+        "managedEnvironmentId": "[resourceId('Microsoft.App/managedEnvironments', variables('names').acaEnv)]",
+        "workloadProfileName": "Consumption",
+        "configuration": {
+          "activeRevisionsMode": "Single",
+          "ingress": {
+            "external": true,
+            "targetPort": 7755,
+            "transport": "http2",
+            "allowInsecure": false,
+            "traffic": [
+              {
+                "latestRevision": true,
+                "weight": 100
+              }
+            ],
+            "corsPolicy": {
+              "allowedOrigins": [
+                "*"
+              ],
+              "allowedMethods": [
+                "GET",
+                "POST",
+                "OPTIONS"
+              ],
+              "allowedHeaders": [
+                "*"
+              ],
+              "maxAge": 600
+            }
+          },
+          "registries": [
+            {
+              "server": "[reference(resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr), '2024-11-01-preview').loginServer]",
+              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity)]"
+            }
+          ],
+          "secrets": [],
+          "maxInactiveRevisions": 2
+        },
+        "template": {
+          "revisionSuffix": "[substring(uniqueString(parameters('apiImageTag')), 0, 6)]",
+          "containers": [
+            {
+              "name": "api",
+              "image": "[format('{0}/motion-forge-api:{1}', reference(resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr), '2024-11-01-preview').loginServer, parameters('apiImageTag'))]",
+              "resources": {
+                "cpu": "[json('0.5')]",
+                "memory": "1Gi"
+              },
+              "env": [
+                {
+                  "name": "RUST_LOG",
+                  "value": "info,motion_forge=info"
+                },
+                {
+                  "name": "MOTION_FORGE_LLM_TIMEOUT_SEC",
+                  "value": "30"
+                },
+                {
+                  "name": "AZURE_CLIENT_ID",
+                  "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity), '2024-11-30').clientId]"
+                },
+                {
+                  "name": "AZURE_OPENAI_ENDPOINT",
+                  "value": "[if(parameters('enableOpenAi'), reference(resourceId('Microsoft.CognitiveServices/accounts', variables('names').openAi), '2024-10-01').endpoint, '')]"
+                },
+                {
+                  "name": "AZURE_OPENAI_DEPLOYMENT",
+                  "value": "[if(parameters('enableOpenAi'), parameters('openAiDeploymentName'), '')]"
+                },
+                {
+                  "name": "MOTION_FORGE_BLOB_ACCOUNT",
+                  "value": "[variables('names').blob]"
+                },
+                {
+                  "name": "MOTION_FORGE_BLOB_WORKDIRS",
+                  "value": "[variables('names').workdirContainer]"
+                },
+                {
+                  "name": "MOTION_FORGE_BLOB_OUTPUTS",
+                  "value": "[variables('names').outputContainer]"
+                },
+                {
+                  "name": "MOTION_FORGE_QUEUE_NAME",
+                  "value": "[variables('names').jobQueue]"
+                },
+                {
+                  "name": "MOTION_FORGE_COSMOS_ENDPOINT",
+                  "value": "[reference(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), '2024-11-15').documentEndpoint]"
+                },
+                {
+                  "name": "MOTION_FORGE_REDIS_HOST",
+                  "value": "[format('{0}.redis.cache.windows.net', variables('names').redis)]"
+                },
+                {
+                  "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+                  "value": "[reference(resourceId('Microsoft.Insights/components', variables('names').appInsights), '2020-02-02').ConnectionString]"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "volumeName": "models",
+                  "mountPath": "/models"
+                }
+              ],
+              "probes": [
+                {
+                  "type": "Liveness",
+                  "httpGet": {
+                    "path": "/healthz",
+                    "port": 7755
+                  },
+                  "periodSeconds": 30,
+                  "failureThreshold": 3
+                },
+                {
+                  "type": "Readiness",
+                  "httpGet": {
+                    "path": "/healthz",
+                    "port": 7755
+                  },
+                  "periodSeconds": 5,
+                  "failureThreshold": 3
+                },
+                {
+                  "type": "Startup",
+                  "httpGet": {
+                    "path": "/healthz",
+                    "port": 7755
+                  },
+                  "periodSeconds": 5,
+                  "failureThreshold": 12
+                }
+              ]
+            }
+          ],
+          "scale": {
+            "minReplicas": "[parameters('apiMinReplicas')]",
+            "maxReplicas": "[parameters('apiMaxReplicas')]",
+            "rules": [
+              {
+                "name": "http-concurrency",
+                "http": {
+                  "metadata": {
+                    "concurrentRequests": "50"
+                  }
+                }
+              }
+            ]
+          },
+          "volumes": [
+            {
+              "name": "models",
+              "storageType": "NfsAzureFile",
+              "storageName": "models"
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/managedEnvironments', variables('names').acaEnv)]",
+        "[resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr)]",
+        "[extensionResourceId(resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity), 'AcrPull'))]",
+        "[resourceId('Microsoft.Insights/components', variables('names').appInsights)]",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos)]",
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity)]",
+        "[resourceId('Microsoft.CognitiveServices/accounts', variables('names').openAi)]",
+        "[resourceId('Microsoft.Cache/redis', variables('names').redis)]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('names').blob)]",
+        "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', variables('names').blob), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', variables('names').blob), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity), 'StorageBlobDataContributor'))]"
+      ]
+    },
+    {
+      "condition": "[parameters('enableGpuProfile')]",
+      "type": "Microsoft.App/jobs",
+      "apiVersion": "2025-01-01",
+      "name": "[variables('names').segmentJob]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "identity": {
+        "type": "UserAssigned",
+        "userAssignedIdentities": {
+          "[format('{0}', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity))]": {}
+        }
+      },
+      "properties": {
+        "environmentId": "[resourceId('Microsoft.App/managedEnvironments', variables('names').acaEnv)]",
+        "workloadProfileName": "gpu-t4",
+        "configuration": {
+          "triggerType": "Event",
+          "replicaTimeout": 1800,
+          "replicaRetryLimit": 1,
+          "eventTriggerConfig": {
+            "replicaCompletionCount": 1,
+            "parallelism": 1,
+            "scale": {
+              "minExecutions": 0,
+              "maxExecutions": 5,
+              "pollingInterval": 30,
+              "rules": [
+                {
+                  "name": "queue-depth",
+                  "type": "azure-queue",
+                  "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity)]",
+                  "metadata": {
+                    "accountName": "[variables('names').blob]",
+                    "queueName": "[variables('names').jobQueue]",
+                    "queueLength": "1"
+                  }
+                }
+              ]
+            }
+          },
+          "registries": [
+            {
+              "server": "[reference(resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr), '2024-11-01-preview').loginServer]",
+              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity)]"
+            }
+          ]
+        },
+        "template": {
+          "containers": [
+            {
+              "name": "segment",
+              "image": "[format('{0}/motion-forge-segment:{1}', reference(resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr), '2024-11-01-preview').loginServer, parameters('segmentImageTag'))]",
+              "resources": {
+                "cpu": "[json('8')]",
+                "memory": "56Gi"
+              },
+              "env": [
+                {
+                  "name": "AZURE_CLIENT_ID",
+                  "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity), '2024-11-30').clientId]"
+                },
+                {
+                  "name": "MOTION_FORGE_BLOB_ACCOUNT",
+                  "value": "[variables('names').blob]"
+                },
+                {
+                  "name": "MOTION_FORGE_QUEUE_NAME",
+                  "value": "[variables('names').jobQueue]"
+                },
+                {
+                  "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+                  "value": "[reference(resourceId('Microsoft.Insights/components', variables('names').appInsights), '2020-02-02').ConnectionString]"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "volumeName": "models",
+                  "mountPath": "/models"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "models",
+              "storageType": "NfsAzureFile",
+              "storageName": "models"
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/managedEnvironments', variables('names').acaEnv)]",
+        "[resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr)]",
+        "[extensionResourceId(resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity), 'AcrPull'))]",
+        "[resourceId('Microsoft.Insights/components', variables('names').appInsights)]",
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity)]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('names').blob)]",
+        "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', variables('names').blob), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', variables('names').blob), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity), 'StorageBlobDataContributor'))]",
+        "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', variables('names').blob), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', variables('names').blob), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity), 'StorageQueueDataContributor'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/jobs",
+      "apiVersion": "2025-01-01",
+      "name": "[variables('names').renderJob]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "identity": {
+        "type": "UserAssigned",
+        "userAssignedIdentities": {
+          "[format('{0}', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity))]": {}
+        }
+      },
+      "properties": {
+        "environmentId": "[resourceId('Microsoft.App/managedEnvironments', variables('names').acaEnv)]",
+        "workloadProfileName": "[parameters('cpuProfileName')]",
+        "configuration": {
+          "triggerType": "Event",
+          "replicaTimeout": 1200,
+          "replicaRetryLimit": 2,
+          "eventTriggerConfig": {
+            "replicaCompletionCount": 1,
+            "parallelism": 2,
+            "scale": {
+              "minExecutions": 0,
+              "maxExecutions": 10,
+              "pollingInterval": 15,
+              "rules": [
+                {
+                  "name": "render-queue",
+                  "type": "azure-queue",
+                  "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity)]",
+                  "metadata": {
+                    "accountName": "[variables('names').blob]",
+                    "queueName": "[format('{0}-render', variables('names').jobQueue)]",
+                    "queueLength": "1"
+                  }
+                }
+              ]
+            }
+          },
+          "registries": [
+            {
+              "server": "[reference(resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr), '2024-11-01-preview').loginServer]",
+              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity)]"
+            }
+          ]
+        },
+        "template": {
+          "containers": [
+            {
+              "name": "render",
+              "image": "[format('{0}/motion-forge-render:{1}', reference(resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr), '2024-11-01-preview').loginServer, parameters('renderImageTag'))]",
+              "resources": {
+                "cpu": "[json('4')]",
+                "memory": "16Gi"
+              },
+              "env": [
+                {
+                  "name": "AZURE_CLIENT_ID",
+                  "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity), '2024-11-30').clientId]"
+                },
+                {
+                  "name": "MOTION_FORGE_BLOB_ACCOUNT",
+                  "value": "[variables('names').blob]"
+                },
+                {
+                  "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+                  "value": "[reference(resourceId('Microsoft.Insights/components', variables('names').appInsights), '2020-02-02').ConnectionString]"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/managedEnvironments', variables('names').acaEnv)]",
+        "[resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr)]",
+        "[extensionResourceId(resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity), 'AcrPull'))]",
+        "[resourceId('Microsoft.Insights/components', variables('names').appInsights)]",
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity)]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('names').blob)]",
+        "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', variables('names').blob), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', variables('names').blob), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity), 'StorageBlobDataContributor'))]",
+        "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', variables('names').blob), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', variables('names').blob), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity), 'StorageQueueDataContributor'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Cdn/profiles",
+      "apiVersion": "2024-09-01",
+      "name": "[variables('names').fdProfile]",
+      "location": "global",
+      "tags": "[parameters('tags')]",
+      "sku": {
+        "name": "[parameters('frontDoorSku')]"
+      },
+      "properties": {
+        "originResponseTimeoutSeconds": 120
+      }
+    },
+    {
+      "type": "Microsoft.Cdn/profiles/afdEndpoints",
+      "apiVersion": "2024-09-01",
+      "name": "[format('{0}/{1}', variables('names').fdProfile, variables('names').fdEndpoint)]",
+      "location": "global",
+      "tags": "[parameters('tags')]",
+      "properties": {
+        "enabledState": "Enabled"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Cdn/profiles', variables('names').fdProfile)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Cdn/profiles/originGroups",
+      "apiVersion": "2024-09-01",
+      "name": "[format('{0}/{1}', variables('names').fdProfile, 'api-origins')]",
+      "properties": {
+        "loadBalancingSettings": {
+          "sampleSize": 4,
+          "successfulSamplesRequired": 3
+        },
+        "healthProbeSettings": {
+          "probePath": "/healthz",
+          "probeRequestType": "GET",
+          "probeProtocol": "Https",
+          "probeIntervalInSeconds": 30
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Cdn/profiles', variables('names').fdProfile)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Cdn/profiles/originGroups/origins",
+      "apiVersion": "2024-09-01",
+      "name": "[format('{0}/{1}/{2}', variables('names').fdProfile, 'api-origins', 'aca-api')]",
+      "properties": {
+        "hostName": "[reference(resourceId('Microsoft.App/containerApps', variables('names').apiApp), '2025-01-01').configuration.ingress.fqdn]",
+        "originHostHeader": "[reference(resourceId('Microsoft.App/containerApps', variables('names').apiApp), '2025-01-01').configuration.ingress.fqdn]",
+        "httpsPort": 443,
+        "httpPort": 80,
+        "priority": 1,
+        "weight": 1000,
+        "enabledState": "Enabled",
+        "enforceCertificateNameCheck": true
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/containerApps', variables('names').apiApp)]",
+        "[resourceId('Microsoft.Cdn/profiles/originGroups', variables('names').fdProfile, 'api-origins')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Cdn/profiles/afdEndpoints/routes",
+      "apiVersion": "2024-09-01",
+      "name": "[format('{0}/{1}/{2}', variables('names').fdProfile, variables('names').fdEndpoint, 'default')]",
+      "properties": {
+        "originGroup": {
+          "id": "[resourceId('Microsoft.Cdn/profiles/originGroups', variables('names').fdProfile, 'api-origins')]"
+        },
+        "supportedProtocols": [
+          "Https"
+        ],
+        "patternsToMatch": [
+          "/*"
+        ],
+        "forwardingProtocol": "HttpsOnly",
+        "httpsRedirect": "Enabled",
+        "linkToDefaultDomain": "Enabled",
+        "cacheConfiguration": {
+          "queryStringCachingBehavior": "IgnoreQueryString",
+          "compressionSettings": {
+            "contentTypesToCompress": [
+              "application/json",
+              "application/xml",
+              "text/css",
+              "text/html",
+              "text/javascript",
+              "text/plain"
+            ],
+            "isCompressionEnabled": true
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Cdn/profiles/afdEndpoints', variables('names').fdProfile, variables('names').fdEndpoint)]",
+        "[resourceId('Microsoft.Cdn/profiles/originGroups/origins', variables('names').fdProfile, 'api-origins', 'aca-api')]",
+        "[resourceId('Microsoft.Cdn/profiles/originGroups', variables('names').fdProfile, 'api-origins')]"
+      ]
+    }
+  ],
+  "outputs": {
+    "frontDoorEndpoint": {
+      "type": "string",
+      "value": "[format('https://{0}', reference(resourceId('Microsoft.Cdn/profiles/afdEndpoints', variables('names').fdProfile, variables('names').fdEndpoint), '2024-09-01').hostName)]"
+    },
+    "apiIngressFqdn": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.App/containerApps', variables('names').apiApp), '2025-01-01').configuration.ingress.fqdn]"
+    },
+    "acrLoginServer": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr), '2024-11-01-preview').loginServer]"
+    },
+    "blobAccountName": {
+      "type": "string",
+      "value": "[variables('names').blob]"
+    },
+    "cosmosEndpoint": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), '2024-11-15').documentEndpoint]"
+    },
+    "managedIdentityClientId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity), '2024-11-30').clientId]"
+    },
+    "openAiEndpoint": {
+      "type": "string",
+      "value": "[if(parameters('enableOpenAi'), reference(resourceId('Microsoft.CognitiveServices/accounts', variables('names').openAi), '2024-10-01').endpoint, '')]"
+    },
+    "keyVaultUri": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.KeyVault/vaults', variables('names').keyVault), '2024-11-01').vaultUri]"
+    },
+    "workspaceId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.OperationalInsights/workspaces', variables('names').workspace)]"
+    }
+  }
+}

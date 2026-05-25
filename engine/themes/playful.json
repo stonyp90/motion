@@ -1,0 +1,17 @@
+{
+  "slug": "playful",
+  "name": "Playful Brand",
+  "description": "Bright, bouncy, fast cuts. Vivid palette and elastic easings.",
+  "composition": { "width": 1080, "height": 1920, "frame_rate": 30 },
+  "default_duration_seconds": 15.0,
+  "palette_bias": [
+    { "hex": [255, 90, 95], "weight": 0.30 },
+    { "hex": [255, 211, 71], "weight": 0.25 },
+    { "hex": [80, 200, 180], "weight": 0.20 },
+    { "hex": [60, 80, 230], "weight": 0.15 },
+    { "hex": [255, 255, 255], "weight": 0.10 }
+  ],
+  "easing_bias": "Bounce",
+  "shot_rhythm_target": { "mean_seconds": 1.4, "stddev_seconds": 0.4 },
+  "system_prompt_addendum": "Snappy cuts. Overshoots welcome. Use bold shapes and oversized type."
+}

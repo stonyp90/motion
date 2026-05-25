@@ -1,0 +1,13 @@
+[package]
+name = "motion-forge-render"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+motion-forge-video-io.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true

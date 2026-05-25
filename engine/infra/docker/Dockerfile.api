@@ -1,0 +1,45 @@
+# motion-forge API — axum binary that serves /generate, /iterate, /themes,
+# /openapi.json, /healthz. Stays warm (ACA min_replicas=1).
+#
+# Build (from repo root):
+#   docker buildx build --platform linux/amd64 -t motion-forge-api:latest \
+#       -f infra/docker/Dockerfile.api .
+
+# ---- builder ----
+FROM rust:1.95-slim-bookworm AS builder
+WORKDIR /src
+
+# Cache the dependency layer.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config ca-certificates curl \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+COPY themes ./themes
+
+RUN cargo build --release --bin motion-forge
+
+# ---- runtime ----
+FROM debian:bookworm-slim AS runtime
+WORKDIR /app
+
+# Only the ffmpeg binary — no libav*-dev needed; we use ffmpeg-sidecar.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates ffmpeg tini \
+ && rm -rf /var/lib/apt/lists/*
+
+# Non-root user
+RUN useradd --create-home --uid 10001 motionforge
+
+COPY --from=builder /src/target/release/motion-forge /usr/local/bin/motion-forge
+COPY --chown=motionforge:motionforge themes /app/themes
+
+ENV MOTION_FORGE_THEMES_DIR=/app/themes \
+    RUST_LOG=info,motion_forge=info \
+    MOTION_FORGE_LLM_TIMEOUT_SEC=30
+
+USER motionforge
+EXPOSE 7755
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/motion-forge"]
+CMD ["serve", "--bind", "0.0.0.0:7755"]

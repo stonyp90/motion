@@ -1,0 +1,28 @@
+[package]
+name = "motion-forge-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "motion-forge"
+path = "src/main.rs"
+
+[dependencies]
+motion-forge-video-io.workspace = true
+motion-forge-segment.workspace = true
+motion-forge-decompose.workspace = true
+motion-forge-style-extract.workspace = true
+motion-forge-prompt-orchestrator.workspace = true
+motion-forge-lottie-gen.workspace = true
+motion-forge-render.workspace = true
+motion-forge-pipeline.workspace = true
+motion-forge-http.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+serde_json.workspace = true

@@ -1,0 +1,16 @@
+{
+  "slug": "explainer",
+  "name": "Friendly Explainer",
+  "description": "Warm, moderate pace, illustrative. Approachable color palette with rounded motion.",
+  "composition": { "width": 1920, "height": 1080, "frame_rate": 30 },
+  "default_duration_seconds": 45.0,
+  "palette_bias": [
+    { "hex": [255, 236, 219], "weight": 0.35 },
+    { "hex": [255, 145, 77], "weight": 0.25 },
+    { "hex": [110, 65, 50], "weight": 0.20 },
+    { "hex": [88, 168, 140], "weight": 0.20 }
+  ],
+  "easing_bias": "Standard",
+  "shot_rhythm_target": { "mean_seconds": 2.5, "stddev_seconds": 0.5 },
+  "system_prompt_addendum": "Friendly tone. Illustrate one concept per shot. Smooth, rounded motion. Avoid sharp cuts."
+}
