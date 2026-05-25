@@ -1,6 +1,6 @@
 'use client';
 
-import { Download, Github, ArrowRight, LogOut, User } from 'lucide-react';
+import { Download, ArrowRight, LogOut, User } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ThemeToggle } from './ThemeToggle';
@@ -8,12 +8,16 @@ import { MotionLogo } from './MotionLogo';
 import { selectIsAuthenticated, useAuthStore } from '@/stores/auth-store';
 
 /**
- * Slim app header: logo + GitHub link + Sign in / account control.
+ * Slim app header: logo + Download link + Sign in / account control.
  *
  * The single-screen app does not have marketing nav — the page itself
  * IS the call to action. We keep just enough chrome to identify the
- * product and give a user a way back into their account. When signed
- * in, the Sign-in pill flips to a Sign-out pill with the user initial.
+ * product, point users at the desktop download, and give them a way
+ * back into their account. When signed in, the Sign-in pill flips to
+ * a Sign-out pill with the user initial.
+ *
+ * The repo is private; we don't link out to GitHub. Source access is
+ * granted per-account by IT, never via a public URL on the site.
  *
  * Auth state comes from `useAuthStore` (zustand), populated by
  * `/login` and `/signup` via `/api/auth/*`. The store hydrates from
@@ -49,16 +53,6 @@ export function Header() {
             <Download className="h-4 w-4" />
             <span className="hidden sm:inline">Download</span>
           </Link>
-          <a
-            href="https://github.com/stonyp90/motion"
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-text-primary"
-            aria-label="GitHub repository"
-          >
-            <Github className="h-4 w-4" />
-            <span className="hidden sm:inline">GitHub</span>
-          </a>
           <div className="mx-1 h-5 w-px bg-border-light" aria-hidden />
           {hydrated && isAuthenticated ? (
             <button

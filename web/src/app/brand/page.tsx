@@ -23,7 +23,6 @@ import Link from 'next/link';
 import {
   ArrowRight,
   Check,
-  Github,
   Loader2,
   Mic,
   Sparkles,
@@ -79,16 +78,6 @@ function BrandHeader() {
 
         <div className="flex items-center gap-2">
           <ThemeToggle />
-          <a
-            href="https://github.com/stonyp90/motion"
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-text-secondary motion-hover hover:bg-bg-tertiary hover:text-text-primary"
-            aria-label="GitHub repository"
-          >
-            <Github className="h-4 w-4" />
-            <span className="hidden sm:inline">Source</span>
-          </a>
         </div>
       </div>
     </header>
