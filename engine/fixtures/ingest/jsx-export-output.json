@@ -1,0 +1,41 @@
+{
+  "composition_width": 1920,
+  "composition_height": 1080,
+  "duration_seconds": 4.0,
+  "frame_rate": 30.0,
+  "background_hex": [16, 18, 32],
+  "shots": [
+    {
+      "start_seconds": 0,
+      "duration_seconds": 4.0,
+      "description": "Exported from After Effects via motion-forge-export.jsx",
+      "layers": [
+        {
+          "name": "title",
+          "kind": "Text",
+          "fill_hex": null,
+          "stroke_hex": null,
+          "text": "Motion-Forge",
+          "keyframes": [
+            {
+              "time_seconds": 0,
+              "position": [960, 540],
+              "size": [100, 100],
+              "rotation_degrees": 0,
+              "opacity": 0,
+              "easing_label": "Standard"
+            },
+            {
+              "time_seconds": 1.5,
+              "position": [960, 540],
+              "size": [100, 100],
+              "rotation_degrees": 0,
+              "opacity": 1,
+              "easing_label": "Standard"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -14,11 +14,12 @@
 use anyhow::Result;
 use axum::{
     Json, Router,
-    extract::State,
+    extract::{Multipart, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
+use motion_forge_ingest::{SourceFormat, detect as ingest_detect, ingest as ingest_bytes};
 use motion_forge_pipeline::{Composition, GenerateConfig, IterateConfig, Pipeline};
 use motion_forge_style_extract::Theme;
 use serde::{Deserialize, Serialize};
@@ -41,6 +42,7 @@ pub async fn serve(bind: &str) -> Result<()> {
         .route("/themes", get(themes))
         .route("/generate", post(generate))
         .route("/iterate", post(iterate))
+        .route("/v1/ingest", post(ingest))
         .layer(tower_http::cors::CorsLayer::permissive())
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state);
@@ -223,6 +225,72 @@ async fn iterate(
     }))
 }
 
+/// POST /v1/ingest — multipart upload of any supported source format.
+///
+/// Form fields:
+/// - `format` (optional, text): one of `lottie`, `bodymovin`, `dot-lottie`,
+///   `rive`, `dragon-bones`, `after-effects-jsx`, `mo-grt`. When omitted,
+///   the server sniffs the bytes.
+/// - `file` (required, file/bytes): the source asset.
+///
+/// Response: the normalized [`Composition`] as JSON.
+async fn ingest(
+    State(_state): State<AppState>,
+    mut multipart: Multipart,
+) -> Result<Json<motion_forge_ingest::Composition>, ApiError> {
+    let mut explicit_format: Option<SourceFormat> = None;
+    let mut bytes: Option<Vec<u8>> = None;
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| ApiError::bad_request(format!("multipart: {e}")))?
+    {
+        match field.name() {
+            Some("format") => {
+                let s = field
+                    .text()
+                    .await
+                    .map_err(|e| ApiError::bad_request(format!("format field: {e}")))?;
+                explicit_format = parse_format(&s)
+                    .ok_or_else(|| ApiError::bad_request(format!("unknown format: {s}")))
+                    .map(Some)?;
+            }
+            Some("file") => {
+                let data = field
+                    .bytes()
+                    .await
+                    .map_err(|e| ApiError::bad_request(format!("file field: {e}")))?;
+                bytes = Some(data.to_vec());
+            }
+            _ => { /* ignore unknown fields */ }
+        }
+    }
+    let bytes = bytes.ok_or_else(|| ApiError::bad_request("missing \"file\" field"))?;
+    let format = match explicit_format {
+        Some(f) => f,
+        None => ingest_detect(&bytes).ok_or_else(|| {
+            ApiError::bad_request("unable to auto-detect format; pass explicit \"format\" field")
+        })?,
+    };
+    let comp = ingest_bytes(format, &bytes)
+        .await
+        .map_err(ApiError::internal)?;
+    Ok(Json(comp))
+}
+
+fn parse_format(s: &str) -> Option<SourceFormat> {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "lottie" => Some(SourceFormat::Lottie),
+        "bodymovin" => Some(SourceFormat::Bodymovin),
+        "dot-lottie" | "dotlottie" => Some(SourceFormat::DotLottie),
+        "rive" => Some(SourceFormat::Rive),
+        "dragon-bones" | "dragonbones" => Some(SourceFormat::DragonBones),
+        "after-effects-jsx" | "ae-jsx" | "jsx" => Some(SourceFormat::AfterEffectsJsx),
+        "mo-grt" | "mogrt" => Some(SourceFormat::MoGRT),
+        _ => None,
+    }
+}
+
 // ---- types ----
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -393,6 +461,41 @@ const OPENAPI_JSON: &str = r##"{
           }
         }
       }
+    },
+    "/v1/ingest": {
+      "post": {
+        "summary": "Import a third-party motion-design file into motion-forge's internal Composition",
+        "description": "Accepts Lottie, Bodymovin, dotLottie, Rive (text JSON only), DragonBones, After Effects JSX-export JSON, or Premiere Pro MoGRT. The server sniffs the format from magic bytes if the `format` field is omitted.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": ["file"],
+                "properties": {
+                  "format": {
+                    "type": "string",
+                    "enum": ["lottie", "bodymovin", "dot-lottie", "rive", "dragon-bones", "after-effects-jsx", "mo-grt"]
+                  },
+                  "file": { "type": "string", "format": "binary" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Normalized Composition (Lottie-shaped timeline)",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object" }
+              }
+            }
+          },
+          "400": { "description": "Bad request — unknown format or missing file" }
+        }
+      }
     }
   },
   "components": {
@@ -498,6 +601,16 @@ mod tests {
         assert!(v["paths"]["/generate"].is_object());
         assert!(v["paths"]["/iterate"].is_object());
         assert!(v["paths"]["/themes"].is_object());
+        assert!(v["paths"]["/v1/ingest"].is_object());
+    }
+
+    #[test]
+    fn parse_format_accepts_kebab_and_compact() {
+        assert_eq!(parse_format("lottie"), Some(SourceFormat::Lottie));
+        assert_eq!(parse_format("dot-lottie"), Some(SourceFormat::DotLottie));
+        assert_eq!(parse_format("dotlottie"), Some(SourceFormat::DotLottie));
+        assert_eq!(parse_format("MOGRT"), Some(SourceFormat::MoGRT));
+        assert_eq!(parse_format("nope"), None);
     }
 
     #[tokio::test]
@@ -515,6 +628,7 @@ mod tests {
             .route("/themes", get(themes))
             .route("/generate", post(generate))
             .route("/iterate", post(iterate))
+            .route("/v1/ingest", post(ingest))
             .with_state(state);
 
         let server = tokio::spawn(async move {

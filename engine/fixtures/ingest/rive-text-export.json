@@ -1,0 +1,33 @@
+{
+  "artboards": [
+    {
+      "name": "Main",
+      "width": 800,
+      "height": 600,
+      "color": "#101820",
+      "animations": [
+        { "name": "idle", "fps": 60, "duration": 120 }
+      ],
+      "children": [
+        {
+          "type": "Rectangle",
+          "name": "hero",
+          "x": 100,
+          "y": 200,
+          "width": 50,
+          "height": 50,
+          "fill": "#10b981"
+        },
+        {
+          "type": "Ellipse",
+          "name": "dot",
+          "x": 400,
+          "y": 300,
+          "width": 20,
+          "height": 20,
+          "fill": { "r": 1.0, "g": 0.5, "b": 0.0, "a": 1.0 }
+        }
+      ]
+    }
+  ]
+}
