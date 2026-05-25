@@ -126,16 +126,6 @@ const config: Config = {
           dark: 'var(--color-border-dark)',
           hover: 'hsl(var(--border-hover) / <alpha-value>)',
         },
-        editor: {
-          bg: 'var(--color-editor-bg)',
-          panel: 'var(--color-editor-panel)',
-          toolbar: 'var(--color-editor-toolbar)',
-          border: 'var(--color-editor-border)',
-          text: 'var(--color-editor-text)',
-          muted: 'var(--color-editor-muted)',
-          accent: 'var(--color-editor-accent)',
-          selection: 'var(--color-editor-selection)',
-        },
       },
       fontSize: {
         // Two named small sizes so components stop reaching for
