@@ -800,3 +800,5 @@ output managedIdentityClientId string = managedIdentity.properties.clientId
 output openAiEndpoint string = enableOpenAi ? openAi.properties.endpoint : ''
 output keyVaultUri string = keyVault.properties.vaultUri
 output workspaceId string = workspace.id
+
+// e2e-verify-1748102400
