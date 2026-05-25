@@ -6,6 +6,7 @@
 //! - `GET  /themes`           — list bundled themes
 //! - `POST /generate`         — run the full pipeline on a reference video
 //! - `POST /iterate`          — re-prompt against an existing work-dir
+//! - `POST /v1/figma/import`  — pull a Figma frame as a character / scene
 //!
 //! The server is single-binary, single-tenant, local-first. Designed to
 //! sit behind a desktop UI that lets users iterate verbally or by prompt
@@ -19,6 +20,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
+use motion_forge_figma::{ImportKind, fetch_frame, parse_figma_url, to_lottie_layer};
 use motion_forge_pipeline::{Composition, GenerateConfig, IterateConfig, Pipeline};
 use motion_forge_style_extract::Theme;
 use serde::{Deserialize, Serialize};
@@ -41,6 +43,7 @@ pub async fn serve(bind: &str) -> Result<()> {
         .route("/themes", get(themes))
         .route("/generate", post(generate))
         .route("/iterate", post(iterate))
+        .route("/v1/figma/import", post(figma_import))
         .layer(tower_http::cors::CorsLayer::permissive())
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state);
@@ -223,6 +226,37 @@ async fn iterate(
     }))
 }
 
+async fn figma_import(
+    State(_state): State<AppState>,
+    Json(req): Json<FigmaImportRequest>,
+) -> Result<Json<FigmaImportResponse>, ApiError> {
+    if req.figma_token.trim().is_empty() {
+        return Err(ApiError::bad_request("figma_token is empty"));
+    }
+    let parsed = parse_figma_url(&req.file_url).map_err(ApiError::bad_request)?;
+    let node_id = req
+        .node_id
+        .clone()
+        .or_else(|| parsed.node_id.clone())
+        .ok_or_else(|| ApiError::bad_request("node_id missing (not in URL, not in body)"))?;
+    let node = fetch_frame(&parsed.file_key, &node_id, &req.figma_token)
+        .await
+        .map_err(ApiError::internal)?;
+    let converted = to_lottie_layer(&node);
+    let warnings: Vec<String> = converted
+        .warnings
+        .iter()
+        .map(|w| format!("{}: {}", w.node_id, w.message))
+        .collect();
+    Ok(Json(FigmaImportResponse {
+        file_key: parsed.file_key,
+        node_id,
+        kind: req.kind,
+        layer: converted.layer,
+        warnings,
+    }))
+}
+
 // ---- types ----
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -265,6 +299,30 @@ pub struct GenerateResponse {
 #[derive(Debug, Serialize)]
 pub struct ThemesResponse {
     pub themes: Vec<ThemeEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FigmaImportRequest {
+    /// Share URL — accepts `/file/` or `/design/` or `/proto/` shapes.
+    pub file_url: String,
+    /// Optional override; falls back to the `node-id` query param in `file_url`.
+    #[serde(default)]
+    pub node_id: Option<String>,
+    /// Sprite vs. background.
+    pub kind: ImportKind,
+    /// User-scoped Figma personal-access token. Per the task brief this
+    /// is request-body for now; later moves to a Keycloak realm secret.
+    pub figma_token: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FigmaImportResponse {
+    pub file_key: String,
+    pub node_id: String,
+    pub kind: ImportKind,
+    /// The converted Lottie layer (ready to slot into a composition).
+    pub layer: serde_json::Value,
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -393,6 +451,29 @@ const OPENAPI_JSON: &str = r##"{
           }
         }
       }
+    },
+    "/v1/figma/import": {
+      "post": {
+        "summary": "Import a Figma frame as a character sprite or scene background",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/FigmaImportRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Converted Lottie layer plus any non-fatal conversion warnings",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/FigmaImportResponse" }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -462,6 +543,27 @@ const OPENAPI_JSON: &str = r##"{
             "items": { "$ref": "#/components/schemas/ThemeEntry" }
           }
         }
+      },
+      "FigmaImportRequest": {
+        "type": "object",
+        "required": ["file_url", "kind", "figma_token"],
+        "properties": {
+          "file_url": { "type": "string", "description": "Share URL (/file/, /design/, or /proto/)." },
+          "node_id": { "type": ["string", "null"], "description": "Optional override; falls back to the URL's node-id." },
+          "kind": { "type": "string", "enum": ["character", "scene"] },
+          "figma_token": { "type": "string", "description": "User-scoped Figma PAT. Transport: request body (Phase 2: realm secret)." }
+        }
+      },
+      "FigmaImportResponse": {
+        "type": "object",
+        "required": ["file_key", "node_id", "kind", "layer", "warnings"],
+        "properties": {
+          "file_key": { "type": "string" },
+          "node_id": { "type": "string" },
+          "kind": { "type": "string", "enum": ["character", "scene"] },
+          "layer": { "type": "object", "description": "Converted Lottie layer." },
+          "warnings": { "type": "array", "items": { "type": "string" } }
+        }
       }
     }
   }
@@ -498,6 +600,8 @@ mod tests {
         assert!(v["paths"]["/generate"].is_object());
         assert!(v["paths"]["/iterate"].is_object());
         assert!(v["paths"]["/themes"].is_object());
+        assert!(v["paths"]["/v1/figma/import"].is_object());
+        assert!(v["components"]["schemas"]["FigmaImportRequest"].is_object());
     }
 
     #[tokio::test]
@@ -515,6 +619,7 @@ mod tests {
             .route("/themes", get(themes))
             .route("/generate", post(generate))
             .route("/iterate", post(iterate))
+            .route("/v1/figma/import", post(figma_import))
             .with_state(state);
 
         let server = tokio::spawn(async move {

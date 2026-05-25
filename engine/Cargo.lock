@@ -1050,6 +1050,7 @@ dependencies = [
  "anyhow",
  "clap",
  "motion-forge-decompose",
+ "motion-forge-figma",
  "motion-forge-http",
  "motion-forge-lottie-gen",
  "motion-forge-pipeline",
@@ -1079,11 +1080,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "motion-forge-figma"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "motion-forge-http"
 version = "0.0.1"
 dependencies = [
  "anyhow",
  "axum",
+ "motion-forge-figma",
  "motion-forge-pipeline",
  "motion-forge-prompt-orchestrator",
  "motion-forge-style-extract",

@@ -182,6 +182,34 @@ enum Command {
         #[arg(long, default_value = "127.0.0.1:7755")]
         bind: String,
     },
+
+    /// Figma ingest commands (import a frame as a character or scene).
+    Figma {
+        #[command(subcommand)]
+        sub: FigmaSub,
+    },
+}
+
+#[derive(Subcommand)]
+enum FigmaSub {
+    /// Import a Figma frame as a character sprite or scene background.
+    Import {
+        /// Figma share URL — accepts /file/, /design/, or /proto/ shapes.
+        #[arg(long)]
+        url: String,
+        /// Optional node id override; falls back to the URL's `node-id` param.
+        #[arg(long)]
+        node_id: Option<String>,
+        /// `character` (sprite) or `scene` (background).
+        #[arg(long, default_value = "character")]
+        kind: String,
+        /// Figma personal-access token. Reads `FIGMA_TOKEN` env if omitted.
+        #[arg(long, env = "FIGMA_TOKEN")]
+        token: String,
+        /// Where to write the converted Lottie layer JSON.
+        #[arg(long)]
+        out: PathBuf,
+    },
 }
 
 #[tokio::main]
@@ -318,6 +346,15 @@ async fn main() -> Result<()> {
         }),
         Command::Themes => cmd_themes(),
         Command::Serve { bind } => motion_forge_http::serve(&bind).await,
+        Command::Figma { sub } => match sub {
+            FigmaSub::Import {
+                url,
+                node_id,
+                kind,
+                token,
+                out,
+            } => cmd_figma_import(url, node_id, kind, token, out).await,
+        },
     }
 }
 
@@ -718,6 +755,62 @@ fn cmd_themes() -> Result<()> {
                 t.description
             ),
             Err(e) => println!("  {slug:<14} (failed to load: {e})"),
+        }
+    }
+    Ok(())
+}
+
+async fn cmd_figma_import(
+    url: String,
+    node_id_override: Option<String>,
+    kind: String,
+    token: String,
+    out: PathBuf,
+) -> Result<()> {
+    use motion_forge_figma::{ImportKind, fetch_frame, parse_figma_url, to_lottie_layer};
+
+    let parsed = parse_figma_url(&url).with_context(|| format!("parsing Figma URL {url}"))?;
+    let node_id = node_id_override
+        .or(parsed.node_id.clone())
+        .ok_or_else(|| anyhow::anyhow!("no --node-id provided and URL has no node-id param"))?;
+    let import_kind = match kind.to_ascii_lowercase().as_str() {
+        "character" | "sprite" => ImportKind::Character,
+        "scene" | "background" => ImportKind::Scene,
+        other => anyhow::bail!("--kind must be `character` or `scene`, got {other:?}"),
+    };
+    tracing::info!(
+        file_key = %parsed.file_key,
+        node_id = %node_id,
+        kind = ?import_kind,
+        "figma: fetching frame"
+    );
+    let node = fetch_frame(&parsed.file_key, &node_id, &token).await?;
+    let converted = to_lottie_layer(&node);
+    let envelope = serde_json::json!({
+        "file_key": parsed.file_key,
+        "node_id": node_id,
+        "kind": match import_kind {
+            ImportKind::Character => "character",
+            ImportKind::Scene => "scene",
+        },
+        "source_name": node.name,
+        "source_type": node.node_type,
+        "layer": converted.layer,
+        "warnings": converted.warnings,
+    });
+    if let Some(parent) = out.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    std::fs::write(&out, serde_json::to_string_pretty(&envelope)?)
+        .with_context(|| format!("writing {}", out.display()))?;
+    tracing::info!(
+        out = %out.display(),
+        warnings = converted.warnings.len(),
+        "figma: layer written"
+    );
+    if !converted.warnings.is_empty() {
+        for w in &converted.warnings {
+            tracing::warn!(node = %w.node_id, kind = ?w.kind, "{}", w.message);
         }
     }
     Ok(())
