@@ -6,21 +6,11 @@ import type { ReactNode } from 'react';
 /**
  * motion-forge brand logo.
  *
- * Icon — three rounded rectangles cascading horizontally with an opacity
- * trail. Reads as "frames in flight, time moving left → right". The mark
- * deliberately differs from sibling Tablix's diagonal down-right stack
- * (data-in-space) to mean animation-in-time:
- *
- *   Tablix:                 motion:
- *     ┌──┐                    ┌──┐
- *     │  └─┐                  │░░│
- *     └─┐  └─┐                ├──┤
- *       │    │                │▒▒│
- *       └────┘                ├──┤
- *                             │██│
- *                             └──┘
- *     diag down-right         horizontal trail
- *     (3 hunter greens)       (1 emerald + opacity)
+ * Icon — three rounded squares cascading horizontally with three distinct
+ * accent stops (deepest at the leading edge, palest trailing). Reads as
+ * "frames in flight, time moving left → right". Sibling Tablix uses the
+ * same 3-stop family logic but with a diagonal stack (data-in-space);
+ * motion's is horizontal (animation-in-time).
  *
  * Wordmark — "motion-forge" rendered with two custom typographic details:
  *   1. the 'i' is replaced with dotless `ı` and a brand-colored *square*
@@ -29,7 +19,7 @@ import type { ReactNode } from 'react';
  *      so the inter-word break reads as a brand mark rather than a dash
  *
  * The square-dot trick is borrowed from Tablix; the cascade geometry,
- * color palette, and the hyphen-as-square treatment are motion's own.
+ * color stops, and the hyphen-as-square treatment are motion's own.
  */
 
 type Size = 'sm' | 'md' | 'lg';
@@ -48,12 +38,12 @@ interface MotionLogoProps {
   className?: string;
 }
 
-/* Side-by-side sizes. Icon width is derived from height × 1.43 to keep
-   the cascade aspect ratio constant across sizes. */
+/* Side-by-side sizes. Icon width is derived from height × 1.5714 to keep
+   the cascade aspect ratio constant across sizes (44/28 viewBox). */
 const SIZES: Record<Size, { icon: number; text: string; gap: string }> = {
-  sm: { icon: 22, text: 'text-sm',   gap: 'gap-2'   },
-  md: { icon: 28, text: 'text-base', gap: 'gap-2.5' },
-  lg: { icon: 40, text: 'text-xl',   gap: 'gap-3'   },
+  sm: { icon: 24, text: 'text-[15px]', gap: 'gap-2'    },
+  md: { icon: 28, text: 'text-[18px]', gap: 'gap-2.5'  },
+  lg: { icon: 40, text: 'text-2xl',    gap: 'gap-3'    },
 };
 
 export function MotionLogo({
@@ -70,7 +60,7 @@ export function MotionLogo({
       <MotionMark size={s.icon} />
       {wordmark && (
         <span
-          className={`${s.text} font-semibold tracking-tight text-text-primary`}
+          className={`${s.text} font-bold tracking-tight text-text-primary`}
         >
           <Wordmark text={wordmark} />
         </span>
@@ -93,11 +83,13 @@ export function MotionLogo({
  * utilities and the dark-mode flip via `dark:`.
  *
  * Layout: viewBox 44x28. Rects are 20x20 at y=4, offset x=0/9/18, so
- * they overlap by ~11px each (a hair more than half). Opacity climbs
- * left → right: 0.30 / 0.55 / 1.00.
+ * they overlap by ~11px each (a hair more than half). Color depth climbs
+ * left → right: pale accent → brand emerald → deep emerald. Three solid
+ * stops (no opacity) so each frame reads cleanly on light AND dark.
  *
- * Dark-mode: switches to the brighter accent-400 stop so the trail
- * stays readable on the soft-black surfaces.
+ * Dark-mode: the deep stop would muddle into the soft-black surface, so
+ * we invert the gradient — palest at the back, brightest at the front —
+ * to keep the leading frame as the visual anchor.
  */
 function MotionMark({ size }: { size: number }) {
   // 44/28 aspect ratio
@@ -118,7 +110,7 @@ function MotionMark({ size }: { size: number }) {
         width="20"
         height="20"
         rx="5"
-        className="fill-accent-500/30 dark:fill-accent-400/30"
+        className="fill-accent-300 dark:fill-accent-700"
       />
       <rect
         x="9"
@@ -126,7 +118,7 @@ function MotionMark({ size }: { size: number }) {
         width="20"
         height="20"
         rx="5"
-        className="fill-accent-500/55 dark:fill-accent-400/55"
+        className="fill-accent-500 dark:fill-accent-500"
       />
       <rect
         x="18"
@@ -134,7 +126,7 @@ function MotionMark({ size }: { size: number }) {
         width="20"
         height="20"
         rx="5"
-        className="fill-accent-500 dark:fill-accent-400"
+        className="fill-accent-700 dark:fill-accent-300"
       />
     </svg>
   );
@@ -186,7 +178,7 @@ function renderDottedI(seg: string): ReactNode {
       <span className="relative">
         <span
           aria-hidden
-          className="absolute bg-accent-500 dark:bg-accent-400"
+          className="absolute bg-accent-700 dark:bg-accent-300"
           style={{
             left: '50%',
             transform: 'translateX(-50%)',
@@ -216,7 +208,7 @@ function SquareDot({ inline = false }: { inline?: boolean }) {
     return (
       <span
         aria-hidden
-        className="inline-block bg-accent-500 dark:bg-accent-400"
+        className="inline-block bg-accent-700 dark:bg-accent-300"
         style={{
           width: '0.18em',
           height: '0.18em',
@@ -228,7 +220,7 @@ function SquareDot({ inline = false }: { inline?: boolean }) {
   return (
     <span
       aria-hidden
-      className="inline-block bg-accent-500 dark:bg-accent-400"
+      className="inline-block bg-accent-700 dark:bg-accent-300"
       style={{
         width: '0.20em',
         height: '0.20em',

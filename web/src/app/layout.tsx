@@ -1,6 +1,18 @@
 import type { Metadata } from 'next';
+import { Inter } from 'next/font/google';
 import { ThemeProvider } from '@/components/ThemeProvider';
+import { AuthSessionProvider } from '@/components/AuthSessionProvider';
 import './globals.css';
+
+// Inter — modern neutral sans, OpenType variable, broad weight coverage.
+// We wire it through CSS var --font-sans (set in tailwind.config.ts) so
+// every utility class that resolves to var(--font-sans) — body text,
+// .h-display, .h-section, headings, buttons — picks it up automatically.
+const inter = Inter({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-sans',
+});
 
 // FOUC guard: set data-theme on <html> before React hydrates, based on
 // localStorage `mf-theme` (`light` | `dark` | `system`) → falls through
@@ -36,12 +48,14 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className={inter.variable} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeFoucScript }} />
       </head>
       <body>
-        <ThemeProvider>{children}</ThemeProvider>
+        <AuthSessionProvider>
+          <ThemeProvider>{children}</ThemeProvider>
+        </AuthSessionProvider>
       </body>
     </html>
   );

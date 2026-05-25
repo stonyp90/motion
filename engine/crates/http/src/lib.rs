@@ -89,8 +89,12 @@ pub async fn serve(bind: &str) -> Result<()> {
         .route("/v1/brief/parse", post(brief_parse))
         .route("/v1/brief/synth", post(brief_synth))
         .route("/v1/web-export/:format", post(web_export_handler))
+        .route("/v1/uploads", post(upload_handler))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(
-            32 * 1024 * 1024,
+            // 256 MiB — large enough for a typical reference video
+            // (a 60-second 4K H.264 clip lands ~80 MB) without
+            // letting a runaway upload chew all process RAM.
+            256 * 1024 * 1024,
         ))
         .layer(auth_layer)
         .layer(tower_http::cors::CorsLayer::permissive())
@@ -330,6 +334,131 @@ async fn web_export_handler(
         HeaderValue::from_str(&disposition).unwrap_or_else(|_| HeaderValue::from_static("inline")),
     );
     Ok((StatusCode::OK, headers, payload).into_response())
+}
+
+// ---- uploads ----
+
+/// Accepts a multipart upload of one or more reference assets (video,
+/// still image stacks, brief documents). Each file is dropped into a
+/// per-session work-dir under `$MOTION_FORGE_UPLOAD_DIR` (defaults to
+/// the system temp dir). Returns a JSON manifest of server-side paths
+/// the caller can then pass to `/v1/generate` as `reference_video` or
+/// in the (future) `reference_images` field.
+async fn upload_handler(
+    mut multipart: axum::extract::Multipart,
+) -> Result<Json<UploadResponse>, ApiError> {
+    let base = std::env::var("MOTION_FORGE_UPLOAD_DIR")
+        .ok()
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    let session = format!("mf-upload-{}", short_id());
+    let dir = base.join(&session);
+    std::fs::create_dir_all(&dir).map_err(ApiError::internal)?;
+
+    let mut files: Vec<UploadedFile> = Vec::new();
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| ApiError::bad_request(format!("multipart parse: {e}")))?
+    {
+        let original_name = field.file_name().map(str::to_owned);
+        let content_type = field.content_type().map(str::to_owned);
+        let bytes = field
+            .bytes()
+            .await
+            .map_err(|e| ApiError::bad_request(format!("read field: {e}")))?;
+        if bytes.is_empty() {
+            continue;
+        }
+        // Sanitise: keep extension only, generate a fresh filename.
+        let ext = original_name
+            .as_deref()
+            .and_then(|n| std::path::Path::new(n).extension())
+            .and_then(|e| e.to_str())
+            .unwrap_or("bin")
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .take(8)
+            .collect::<String>();
+        let filename = format!("{}.{}", short_id(), if ext.is_empty() { "bin".into() } else { ext });
+        let path = dir.join(&filename);
+        std::fs::write(&path, &bytes).map_err(ApiError::internal)?;
+        let kind = classify(content_type.as_deref(), &filename);
+        files.push(UploadedFile {
+            kind,
+            path: path.display().to_string(),
+            original_name,
+            content_type,
+            bytes: bytes.len() as u64,
+        });
+    }
+
+    if files.is_empty() {
+        return Err(ApiError::bad_request("no files received".to_string()));
+    }
+
+    Ok(Json(UploadResponse {
+        session,
+        work_dir: dir.display().to_string(),
+        files,
+    }))
+}
+
+fn classify(content_type: Option<&str>, filename: &str) -> String {
+    let ct = content_type.unwrap_or("");
+    let lower = filename.to_ascii_lowercase();
+    if ct.starts_with("video/")
+        || lower.ends_with(".mp4")
+        || lower.ends_with(".mov")
+        || lower.ends_with(".webm")
+        || lower.ends_with(".mkv")
+    {
+        "video".into()
+    } else if ct.starts_with("image/")
+        || lower.ends_with(".png")
+        || lower.ends_with(".jpg")
+        || lower.ends_with(".jpeg")
+        || lower.ends_with(".gif")
+        || lower.ends_with(".webp")
+    {
+        "image".into()
+    } else if ct.starts_with("audio/")
+        || lower.ends_with(".wav")
+        || lower.ends_with(".mp3")
+        || lower.ends_with(".ogg")
+    {
+        "audio".into()
+    } else if ct.starts_with("text/")
+        || lower.ends_with(".txt")
+        || lower.ends_with(".md")
+        || lower.ends_with(".json")
+    {
+        "text".into()
+    } else {
+        "binary".into()
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UploadResponse {
+    /// Opaque session id (folder name under the upload root).
+    pub session: String,
+    /// Absolute path of the per-session work-dir on the server.
+    pub work_dir: String,
+    pub files: Vec<UploadedFile>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UploadedFile {
+    /// One of: `video`, `image`, `audio`, `text`, `binary`.
+    pub kind: String,
+    /// Absolute path of the sanitised file on the server. Pass this
+    /// straight back to `/v1/generate` as `reference_video` (or, when
+    /// the field lands, `reference_images: [...]`).
+    pub path: String,
+    pub original_name: Option<String>,
+    pub content_type: Option<String>,
+    pub bytes: u64,
 }
 
 // ---- brief intake (W4) ----

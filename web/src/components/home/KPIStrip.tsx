@@ -43,12 +43,12 @@ export function KPIStrip() {
               <dt className="font-mono text-xs font-medium uppercase tracking-[0.14em] text-text-tertiary">
                 {kpi.label}
               </dt>
-              <dd className="flex items-baseline gap-1 text-4xl font-semibold tracking-tight text-text-primary tabular-nums sm:text-5xl">
+              <dd className="flex items-baseline gap-1.5 text-4xl font-bold text-text-primary tabular-nums sm:text-5xl" style={{ letterSpacing: '-0.025em' }}>
                 {kpi.value}
                 {/* Tablix-signature trailing square dot — emerald accent. */}
                 <span
                   aria-hidden="true"
-                  className="inline-block h-1.5 w-1.5 rounded-[1px] bg-accent-500"
+                  className="inline-block h-2 w-2 rounded-[2px] bg-accent-600 dark:bg-accent-400"
                 />
               </dd>
               <dd className="text-sm leading-snug text-text-secondary">

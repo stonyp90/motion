@@ -96,18 +96,21 @@
 
 @layer components {
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 rounded-full bg-primary-900 px-6 py-3
-           text-sm font-semibold text-text-inverse shadow-card transition
-           hover:bg-primary-800 hover:shadow-lift focus-visible:ring-2 focus-visible:ring-accent-500;
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-primary-900 px-7 py-3
+           text-[15px] font-semibold tracking-[-0.005em] text-text-inverse shadow-card transition-all duration-200
+           hover:-translate-y-px hover:bg-primary-800 hover:shadow-lift
+           active:translate-y-0 active:shadow-card
+           focus-visible:ring-2 focus-visible:ring-accent-500;
   }
   .btn-accent {
-    @apply inline-flex items-center justify-center gap-2 rounded-full bg-accent-700 px-6 py-3
-           text-sm font-semibold text-white shadow-card transition
-           hover:bg-accent-800 hover:shadow-glow;
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-accent-700 px-7 py-3
+           text-[15px] font-semibold tracking-[-0.005em] text-white shadow-card transition-all duration-200
+           hover:-translate-y-px hover:bg-accent-800 hover:shadow-glow
+           active:translate-y-0 active:shadow-card;
   }
   .btn-ghost {
     @apply inline-flex items-center justify-center gap-2 rounded-full border border-border
-           px-6 py-3 text-sm font-semibold text-text-primary transition
+           px-7 py-3 text-[15px] font-semibold tracking-[-0.005em] text-text-primary transition-all duration-200
            hover:bg-bg-tertiary hover:border-border-dark;
   }
   .chip {
@@ -121,12 +124,17 @@
     @apply py-14 sm:py-16 lg:py-20;
   }
   .h-display {
-    @apply text-4xl font-semibold tracking-tight text-text-primary sm:text-5xl lg:text-6xl;
-    letter-spacing: -0.025em;
+    @apply text-4xl font-bold text-text-primary sm:text-5xl lg:text-[68px] lg:leading-[1.05];
+    letter-spacing: -0.03em;
+    /* CSS Text Module Level 4 — lets the browser pick balanced line breaks
+       so the hero never orphans a single short word. Falls back to normal
+       wrapping in older browsers. */
+    text-wrap: balance;
   }
   .h-section {
-    @apply text-3xl font-semibold tracking-tight text-text-primary sm:text-4xl;
-    letter-spacing: -0.02em;
+    @apply text-3xl font-bold text-text-primary sm:text-4xl lg:text-[44px];
+    letter-spacing: -0.022em;
+    text-wrap: balance;
   }
   .eyebrow {
     @apply text-xs font-semibold uppercase tracking-[0.18em] text-text-accent;

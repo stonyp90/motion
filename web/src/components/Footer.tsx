@@ -9,20 +9,21 @@ export function Footer() {
   const year = new Date().getFullYear();
   return (
     <footer className="border-t border-border-light bg-bg-secondary">
-      <div className="container flex flex-col gap-3 py-5 text-xs text-text-tertiary sm:flex-row sm:items-center sm:justify-between">
+      <div className="container flex flex-col gap-4 py-6 text-[13px] text-text-tertiary sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2.5">
           <MotionLogo size="sm" />
-          <span>· © {year}</span>
+          <span aria-hidden>·</span>
+          <span>© {year}</span>
         </div>
 
-        <nav className="flex items-center gap-5" aria-label="Footer">
-          <a href="/privacy" className="hover:text-text-primary">
+        <nav className="flex items-center gap-6" aria-label="Footer">
+          <a href="/privacy" className="transition-colors hover:text-text-primary">
             Privacy
           </a>
-          <a href="/terms" className="hover:text-text-primary">
+          <a href="/terms" className="transition-colors hover:text-text-primary">
             Terms
           </a>
-          <a href="mailto:hello@motion-forge.io" className="hover:text-text-primary">
+          <a href="mailto:hello@motion-forge.io" className="transition-colors hover:text-text-primary">
             Contact
           </a>
         </nav>
