@@ -19,11 +19,13 @@ pub mod stt_route;
 use anyhow::Result;
 use axum::{
     Json, Router,
+    body::Bytes,
     extract::{Path, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
+use motion_forge_render::OutputFormat;
 use motion_forge_figma::{ImportKind, fetch_frame, parse_figma_url, to_lottie_layer};
 use motion_forge_pipeline::{Composition, GenerateConfig, IterateConfig, Pipeline};
 use motion_forge_prompt_orchestrator::{
@@ -89,7 +91,9 @@ pub async fn serve(bind: &str) -> Result<()> {
         .route("/v1/brief/parse", post(brief_parse))
         .route("/v1/brief/synth", post(brief_synth))
         .route("/v1/web-export/:format", post(web_export_handler))
+        .route("/v1/export/:format", post(binary_export_handler))
         .route("/v1/uploads", post(upload_handler))
+        .route("/v1/metrics", get(metrics_handler))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(
             // 256 MiB — large enough for a typical reference video
             // (a 60-second 4K H.264 clip lands ~80 MB) without
@@ -343,6 +347,226 @@ async fn web_export_handler(
         HeaderValue::from_str(&disposition).unwrap_or_else(|_| HeaderValue::from_static("inline")),
     );
     Ok((StatusCode::OK, headers, payload).into_response())
+}
+
+// ---- binary export (Lottie → MP4 / MOV / WebM / GIF / etc.) ----
+
+/// Accepts a Lottie JSON body and renders it through the python
+/// lottie sidecar + ffmpeg transcode to the requested binary
+/// container (mp4, mov, webm, webm-av1, gif, webp, apng, lottie,
+/// dotlottie, svg). Returns the encoded bytes inline with the right
+/// Content-Type and a Content-Disposition so curl -OJ writes
+/// `motion.<ext>` straight to disk.
+async fn binary_export_handler(
+    Path(format): Path<String>,
+    body: Bytes,
+) -> Result<Response, ApiError> {
+    use motion_forge_render::python_sidecar_adapter::PythonLottieRenderer;
+    use motion_forge_render::{RenderConfig, render_to_format};
+
+    let fmt = OutputFormat::from_str(&format)
+        .map_err(|_| ApiError::bad_request(format!("unknown format `{format}`")))?;
+
+    // 1. Stash the Lottie body to a scratch file (the renderer expects a path).
+    let scratch = std::env::temp_dir().join(format!("mf-export-{}", short_id()));
+    std::fs::create_dir_all(&scratch).map_err(ApiError::internal)?;
+    let lottie_path = scratch.join("input.lottie.json");
+    std::fs::write(&lottie_path, &body).map_err(ApiError::internal)?;
+    let out_path = scratch.join(format!("output.{}", fmt.extension()));
+
+    // 2. Run the render → transcode chain on a blocking thread so we
+    // don't park a tokio worker on the python + ffmpeg spawn.
+    let lottie_path_cl = lottie_path.clone();
+    let out_path_cl = out_path.clone();
+    let bytes_written = tokio::task::spawn_blocking(move || -> anyhow::Result<u64> {
+        let mut renderer = PythonLottieRenderer::default_in_workspace();
+        let config = RenderConfig {
+            format: fmt,
+            ..RenderConfig::default()
+        };
+        render_to_format(&mut renderer, &lottie_path_cl, &out_path_cl, &config)
+    })
+    .await
+    .map_err(|e| ApiError::internal(anyhow::anyhow!("render task join: {e}")))?
+    .map_err(ApiError::internal)?;
+
+    let payload = std::fs::read(&out_path).map_err(ApiError::internal)?;
+    let _ = std::fs::remove_dir_all(&scratch);
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(fmt.mime())
+            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+    );
+    let disposition = format!("attachment; filename=\"motion.{}\"", fmt.extension());
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_str(&disposition).unwrap_or_else(|_| HeaderValue::from_static("attachment")),
+    );
+    tracing::info!(
+        format = %fmt.slug(),
+        bytes = bytes_written,
+        "binary export ok"
+    );
+    Ok((StatusCode::OK, headers, payload).into_response())
+}
+
+// ---- metrics ----
+
+/// Snapshot of the host's CPU / memory usage + the running motion-forge
+/// engine's basic process stats. Polled by the web dashboard chip so
+/// users running local models can see when they're starving the
+/// machine. Thresholds match ursly's 50/80% success/warning/critical
+/// convention so the dashboard register stays consistent across the
+/// sibling apps.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MetricsSnapshot {
+    pub cpu: CpuMetric,
+    pub memory: MemoryMetric,
+    pub process: ProcessMetric,
+    /// Suggested warn/critical thresholds for the UI to colour bars
+    /// with. The engine is the source of truth so a future tuning
+    /// only requires bumping these numbers.
+    pub thresholds: Thresholds,
+    pub uptime_seconds: u64,
+    pub timestamp: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CpuMetric {
+    /// Global CPU usage, 0.0 – 100.0.
+    pub usage_percent: f32,
+    pub cores: usize,
+    /// CPU brand string when available (e.g. "Apple M2 Pro").
+    pub brand: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MemoryMetric {
+    pub total_bytes: u64,
+    pub used_bytes: u64,
+    pub free_bytes: u64,
+    pub usage_percent: f32,
+    pub swap_total_bytes: u64,
+    pub swap_used_bytes: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ProcessMetric {
+    /// Resident set size for *this* engine process, in bytes.
+    pub rss_bytes: u64,
+    /// Number of threads the engine is currently running.
+    pub threads: u32,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Thresholds {
+    /// Below this, colour green. Default 50.
+    pub healthy_below: f32,
+    /// Below this (and above healthy), colour amber. Default 80.
+    pub warning_below: f32,
+    // ≥ warning_below → red.
+}
+
+impl Default for Thresholds {
+    fn default() -> Self {
+        Self {
+            healthy_below: 50.0,
+            warning_below: 80.0,
+        }
+    }
+}
+
+/// Cached system handle so we don't re-spawn /proc readers on every
+/// request. Mutex is cheap relative to a sysinfo refresh.
+static SYS: std::sync::OnceLock<std::sync::Mutex<sysinfo::System>> =
+    std::sync::OnceLock::new();
+
+async fn metrics_handler() -> Json<MetricsSnapshot> {
+    use sysinfo::{Pid, ProcessRefreshKind, RefreshKind, System};
+
+    let mutex = SYS.get_or_init(|| {
+        std::sync::Mutex::new(System::new_with_specifics(
+            RefreshKind::new()
+                .with_cpu(sysinfo::CpuRefreshKind::everything())
+                .with_memory(sysinfo::MemoryRefreshKind::everything())
+                .with_processes(ProcessRefreshKind::everything()),
+        ))
+    });
+    let snapshot = tokio::task::spawn_blocking(move || {
+        let mut sys = mutex.lock().expect("sysinfo poisoned");
+        sys.refresh_cpu_usage();
+        sys.refresh_memory();
+        let pid = Pid::from_u32(std::process::id());
+        sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
+
+        let cpu = CpuMetric {
+            usage_percent: sys.global_cpu_usage(),
+            cores: sys.cpus().len(),
+            brand: sys.cpus().first().map(|c| c.brand().to_string()),
+        };
+        let total = sys.total_memory();
+        let used = sys.used_memory();
+        let memory = MemoryMetric {
+            total_bytes: total,
+            used_bytes: used,
+            free_bytes: sys.free_memory(),
+            usage_percent: if total > 0 {
+                (used as f64 / total as f64 * 100.0) as f32
+            } else {
+                0.0
+            },
+            swap_total_bytes: sys.total_swap(),
+            swap_used_bytes: sys.used_swap(),
+        };
+        let process = match sys.process(pid) {
+            Some(p) => ProcessMetric {
+                rss_bytes: p.memory(),
+                threads: p.tasks().map(|t| t.len() as u32).unwrap_or(1),
+            },
+            None => ProcessMetric { rss_bytes: 0, threads: 1 },
+        };
+        MetricsSnapshot {
+            cpu,
+            memory,
+            process,
+            thresholds: Thresholds::default(),
+            uptime_seconds: System::uptime(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
+        }
+    })
+    .await
+    .unwrap_or_else(|_| empty_metrics());
+    Json(snapshot)
+}
+
+fn empty_metrics() -> MetricsSnapshot {
+    MetricsSnapshot {
+        cpu: CpuMetric {
+            usage_percent: 0.0,
+            cores: 0,
+            brand: None,
+        },
+        memory: MemoryMetric {
+            total_bytes: 0,
+            used_bytes: 0,
+            free_bytes: 0,
+            usage_percent: 0.0,
+            swap_total_bytes: 0,
+            swap_used_bytes: 0,
+        },
+        process: ProcessMetric {
+            rss_bytes: 0,
+            threads: 0,
+        },
+        thresholds: Thresholds::default(),
+        uptime_seconds: 0,
+        timestamp: 0,
+    }
 }
 
 // ---- uploads ----

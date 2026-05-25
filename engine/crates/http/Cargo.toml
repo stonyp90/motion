@@ -30,6 +30,7 @@ jsonwebtoken = "9"
 reqwest = { workspace = true }
 http = "1"
 tempfile = "3"
+sysinfo = { version = "0.32", default-features = false, features = ["system"] }
 
 [dev-dependencies]
 reqwest = { workspace = true, features = ["blocking"] }

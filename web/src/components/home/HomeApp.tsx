@@ -25,6 +25,8 @@ import {
   type PendingFile,
 } from './AttachButton';
 import { ModelPicker, type ModelChoice } from './ModelPicker';
+import { TokenUsageChip, type TokenUsage } from './TokenUsageChip';
+import { LocalMetricsChip } from './LocalMetricsChip';
 
 interface HomeAppProps {
   /**
@@ -90,6 +92,14 @@ interface GenerateResponse {
   backend_name: string;
   shots: number;
   duration_seconds: number;
+  /** Engine-reported LLM token usage for this call (additive). */
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    model_max?: number;
+    cost_usd?: number;
+  };
 }
 
 export function HomeApp({ isAuthenticated: _ssrAuth = false }: HomeAppProps = {}) {
@@ -114,6 +124,9 @@ export function HomeApp({ isAuthenticated: _ssrAuth = false }: HomeAppProps = {}
   // animation, so we keep it across re-renders and only clear it
   // when the user removes all attachments + presses "new session".
   const [workDir, setWorkDir] = useState<string | null>(null);
+  // Accumulated LLM usage across the session — bumped on every
+  // generate / iterate that comes back with a usage block.
+  const [usage, setUsage] = useState<TokenUsage>({ used: 0, max: 4096 });
 
   const loadFallback = useCallback(async (): Promise<LottieJson | null> => {
     try {
@@ -218,6 +231,17 @@ export function HomeApp({ isAuthenticated: _ssrAuth = false }: HomeAppProps = {}
       const result = (await response.json()) as GenerateResponse;
       setWorkDir(result.work_dir);
 
+      // Fold the call's usage into the running session total. The
+      // engine's MODEL_INFO max wins if it's set; otherwise we keep
+      // the chip's last known cap.
+      if (result.usage) {
+        setUsage((prev) => ({
+          used: prev.used + (result.usage?.total_tokens ?? 0),
+          max: result.usage?.model_max ?? prev.max,
+          costUsd: (prev.costUsd ?? 0) + (result.usage?.cost_usd ?? 0),
+        }));
+      }
+
       // 3. Engine returns *paths*; fetch the Lottie body via the
       //    Next.js proxy route so the browser can render it.
       const lottieResp = await fetch(
@@ -254,24 +278,52 @@ export function HomeApp({ isAuthenticated: _ssrAuth = false }: HomeAppProps = {}
     bearer,
   ]);
 
+  const [isExporting, setIsExporting] = useState<ExportKind | null>(null);
+
   const handleExport = useCallback(
-    (kind: ExportKind) => {
-      if (!animation) return;
+    async (kind: ExportKind) => {
+      if (!animation || isExporting) return;
       if (kind === 'lottie') {
-        // Local download — no backend required.
+        // Local download — no backend required, no auth.
         downloadJson(clone(animation), `motion-forge-${Date.now()}.lottie.json`);
         return;
       }
-      // MP4 + pack go through the backend (stubbed for now).
-      // TODO: POST to /v1/render and /v1/pack respectively; here we
-      // just surface a friendly placeholder so the buttons aren't dead.
-      setError(
-        kind === 'mp4'
-          ? 'MP4 render needs the backend — wire /v1/render on the API to enable.'
-          : 'Pack export needs the backend — wire /v1/pack on the API to enable.',
-      );
+      // MP4 (and future pack-zip) go through the engine's binary
+      // export endpoint which runs the python lottie sidecar + ffmpeg.
+      const format = kind === 'mp4' ? 'mp4' : 'dotlottie';
+      const ext = kind === 'mp4' ? 'mp4' : 'lottie';
+      const url = `${ENGINE_BASE}/v1/export/${format}`;
+      setIsExporting(kind);
+      setError(null);
+      try {
+        const r = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
+          },
+          body: JSON.stringify(animation),
+        });
+        if (!r.ok) {
+          const text = await r.text().catch(() => '');
+          throw new Error(`HTTP ${r.status}${text ? ` — ${text.slice(0, 160)}` : ''}`);
+        }
+        const blob = await r.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = objectUrl;
+        a.download = `motion-forge-${Date.now()}.${ext}`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(objectUrl);
+      } catch (e) {
+        setError(`Export ${kind} failed: ${String(e)}`);
+      } finally {
+        setIsExporting(null);
+      }
     },
-    [animation],
+    [animation, bearer, isExporting],
   );
 
   if (!isAuthenticated) {
@@ -358,6 +410,17 @@ export function HomeApp({ isAuthenticated: _ssrAuth = false }: HomeAppProps = {}
           }
         />
 
+        {/* Meta strip — running session token / context / cost. Sits
+            between the prompt and the example chips so it reads as
+            "for this session" rather than as a per-call indicator. */}
+        <div className="-mt-3 flex items-center justify-end gap-2 px-1">
+          <span className="text-2xs uppercase tracking-[0.14em] text-text-tertiary">
+            Session
+          </span>
+          <TokenUsageChip model={model} usage={usage} />
+          <LocalMetricsChip model={model} bearer={bearer} />
+        </div>
+
         {!prompt && <ExamplePromptChips onPick={setPrompt} />}
 
         {error && (
@@ -373,6 +436,15 @@ export function HomeApp({ isAuthenticated: _ssrAuth = false }: HomeAppProps = {}
           animation={animation}
           onExport={handleExport}
           onRegenerate={handleGenerate}
+          onCaptureFrame={(blob, filename) => {
+            // Wrap the PNG blob in a File so the rest of the
+            // attachment plumbing (chip, upload, classification)
+            // treats it identically to a user-picked image. The
+            // sanitised filename lands in the upload session and
+            // the chip shows it with the image icon + size.
+            const file = new File([blob], filename, { type: 'image/png' });
+            setAttachments((p) => [...p, ...classifyToPending([file])]);
+          }}
         />
       </div>
 
