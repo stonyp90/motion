@@ -307,12 +307,11 @@ fn frontend_url() -> String {
     // hosted web frontend (overridable by env so internal testers can
     // pin a staging URL).
     if cfg!(debug_assertions) {
-        std::env::var("MOTION_FORGE_FRONTEND_URL").unwrap_or_else(|_| {
-            "http://localhost:3010".into()
-        })
+        std::env::var("MOTION_FORGE_FRONTEND_URL")
+            .unwrap_or_else(|_| "http://localhost:3010".into())
     } else {
-        std::env::var("MOTION_FORGE_FRONTEND_URL").unwrap_or_else(|_| {
-            "https://app.motion-forge.io".into()
-        })
+        // Prod default — overridable via env so internal testers can
+        // pin a staging URL without rebuilding.
+        std::env::var("MOTION_FORGE_FRONTEND_URL").unwrap_or_else(|_| "https://imtn.io".into())
     }
 }
