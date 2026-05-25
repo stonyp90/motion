@@ -29,14 +29,14 @@ const stats = [
 
 export function ProofSection() {
   return (
-    <section id="proof" className="section-tight border-y border-border-light bg-bg-secondary">
+    <section id="proof" className="section-tight section-subtle border-y border-border-light">
       <div className="container">
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {stats.map((s) => (
             <div key={s.label} className="flex flex-col gap-2 p-2">
-              <div className="flex items-center gap-2.5 text-text-accent">
+              <div className="flex items-center gap-2.5 text-motion">
                 <s.icon className="h-4 w-4" />
-                <span className="eyebrow text-text-accent">{s.label}</span>
+                <span className="label">{s.label}</span>
               </div>
               <p className="text-4xl font-semibold tracking-tight text-text-primary">{s.value}</p>
               <p className="text-sm text-text-tertiary">{s.sub}</p>

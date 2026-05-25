@@ -40,26 +40,26 @@ export function HeroSection() {
     <section className="relative overflow-hidden bg-hero-grid">
       <div className="container relative z-10 pt-20 pb-16 sm:pt-28 lg:pt-32 lg:pb-24">
         <div className="mx-auto max-w-3xl text-center">
-          <div className="mx-auto flex w-fit items-center gap-2 rounded-full border border-accent-200 bg-accent-50 px-3 py-1 text-xs font-medium text-accent-700">
+          <div className="mx-auto flex w-fit items-center gap-2 rounded-full border border-motion bg-motion-50 px-3 py-1 text-xs font-medium text-motion-700">
             <Sparkles className="h-3.5 w-3.5" />
             <span>License the engine. Stop paying per video.</span>
           </div>
 
-          <h1 className="h-display mt-6">
-            Motion design at the speed of <span className="text-accent-600">your roadmap.</span>
+          <h1 className="heading-xl mt-6">
+            Motion design at the speed of <span className="text-motion">your roadmap.</span>
           </h1>
 
-          <p className="mt-6 text-lg leading-relaxed text-text-secondary sm:text-xl">
+          <p className="mt-6 body-lg">
             Drop your illustration pack, type a prompt, get a broadcast-ready
             MP4 + editable Lottie in <span className="font-semibold text-text-primary">90 seconds</span>.
             Iteration thereafter is sub-second. Self-host or call our API — your call.
           </p>
 
           <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <a href="#cta" className="btn-primary w-full sm:w-auto">
+            <a href="#cta" className="btn-motion w-full sm:w-auto">
               Book a 20-minute exec demo
             </a>
-            <a href="#how-it-works" className="btn-ghost w-full sm:w-auto">
+            <a href="#how-it-works" className="btn-motion-outline w-full sm:w-auto">
               See how it works
             </a>
           </div>
@@ -89,13 +89,13 @@ export function HeroSection() {
                   aria-label="Play demo"
                   className="absolute inset-0 grid place-items-center bg-primary-900/30 transition hover:bg-primary-900/20"
                 >
-                  <span className="grid h-20 w-20 place-items-center rounded-full bg-accent-500 text-white shadow-glow transition hover:scale-105">
+                  <span className="grid h-20 w-20 place-items-center rounded-full bg-motion text-white shadow-motion-lg transition hover:scale-105">
                     <Play className="h-7 w-7 translate-x-0.5" />
                   </span>
                 </button>
               )}
               <div className="pointer-events-none absolute left-4 top-4 flex flex-col items-start gap-1.5">
-                <span className="chip border-accent-200/50 bg-accent-50/90 text-accent-700">
+                <span className="chip border-motion bg-motion-50/90 text-motion-700">
                   rendered locally
                 </span>
                 <span className="chip border-primary-200/50 bg-bg-primary/90 text-primary-700">

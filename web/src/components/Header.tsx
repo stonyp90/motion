@@ -22,7 +22,7 @@ export function Header() {
         <Link href="/" className="flex items-center gap-2.5 group">
           <span
             aria-hidden
-            className="grid h-8 w-8 place-items-center rounded-lg bg-primary-900 text-text-inverse transition group-hover:bg-accent-500"
+            className="grid h-8 w-8 place-items-center rounded-lg bg-motion text-white shadow-motion transition group-hover:shadow-motion-lg"
           >
             <span className="text-base font-bold tracking-tight">M</span>
           </span>
@@ -45,7 +45,7 @@ export function Header() {
           <a href="https://github.com/" className="btn-ghost py-2 text-sm">
             GitHub
           </a>
-          <a href="#cta" className="btn-primary py-2 text-sm">
+          <a href="#cta" className="btn-motion py-2 text-sm">
             Book a demo
           </a>
         </div>
@@ -73,7 +73,7 @@ export function Header() {
                 {item.label}
               </a>
             ))}
-            <a href="#cta" className="btn-primary mt-2" onClick={() => setOpen(false)}>
+            <a href="#cta" className="btn-motion mt-2" onClick={() => setOpen(false)}>
               Book a demo
             </a>
           </nav>

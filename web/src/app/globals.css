@@ -2,8 +2,37 @@
 @tailwind components;
 @tailwind utilities;
 
+/* =============================================================================
+   motion brand system
+   -----------------------------------------------------------------------------
+   Three layers, ordered by stability:
+
+   1. Static brand palette — hex CSS vars (--color-primary-*, --color-accent-*,
+      --color-secondary-*, --color-neutral-*). Theme-independent. The marketing
+      pages built before this rewrite all reference them via Tailwind tokens
+      (`bg-primary-900`, `text-accent-600`, etc). Keep them intact.
+
+   2. Themed semantic surfaces — hex CSS vars under (--color-bg-*, --color-text-*,
+      --color-border-*, --color-editor-*). Flip between light + dark via
+      [data-theme="dark"] on <html>. /studio already uses these.
+
+   3. Themed brand surfaces — HSL triplet CSS vars under (--motion-50..950,
+      --background, --foreground, --card, --muted, --border-default, --ring,
+      --surface-inset, --surface-overlay, --border-hover). Drives the new
+      `motion-*` palette + `bg-motion`, `card-motion`, `btn-motion`, etc.
+      utilities — and Tailwind's `dark:` variant via the data-theme selector
+      configured in tailwind.config.ts.
+
+   All three layers are flipped by the same [data-theme="dark"] toggle so the
+   studio's existing ThemeProvider works unchanged.
+   ============================================================================ */
+
 @layer base {
   :root {
+    /* --------------------------------------------------------------------- */
+    /* Layer 1 — Static brand palette (hex, theme-independent)               */
+    /* --------------------------------------------------------------------- */
+
     /* Primary — deep ink / authority */
     --color-primary-50:  #f4f6fb;
     --color-primary-100: #e3e8f2;
@@ -52,7 +81,10 @@
     --color-neutral-800: #1e293b;
     --color-neutral-900: #0f172a;
 
-    /* Semantic surfaces — light theme */
+    /* --------------------------------------------------------------------- */
+    /* Layer 2 — Themed semantic surfaces (hex, flip on [data-theme="dark"]) */
+    /* --------------------------------------------------------------------- */
+
     --color-bg-primary:    #ffffff;
     --color-bg-secondary:  #f8fafc;
     --color-bg-tertiary:   #f1f5f9;
@@ -68,32 +100,65 @@
     --color-border-default: #cbd5e1;
     --color-border-dark:    #94a3b8;
 
-    /* Studio editor surfaces — distinct from marketing semantics so
-       the studio can be dark while the marketing pages stay light. */
-    --color-editor-bg:        #f8fafc;  /* canvas background */
-    --color-editor-panel:     #ffffff;  /* side panels */
-    --color-editor-toolbar:   #f1f5f9;  /* top/bottom bars */
+    /* Studio editor surfaces */
+    --color-editor-bg:        #f8fafc;
+    --color-editor-panel:     #ffffff;
+    --color-editor-toolbar:   #f1f5f9;
     --color-editor-border:    #e2e8f0;
     --color-editor-text:      #0f172a;
     --color-editor-muted:     #64748b;
     --color-editor-accent:    #10b981;
     --color-editor-selection: #d1fae5;
 
+    /* --------------------------------------------------------------------- */
+    /* Layer 3 — Themed brand surfaces (HSL triplets, alpha-value support)   */
+    /* --------------------------------------------------------------------- */
+
+    /* motion-emerald scale — same hue family as accent, but HSL so it
+       composes with Tailwind's <alpha-value> and the dark-mode flip. */
+    --motion-50:  152 81% 96%;
+    --motion-100: 149 80% 90%;
+    --motion-200: 152 76% 80%;
+    --motion-300: 156 72% 67%;
+    --motion-400: 158 64% 52%;
+    --motion-500: 160 84% 39%;
+    --motion-600: 161 94% 30%;
+    --motion-700: 163 94% 24%;
+    --motion-800: 163 88% 20%;
+    --motion-900: 164 86% 16%;
+    --motion-950: 165 86% 9%;
+
+    /* Semantic theme tokens */
+    --background:           0 0% 100%;
+    --foreground:           222 47% 11%;
+    --card:                 0 0% 100%;
+    --card-foreground:      222 47% 11%;
+    --popover:              0 0% 100%;
+    --popover-foreground:   222 47% 11%;
+    --muted:                210 40% 96%;
+    --muted-foreground:     215 16% 47%;
+    --destructive:          0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border-default:       214 32% 91%;
+    --input:                214 32% 91%;
+    --ring:                 160 84% 39%;
+    --radius:               0.75rem;
+
+    /* Extended layered surfaces */
+    --surface-inset:    210 40% 98%;
+    --surface-overlay:  0 0% 100%;
+    --border-hover:     214 32% 85%;
+
+    /* Typography */
     --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
       'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo,
       Monaco, Consolas, monospace;
   }
 
-  /* ---- Dark theme override ----
-     Every CSS variable defined in :root above gets a dark companion
-     here. Components reference the named utility (bg-bg-primary,
-     text-text-primary, etc.) so a `data-theme="dark"` on <html>
-     flips the entire surface without touching any component.
-     Used today by /studio; the marketing /, /pricing, /faq pages
-     stay light by default. */
+  /* ---- Dark theme override --------------------------------------------- */
   :root[data-theme="dark"] {
-    /* Soft-blacks per IDE convention — never pure #000. */
+    /* Layer 2 — themed semantic surfaces (existing) */
     --color-bg-primary:    #0e1014;
     --color-bg-secondary:  #14171c;
     --color-bg-tertiary:   #1a1e25;
@@ -109,8 +174,6 @@
     --color-border-default: #2e3340;
     --color-border-dark:    #424757;
 
-    /* Studio surfaces — slightly darker than the marketing dark mode
-       to maximise canvas contrast. */
     --color-editor-bg:        #16191f;
     --color-editor-panel:     #1c2027;
     --color-editor-toolbar:   #14171c;
@@ -119,11 +182,41 @@
     --color-editor-muted:     #8a92a1;
     --color-editor-accent:    #34d399;
     --color-editor-selection: #064e3b;
+
+    /* Layer 3 — motion scale shifts brighter in dark mode for contrast */
+    --motion-50:  165 86% 9%;
+    --motion-100: 164 86% 12%;
+    --motion-200: 163 88% 16%;
+    --motion-300: 163 80% 22%;
+    --motion-400: 158 64% 40%;
+    --motion-500: 158 64% 52%;
+    --motion-600: 160 84% 39%;
+    --motion-700: 161 80% 32%;
+    --motion-800: 163 70% 26%;
+    --motion-900: 163 60% 22%;
+    --motion-950: 164 50% 18%;
+
+    /* Layer 3 — themed semantic surfaces */
+    --background:           220 14% 7%;
+    --foreground:           225 18% 93%;
+    --card:                 218 12% 10%;
+    --card-foreground:      225 18% 93%;
+    --popover:              218 12% 10%;
+    --popover-foreground:   225 18% 93%;
+    --muted:                220 14% 12%;
+    --muted-foreground:     218 11% 65%;
+    --destructive:          0 62% 40%;
+    --destructive-foreground: 0 0% 100%;
+    --border-default:       218 12% 16%;
+    --input:                218 12% 16%;
+    --ring:                 158 64% 52%;
+
+    --surface-inset:    220 14% 5%;
+    --surface-overlay:  218 12% 9%;
+    --border-hover:     218 12% 22%;
   }
 
-  /* Honor the OS preference on first paint when no explicit user choice
-     has been stored yet. The studio's ThemeProvider overrides this with
-     localStorage on mount. */
+  /* Honor the OS preference on first paint when no explicit choice is stored. */
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme]) {
       color-scheme: dark;
@@ -140,8 +233,6 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
-  /* Hide the default focus ring on non-keyboard interactions but keep it
-     for keyboard users — accessibility first. */
   :focus { outline: none; }
   :focus-visible {
     outline: 2px solid var(--color-accent-500);
@@ -150,7 +241,12 @@
   }
 }
 
+/* =============================================================================
+   Components — original motion buttons + new btn-motion family
+   ============================================================================ */
+
 @layer components {
+  /* Original — kept so the rest of the site keeps rendering */
   .btn-primary {
     @apply inline-flex items-center justify-center gap-2 rounded-full bg-primary-900 px-6 py-3
            text-sm font-semibold text-text-inverse shadow-card transition
@@ -191,18 +287,246 @@
     @apply rounded-2xl border border-border-light bg-bg-primary p-6 shadow-soft transition
            hover:border-border hover:shadow-card;
   }
+
+  /* ---- New btn-motion family ----------------------------------------- */
+
+  .btn-motion {
+    @apply inline-flex items-center justify-center gap-2 rounded-full px-6 py-3 text-sm font-semibold
+           text-white transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]
+           focus-visible:ring-2 focus-visible:ring-offset-2;
+    background-color: hsl(var(--motion-500));
+    box-shadow: 0 20px 40px -12px hsl(var(--motion-500) / 0.25);
+  }
+  .btn-motion:hover {
+    background-color: hsl(var(--motion-600));
+    box-shadow: 0 25px 50px -12px hsl(var(--motion-500) / 0.35);
+  }
+  .btn-motion-outline {
+    @apply inline-flex items-center justify-center gap-2 rounded-full border bg-white px-6 py-3
+           text-sm font-semibold transition-all duration-200;
+    color: hsl(var(--foreground));
+    border-color: hsl(var(--border-default));
+  }
+  .btn-motion-outline:hover {
+    background-color: hsl(var(--muted));
+    border-color: hsl(var(--border-hover));
+  }
+  :root[data-theme="dark"] .btn-motion-outline {
+    background-color: hsl(var(--card));
+  }
+
+  /* ---- Card-motion family -------------------------------------------- */
+
+  .card-motion {
+    @apply rounded-2xl border p-6 shadow-soft transition-all duration-300
+           hover:shadow-card;
+    background-color: hsl(var(--card));
+    border-color: hsl(var(--border-default));
+  }
+  .card-motion:hover {
+    border-color: hsl(var(--border-hover));
+  }
+  .card-motion-elevated {
+    @apply rounded-2xl border p-7 shadow-lift;
+    background-color: hsl(var(--card));
+    border-color: hsl(var(--border-default) / 0.6);
+  }
+
+  /* ---- Typography scale (tablix-style names; motion-themed colors) --- */
+
+  .heading-xl {
+    @apply text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight;
+    color: hsl(var(--foreground));
+    letter-spacing: -0.025em;
+  }
+  .heading-lg {
+    @apply text-3xl sm:text-4xl font-semibold tracking-tight;
+    color: hsl(var(--foreground));
+    letter-spacing: -0.02em;
+  }
+  .heading-md {
+    @apply text-xl sm:text-2xl font-semibold;
+    color: hsl(var(--foreground));
+  }
+  .body-lg {
+    @apply text-lg sm:text-xl leading-relaxed;
+    color: hsl(var(--muted-foreground));
+  }
+  .body-md {
+    @apply text-base leading-relaxed;
+    color: hsl(var(--muted-foreground));
+  }
+  .label {
+    @apply text-sm font-semibold uppercase tracking-wider;
+    color: hsl(var(--motion-500));
+  }
 }
 
-/* Subtle marquee animation for the panel-rail in the hero. */
+/* =============================================================================
+   Utilities — brand surfaces, sections, patterns, animations
+   ============================================================================ */
+
+@layer utilities {
+  /* ---- Text utilities ------------------------------------------------ */
+  .text-balance { text-wrap: balance; }
+
+  .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
+
+  /* ---- Container helpers (echoing tablix's standard widths) --------- */
+  .container-wide     { @apply mx-auto w-full max-w-7xl px-5 sm:px-6 lg:px-8; }
+  .container-standard { @apply mx-auto w-full max-w-6xl px-5 sm:px-6 lg:px-8; }
+  .container-narrow   { @apply mx-auto w-full max-w-4xl px-5 sm:px-6 lg:px-8; }
+
+  /* ---- Motion brand surfaces ---------------------------------------- */
+  .bg-motion       { background-color: hsl(var(--motion-500)); }
+  .text-motion     { color: hsl(var(--motion-500)); }
+  .border-motion   { border-color: hsl(var(--motion-500) / 0.2); }
+  .ring-motion     { --tw-ring-color: hsl(var(--motion-500) / 0.2); }
+  .shadow-motion   { box-shadow: 0 20px 40px -12px hsl(var(--motion-500) / 0.25); }
+  .shadow-motion-lg { box-shadow: 0 25px 50px -12px hsl(var(--motion-500) / 0.35); }
+  :root[data-theme="dark"] .shadow-motion { box-shadow: 0 20px 40px -12px hsl(var(--motion-500) / 0.35); }
+  :root[data-theme="dark"] .shadow-motion-lg { box-shadow: 0 25px 50px -12px hsl(var(--motion-500) / 0.45); }
+
+  .bg-motion-subtle {
+    background-image:
+      linear-gradient(
+        to bottom right,
+        hsl(var(--motion-50)),
+        hsl(var(--motion-50) / 0.5),
+        hsl(var(--motion-50) / 0.3)
+      );
+  }
+  :root[data-theme="dark"] .bg-motion-subtle {
+    background-image:
+      linear-gradient(
+        to bottom right,
+        hsl(var(--motion-950) / 0.4),
+        hsl(var(--motion-950) / 0.2),
+        hsl(var(--motion-950) / 0.1)
+      );
+  }
+
+  .bg-motion-dark {
+    background-image: linear-gradient(
+      to bottom right,
+      hsl(var(--color-primary-900)),
+      hsl(var(--color-primary-800) / 0.95),
+      hsl(var(--color-primary-900))
+    );
+    color: var(--color-text-inverse);
+  }
+
+  /* ---- Section backgrounds ------------------------------------------ */
+  .section-light  { background-color: hsl(var(--background)); }
+  .section-subtle { background-color: hsl(var(--surface-inset)); }
+  .section-accent { @apply bg-motion-subtle; }
+  .section-dark   {
+    background:
+      radial-gradient(at 30% 10%, hsl(var(--motion-500) / 0.18) 0%, transparent 50%),
+      radial-gradient(at 80% 80%, hsl(var(--motion-700) / 0.14) 0%, transparent 50%),
+      #0b1437;
+    color: var(--color-text-inverse);
+  }
+
+  /* ---- Background patterns ------------------------------------------ */
+  .bg-grid {
+    background-image:
+      linear-gradient(rgba(11, 20, 55, 0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(11, 20, 55, 0.04) 1px, transparent 1px);
+    background-size: 48px 48px;
+  }
+  :root[data-theme="dark"] .bg-grid {
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  }
+  .bg-dot-grid {
+    background-image: radial-gradient(circle, rgba(11, 20, 55, 0.07) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+  :root[data-theme="dark"] .bg-dot-grid {
+    background-image: radial-gradient(circle, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+  }
+
+  /* ---- Animation classes -------------------------------------------- */
+  .animate-float          { animation: float 5s ease-in-out infinite; }
+  .animate-float-delayed  { animation: float 5s ease-in-out infinite; animation-delay: -2.5s; }
+  .animate-pulse-ring     { animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+  .animate-gradient       { background-size: 200% 200%; animation: gradient-shift 6s ease infinite; }
+  .animate-slide-up       { animation: slide-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+  .animate-scale-in       { animation: scale-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+  .animate-blob           { animation: blob 20s ease-in-out infinite; }
+  .animation-delay-2000   { animation-delay: 2s; }
+  .animation-delay-4000   { animation-delay: 4s; }
+  .progress-shimmer       { animation: progress-shimmer 1.8s ease-in-out infinite; }
+  .animate-panel-drift    { animation: panel-drift 38s linear infinite; }
+}
+
+/* =============================================================================
+   Keyframes (declared at the root of the stylesheet so Tailwind keeps them)
+   ============================================================================ */
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-8px); }
+}
+
+@keyframes pulse-ring {
+  0%   { transform: scale(1);   opacity: 0.8; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+
+@keyframes gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+
+@keyframes slide-up {
+  0%   { transform: translateY(100%); opacity: 0; }
+  100% { transform: translateY(0);    opacity: 1; }
+}
+
+@keyframes blob {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  25%      { transform: translate(30px, -50px) scale(1.05); }
+  50%      { transform: translate(-20px, 20px) scale(0.95); }
+  75%      { transform: translate(20px, 40px) scale(1.02); }
+}
+
+@keyframes scale-in {
+  0%   { transform: scale(0.95); opacity: 0; }
+  100% { transform: scale(1);    opacity: 1; }
+}
+
+@keyframes draw-line {
+  0%   { stroke-dashoffset: 1000; }
+  100% { stroke-dashoffset: 0; }
+}
+
+@keyframes progress-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -100% 0; }
+}
+
 @keyframes panel-drift {
   0%   { transform: translateX(0); }
   100% { transform: translateX(-50%); }
 }
-.animate-panel-drift {
-  animation: panel-drift 38s linear infinite;
-}
+
+/* =============================================================================
+   Reduced motion — disable transforms, keep opacity fades
+   ============================================================================ */
 
 @media (prefers-reduced-motion: reduce) {
-  .animate-panel-drift { animation: none; }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
   html { scroll-behavior: auto; }
+  .animate-panel-drift { animation: none; }
 }
