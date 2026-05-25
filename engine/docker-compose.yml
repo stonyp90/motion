@@ -33,5 +33,52 @@ services:
     volumes:
       - ./models:/usr/share/nginx/html:ro
 
+  # ------------------------------------------------------------------
+  # Keycloak 26 — SSO for the web UI and the engine.
+  #
+  # `start-dev` boots with the embedded H2 store, which is perfect for
+  # local development and CI. For staging/prod see
+  # infra/keycloak/README.md for the managed-Postgres swap.
+  #
+  # The realm is auto-imported on first boot from the mounted volume.
+  # Re-importing on every boot uses the `--import-realm` flag; we keep
+  # it ON so that contributors can wipe state with `docker compose down
+  # -v` and get a clean realm on the next `up`.
+  # ------------------------------------------------------------------
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.1
+    container_name: motion-forge-keycloak
+    command:
+      - start-dev
+      - --import-realm
+      - --http-port=8080
+      - --hostname-strict=false
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_ADMIN_USER:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD:-admin}
+      KC_DB: dev-file
+      KC_HEALTH_ENABLED: "true"
+      KC_METRICS_ENABLED: "true"
+      KC_HTTP_RELATIVE_PATH: /
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+      KC_PROXY_HEADERS: xforwarded
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./infra/keycloak/realm-export.json:/opt/keycloak/data/import/motion-forge-realm.json:ro
+      - motion-forge-keycloak-data:/opt/keycloak/data
+    healthcheck:
+      # Keycloak 26 exposes /health/ready on the management interface (port 9000 by default).
+      # In dev mode we route everything via 8080 so this curl works without exposing 9000.
+      test:
+        - CMD-SHELL
+        - "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /realms/master HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
 volumes:
   motion-forge-pgdata:
+  motion-forge-keycloak-data:

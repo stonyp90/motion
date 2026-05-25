@@ -11,6 +11,8 @@
 //! sit behind a desktop UI that lets users iterate verbally or by prompt
 //! without re-running the slow segmentation phases.
 
+pub mod auth;
+
 use anyhow::Result;
 use axum::{
     Json, Router,
@@ -25,6 +27,8 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::auth::{KeycloakAuthLayer, KeycloakConfig};
+
 #[derive(Clone)]
 struct AppState {
     pipeline: Arc<Pipeline>,
@@ -35,12 +39,45 @@ pub async fn serve(bind: &str) -> Result<()> {
         pipeline: Arc::new(Pipeline::new()),
     };
 
-    let app = Router::new()
-        .route("/healthz", get(healthz))
-        .route("/openapi.json", get(openapi))
+    // Pull Keycloak settings from env. If KEYCLOAK_ISSUER is empty we
+    // run in degraded-auth mode: every request without the static
+    // fallback key is rejected (so misconfiguring prod can't silently
+    // open the API).
+    let auth_cfg = KeycloakConfig::from_env();
+    let auth_layer = KeycloakAuthLayer::new(auth_cfg.clone());
+    if auth_cfg.issuer.is_empty() {
+        tracing::warn!(
+            "KEYCLOAK_ISSUER not set — only MOTION_FORGE_AUTH_FALLBACK_KEY tokens will be accepted"
+        );
+    } else {
+        tracing::info!(
+            issuer = %auth_cfg.issuer,
+            audiences = ?auth_cfg.audiences,
+            "Keycloak JWT validation enabled"
+        );
+    }
+
+    // Routes that need an authenticated caller. Each is registered
+    // both at the flat path (back-compat with the original CLI
+    // contract) and under `/v1/...` for the public API surface.
+    let protected = Router::new()
         .route("/themes", get(themes))
         .route("/generate", post(generate))
         .route("/iterate", post(iterate))
+        .route("/v1/themes", get(themes))
+        .route("/v1/generate", post(generate))
+        .route("/v1/iterate", post(iterate))
+        .layer(auth_layer);
+
+    // Routes that stay open: liveness, OpenAPI discovery, and the
+    // streaming-STT WebSocket route W3 is adding (the route handler
+    // itself lives in W3's crate; we just keep this `/v1/stt/stream`
+    // path out of the auth layer so voice works without sign-in).
+    // The actual handler is not wired here yet — W3's PR will add it.
+    let app = Router::new()
+        .route("/healthz", get(healthz))
+        .route("/openapi.json", get(openapi))
+        .merge(protected)
         .layer(tower_http::cors::CorsLayer::permissive())
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state);
@@ -535,6 +572,71 @@ mod tests {
         let body: serde_json::Value = themes_resp.json().await.unwrap();
         // Themes directory might not be present in every test env; tolerate.
         assert!(body["themes"].is_array());
+
+        server.abort();
+    }
+
+    /// End-to-end: when the auth layer is in place, the protected
+    /// routes return 401 without a bearer and 200 with the static
+    /// fallback key set via `MOTION_FORGE_AUTH_FALLBACK_KEY`.
+    #[tokio::test]
+    async fn auth_layer_blocks_unauth_and_passes_with_fallback() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let state = AppState {
+            pipeline: Arc::new(Pipeline::new()),
+        };
+        let cfg = crate::auth::KeycloakConfig {
+            issuer: String::new(),
+            audiences: vec![],
+            fallback_key: Some("test-fallback".into()),
+            skip_paths: crate::auth::default_skip_paths()
+                .into_iter()
+                .map(String::from)
+                .collect(),
+        };
+        let layer = crate::auth::KeycloakAuthLayer::new(cfg);
+        let protected = Router::new()
+            .route("/themes", get(themes))
+            .route("/v1/themes", get(themes))
+            .layer(layer);
+        let app = Router::new()
+            .route("/healthz", get(healthz))
+            .route("/openapi.json", get(openapi))
+            .merge(protected)
+            .with_state(state);
+
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let base = format!("http://{addr}");
+
+        // /healthz always open.
+        let resp = reqwest::get(format!("{base}/healthz")).await.unwrap();
+        assert_eq!(resp.status(), 200);
+
+        // /v1/themes without auth -> 401 with WWW-Authenticate.
+        let resp = reqwest::get(format!("{base}/v1/themes")).await.unwrap();
+        assert_eq!(resp.status(), 401);
+        assert!(
+            resp.headers()
+                .get(reqwest::header::WWW_AUTHENTICATE)
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.contains("motion-forge"))
+                .unwrap_or(false)
+        );
+
+        // /v1/themes with the fallback bearer -> 200.
+        let client = reqwest::Client::new();
+        let resp = client
+            .get(format!("{base}/v1/themes"))
+            .header(reqwest::header::AUTHORIZATION, "Bearer test-fallback")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
 
         server.abort();
     }
