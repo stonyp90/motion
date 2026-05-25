@@ -20,6 +20,7 @@ motion-forge-lottie-gen.workspace = true
 motion-forge-render.workspace = true
 motion-forge-pipeline.workspace = true
 motion-forge-http.workspace = true
+motion-forge-web-export.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 tokio.workspace = true

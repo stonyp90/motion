@@ -1,11 +1,15 @@
 //! HTTP surface for motion-forge — Adobe-style request/iterate flow.
 //!
-//! Endpoints (all JSON):
-//! - `GET  /healthz`          — liveness probe
-//! - `GET  /openapi.json`     — OpenAPI 3.1 spec (hand-written; small surface)
-//! - `GET  /themes`           — list bundled themes
-//! - `POST /generate`         — run the full pipeline on a reference video
-//! - `POST /iterate`          — re-prompt against an existing work-dir
+//! Endpoints (all JSON unless noted):
+//! - `GET  /healthz`                   — liveness probe
+//! - `GET  /openapi.json`              — OpenAPI 3.1 spec (hand-written; small surface)
+//! - `GET  /themes`                    — list bundled themes
+//! - `POST /generate`                  — run the full pipeline on a reference video
+//! - `POST /iterate`                   — re-prompt against an existing work-dir
+//! - `POST /v1/web-export/{format}`    — convert a Lottie JSON body into a
+//!   web-native target (SVG+SMIL, SVG+CSS, GSAP, Motion, Theatre.js,
+//!   Framer Motion variants). Response body is the exported text in
+//!   the right MIME type for the format.
 //!
 //! The server is single-binary, single-tenant, local-first. Designed to
 //! sit behind a desktop UI that lets users iterate verbally or by prompt
@@ -14,13 +18,14 @@
 use anyhow::Result;
 use axum::{
     Json, Router,
-    extract::State,
+    extract::{Path, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
 use motion_forge_pipeline::{Composition, GenerateConfig, IterateConfig, Pipeline};
 use motion_forge_style_extract::Theme;
+use motion_forge_web_export::{WebExportFormat, export as web_export};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -41,6 +46,7 @@ pub async fn serve(bind: &str) -> Result<()> {
         .route("/themes", get(themes))
         .route("/generate", post(generate))
         .route("/iterate", post(iterate))
+        .route("/v1/web-export/:format", post(web_export_handler))
         .layer(tower_http::cors::CorsLayer::permissive())
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state);
@@ -223,6 +229,35 @@ async fn iterate(
     }))
 }
 
+/// `POST /v1/web-export/{format}` — convert a Lottie JSON body to the
+/// requested web-native target. The body is the full Lottie document
+/// (same shape we ship from `/generate`). The response body is the
+/// exported text in the appropriate MIME type for the format.
+///
+/// Valid `{format}` values: `svg-smil`, `svg-css`, `gsap`, `motion-js`,
+/// `theatre`, `framer-variants`.
+async fn web_export_handler(
+    State(_state): State<AppState>,
+    Path(format): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Response, ApiError> {
+    let fmt = WebExportFormat::from_slug(&format)
+        .ok_or_else(|| ApiError::bad_request(format!("unknown format `{format}`")))?;
+    let payload = web_export(fmt, &body).map_err(ApiError::internal)?;
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static(fmt.mime_type()),
+    );
+    // Convenience for `curl -OJ`.
+    let disposition = format!("inline; filename=\"motion.{}\"", fmt.extension());
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_str(&disposition).unwrap_or_else(|_| HeaderValue::from_static("inline")),
+    );
+    Ok((StatusCode::OK, headers, payload).into_response())
+}
+
 // ---- types ----
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -393,6 +428,43 @@ const OPENAPI_JSON: &str = r##"{
           }
         }
       }
+    },
+    "/v1/web-export/{format}": {
+      "post": {
+        "summary": "Convert a Lottie JSON body to a web-native animation target",
+        "description": "Re-emit the same composition as SVG+SMIL, SVG+CSS @keyframes, a GSAP timeline JS module, a Motion (framer-motion vanilla) snippet, a Theatre.js project state JSON, or a Framer Motion variants object. Response body is text in the appropriate MIME type for the format.",
+        "parameters": [
+          {
+            "name": "format",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": ["svg-smil", "svg-css", "gsap", "motion-js", "theatre", "framer-variants"]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "A complete Lottie JSON document.",
+          "content": {
+            "application/json": {
+              "schema": { "type": "object" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Exported payload.",
+            "content": {
+              "image/svg+xml": { "schema": { "type": "string" } },
+              "application/javascript": { "schema": { "type": "string" } },
+              "application/json": { "schema": { "type": "object" } }
+            }
+          },
+          "400": { "description": "Unknown format slug or invalid Lottie body." }
+        }
+      }
     }
   },
   "components": {
@@ -515,6 +587,7 @@ mod tests {
             .route("/themes", get(themes))
             .route("/generate", post(generate))
             .route("/iterate", post(iterate))
+            .route("/v1/web-export/:format", post(web_export_handler))
             .with_state(state);
 
         let server = tokio::spawn(async move {
@@ -529,12 +602,42 @@ mod tests {
         assert_eq!(openapi_resp.status(), 200);
         let body: serde_json::Value = openapi_resp.json().await.unwrap();
         assert_eq!(body["openapi"], "3.1.0");
+        // The web-export route should be advertised.
+        assert!(body["paths"]["/v1/web-export/{format}"].is_object());
 
         let themes_resp = reqwest::get(format!("{base}/themes")).await.unwrap();
         assert_eq!(themes_resp.status(), 200);
         let body: serde_json::Value = themes_resp.json().await.unwrap();
         // Themes directory might not be present in every test env; tolerate.
         assert!(body["themes"].is_array());
+
+        // POST a tiny Lottie to the web-export endpoint; expect SVG.
+        let tiny = serde_json::json!({
+            "v":"5.7.0","fr":30,"ip":0,"op":1,"w":10,"h":10,"layers":[]
+        });
+        let client = reqwest::Client::new();
+        let resp = client
+            .post(format!("{base}/v1/web-export/svg-smil"))
+            .json(&tiny)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+        assert_eq!(
+            resp.headers().get(reqwest::header::CONTENT_TYPE).unwrap(),
+            "image/svg+xml"
+        );
+        let body = resp.text().await.unwrap();
+        assert!(body.contains("<svg"));
+
+        // Unknown format returns 400.
+        let resp = client
+            .post(format!("{base}/v1/web-export/bogus"))
+            .json(&tiny)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 400);
 
         server.abort();
     }

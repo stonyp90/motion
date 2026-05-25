@@ -177,6 +177,27 @@ enum Command {
     /// List bundled themes.
     Themes,
 
+    /// Convert a Lottie JSON to a web-native animation target.
+    ///
+    /// Supported `--format` values:
+    ///   `svg-smil`        single-file SVG with `<animate>` / `<animateTransform>` (loops forever)
+    ///   `svg-css`         SVG geometry + `<style>` block of `@keyframes`
+    ///   `gsap`            JS module that builds a `gsap.timeline({ repeat: -1 })`
+    ///   `motion-js`       JS module using `animate()` from the tree-shakeable `motion` package
+    ///   `theatre`         Theatre.js project state JSON (pass to `getProject(..., { state })`)
+    ///   `framer-variants` React-friendly Framer Motion `variants` object
+    WebExport {
+        /// Target ecosystem.
+        #[arg(long)]
+        format: String,
+        /// Input Lottie JSON file.
+        #[arg(long, alias = "in")]
+        input: PathBuf,
+        /// Output file. Use `-` for stdout.
+        #[arg(long, alias = "out")]
+        output: PathBuf,
+    },
+
     /// Start an HTTP server with an OpenAPI spec at /openapi.json.
     Serve {
         #[arg(long, default_value = "127.0.0.1:7755")]
@@ -317,6 +338,11 @@ async fn main() -> Result<()> {
             out_video,
         }),
         Command::Themes => cmd_themes(),
+        Command::WebExport {
+            format,
+            input,
+            output,
+        } => cmd_web_export(format, input, output),
         Command::Serve { bind } => motion_forge_http::serve(&bind).await,
     }
 }
@@ -720,6 +746,49 @@ fn cmd_themes() -> Result<()> {
             Err(e) => println!("  {slug:<14} (failed to load: {e})"),
         }
     }
+    Ok(())
+}
+
+fn cmd_web_export(format: String, input: PathBuf, output: PathBuf) -> Result<()> {
+    use motion_forge_web_export::{WebExportFormat, export};
+
+    let fmt = WebExportFormat::from_slug(&format).ok_or_else(|| {
+        anyhow::anyhow!(
+            "unknown --format `{format}`. Valid: {}",
+            WebExportFormat::all()
+                .iter()
+                .map(|f| f.slug())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    })?;
+    let raw = std::fs::read_to_string(&input)
+        .with_context(|| format!("reading lottie input {}", input.display()))?;
+    let lottie: serde_json::Value =
+        serde_json::from_str(&raw).with_context(|| "parsing input as Lottie JSON")?;
+    let payload = export(fmt, &lottie)?;
+
+    if output.as_os_str() == "-" {
+        use std::io::Write as _;
+        std::io::stdout()
+            .write_all(payload.as_bytes())
+            .with_context(|| "writing to stdout")?;
+    } else {
+        if let Some(parent) = output.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent).ok();
+            }
+        }
+        std::fs::write(&output, &payload)
+            .with_context(|| format!("writing {}", output.display()))?;
+    }
+    tracing::info!(
+        format = fmt.slug(),
+        mime = fmt.mime_type(),
+        bytes = payload.len(),
+        out = %output.display(),
+        "web-export complete"
+    );
     Ok(())
 }
 
