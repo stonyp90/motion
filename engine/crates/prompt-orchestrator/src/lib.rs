@@ -11,15 +11,13 @@ pub mod characters;
 pub mod llm;
 pub mod script_synth;
 
-// W4's brief_to_timeline takes the same character reference shape W2
-// owns in `characters` — re-export so the public API stays single-named.
-pub use characters::CharacterRef;
-
 use anyhow::Result;
 use motion_forge_style_extract::{EasingLabel, StyleCard};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+// Re-export the character types so consumers (and W4's brief_to_timeline)
+// can use the single canonical `CharacterRef` from this crate root.
 pub use characters::{
     Archetype, BehavioralDefaults, Character, CharacterRef, CharacterRegistry, VisualSpec,
 };
