@@ -1,0 +1,33 @@
+Hexapod API v4 — Release Walkthrough (20s)
+
+1.0 Hey devs, Alex from DevRel here with the v4 release notes.
+Visual : Alex sits casually with a laptop, terminal visible on a second screen behind
+
+2.0 The biggest change: every endpoint is now streaming by default.
+Visual : an HTTP response body flows in as a continuous stream of tokens, not a single payload
+
+3.0 You'll get first-byte latency under fifty milliseconds, globally.
+Visual : a world map; ping markers light up in major regions, each under a "50ms" pill
+
+4.0 Auth is simpler too.
+Visual : a long, intimidating header block shrinks down to a single short bearer token
+
+5.0 One bearer token. No more dual-key dance.
+Visual : two old API keys cross out with a clean line; one new token glows in their place
+5.1 Tight on the new token in a terminal, "OK 200" beneath it
+5.2 Pull back to a satisfied Alex giving a thumbs up
+
+6.0 We've added webhooks for every state change.
+Visual : a diagram of resource state arrows, each one now sprouting a small webhook icon
+
+7.0 And lucius-bot in our docs can now write the integration for you.
+Visual : the lucius-bot mascot taps a keyboard; code generates line-by-line in a side panel
+
+8.0 N/A
+Visual : transition; the doc page fades to a clean upgrade checklist
+
+9.0 Full migration guide is up at docs.hexapod.dev/v4.
+Visual : the URL types itself across the screen, characters landing one by one
+
+10.0 Ship something cool. We can't wait to see it.
+Visual : Hexapod wordmark, "v4 — now live" subtitle, lucius-bot waves goodbye in the corner

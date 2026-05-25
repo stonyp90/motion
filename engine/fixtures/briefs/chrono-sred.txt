@@ -1,0 +1,66 @@
+Chrono SR&ED — 60 second explainer
+
+1.0 Your company claim SR&ED credits every year.
+Visual : voit un immeuble, représentant une entreprise dans les tech
+
+2.0 What if you could do it faster
+Visual : change de scène ; faster apparaît en bold à l'écran
+
+3.0 What if you could do it cheaper
+Visual : change de scène ; cheaper apparaît en bold à l'écran
+
+4.0 What if you could do it with confidence
+Visual : change de scène ; confidence apparaît en bold à l'écran
+
+5.0 Chrono is the AI co-pilot for SR&ED preparers.
+Visual : on voit le logo de Chrono apparaître au centre de l'écran
+
+6.0 Upload your data once.
+Visual : un utilisateur drag-and-drop des fichiers vers Chrono
+
+7.0 Chrono extracts every eligible expense automatically.
+Visual : zoom sur les fichiers ; petites icônes vertes apparaissent
+
+8.0 Drafts the technical narrative in your voice.
+Visual : un document apparaît ; le texte se tape tout seul
+
+9.0 N/A
+Visual : transition rapide vers la vue dashboard
+
+10.0 Track every claim across every project.
+Visual : un dashboard apparaît, multiple projets visibles
+
+11.0 Built-in compliance with the latest CRA guidelines.
+Visual : un sceau d'approbation apparaît à côté du dashboard
+
+12.0 Plus, collaborate with Chrono's AI assistant
+Visual : même plan que précédemment, mais le logo chrono dans la bulle
+12.1 Même plan que précédent, mais on voit la réponse de l'utilisateur dans une bulle
+12.2 Lucius «avale» les 4 dossiers, ensuite faite un loading.
+
+13.0 Get your claim filed in days, not months.
+Visual : un calendrier qui se réduit visuellement
+
+14.0 Trusted by hundreds of Canadian tech companies.
+Visual : logos de clients défilent à l'écran
+
+15.0 From early-stage startups to enterprise R&D teams.
+Visual : montage rapide de différents environnements de travail
+
+16.0 SOC 2 compliant. Your data stays your data.
+Visual : icône de cadenas apparaît, badge SOC 2
+
+17.0 No long contracts. No setup fees.
+Visual : deux X biffent ces deux concepts à l'écran
+
+18.0 Start with a free claim review.
+Visual : bouton CTA apparaît, animation pulse subtile
+
+19.0 See what Chrono finds — risk-free.
+Visual : flèche pointe vers le bouton
+
+20.0 Visit chronosred.com today.
+Visual : URL apparaît grande à l'écran, fade out
+
+21.0 N/A
+Visual : logo Chrono final, tagline en dessous

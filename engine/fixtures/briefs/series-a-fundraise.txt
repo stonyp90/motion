@@ -1,0 +1,57 @@
+Lattice Capital — Series A Investor Teaser (90s)
+
+1.0 The world moves $4 trillion in cross-border payments every day.
+Visual : a slow rotating globe, faint money-flow arcs criss-crossing continents
+
+2.0 Most of it still settles on rails built in the 1970s.
+Visual : a black-and-white archive shot of a telex room dissolves into a modern server rack
+
+3.0 We thought we could do better.
+Visual : Alex steps into frame in a quiet co-working office, laptop tucked under one arm
+
+4.0 Two years ago, we built Lattice.
+Visual : a clean product shot of the Lattice dashboard fills the screen
+
+5.0 A real-time settlement layer for every regulated corridor that matters.
+Visual : the globe returns; the arcs now glow bright green and pulse with traffic
+
+6.0 We launched with three banks in Q3 of last year.
+Visual : a timeline appears, three small bank icons drop in at "Q3"
+
+7.0 Today, we power forty-two.
+Visual : the timeline keeps marching; icons cascade in rapid succession, ending on "42"
+
+8.0 Volume grew 18x in twelve months.
+Visual : a hockey-stick growth chart climbs sharply, a "18x" callout lands at the tip
+
+9.0 Net revenue retention sits at 147 percent.
+Visual : a horizontal bar grows past the 100% mark and keeps going
+
+10.0 Gross margin: 78 percent.
+Visual : the bar swaps for a clean donut chart, the 78% slice highlighted
+
+11.0 N/A
+Visual : a quick transition; three KPI tiles assemble into one neat row
+
+12.0 We've earned licenses in five major jurisdictions.
+Visual : Sam pins regulatory seals onto a world map — US, UK, EU, SG, AU
+12.1 Tight on the SG and AU seals as they stamp into place
+12.2 Pull back; the full map glows with five clustered hubs
+
+13.0 We're on track for $40 million ARR by end of next year.
+Visual : a forecast curve extends from the existing growth chart with a dotted line
+
+14.0 We're raising $30 million Series A to expand into LATAM and MENA.
+Visual : new arcs draw out from the existing hubs toward South America and the Middle East
+
+15.0 The market we're chasing is worth $1.2 trillion in fees alone.
+Visual : a stacked bar dwarfs the current Lattice slice, a TAM label hovers above
+
+16.0 With the right partners, we believe Lattice can own that layer.
+Visual : the Lattice logo lands in the center; competitor marks rotate away faintly behind it
+
+17.0 If that thesis interests you, we'd love to talk.
+Visual : Alex and Sam side-by-side, calm, addressing camera
+
+18.0 N/A
+Visual : final wordmark "Lattice — the new settlement layer", URL "lattice.fi/investors" below
