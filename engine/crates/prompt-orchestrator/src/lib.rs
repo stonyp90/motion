@@ -9,7 +9,7 @@
 pub mod brief;
 pub mod characters;
 pub mod llm;
-pub mod script_synth;
+pub mod presets;
 
 use anyhow::Result;
 use motion_forge_style_extract::{EasingLabel, StyleCard};

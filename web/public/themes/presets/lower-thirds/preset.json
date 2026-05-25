@@ -1,0 +1,34 @@
+{
+  "id": "lower-thirds",
+  "name": "Lower Thirds",
+  "tagline": "5-second transparent name + title slide-in.",
+  "category": "broadcast",
+  "duration_sec": 5.0,
+  "composition": {
+    "width": 1920,
+    "height": 1080,
+    "frame_rate": 30
+  },
+  "theme_slug": "corporate",
+  "transparent_background": true,
+  "suggested_cast": [
+    {
+      "id": "name_bar",
+      "kind": "text",
+      "role": "primary",
+      "note": "Person's name on the upper bar — bold, high contrast."
+    },
+    {
+      "id": "title_bar",
+      "kind": "text",
+      "role": "secondary",
+      "note": "Title / affiliation on the accent bar beneath."
+    }
+  ],
+  "brief_skeleton": "Lower-thirds card. Slide in {NAME} on the top bar and {TITLE} on the bottom bar. Hold 3 seconds. Slide out.",
+  "placeholders": [
+    { "id": "NAME", "label": "Person's name", "type": "string", "required": true },
+    { "id": "TITLE", "label": "Title or affiliation", "type": "string", "required": true }
+  ],
+  "preview": "preview.lottie.json"
+}

@@ -1,0 +1,41 @@
+{
+  "id": "social-ad-9x16",
+  "name": "Vertical Social Ad",
+  "tagline": "8-second 9:16 ad with a stopping first frame.",
+  "category": "ad",
+  "duration_sec": 8.0,
+  "composition": {
+    "width": 1080,
+    "height": 1920,
+    "frame_rate": 30
+  },
+  "theme_slug": "playful",
+  "suggested_cast": [
+    {
+      "id": "headline_card",
+      "kind": "text",
+      "role": "primary",
+      "note": "The first frame has to stop the thumb. Lead with this."
+    },
+    {
+      "id": "product_shot",
+      "kind": "image",
+      "role": "primary",
+      "note": "Product hero — pumps onto screen between 1.0s and 2.5s."
+    },
+    {
+      "id": "cta_button",
+      "kind": "text",
+      "role": "secondary",
+      "note": "End card with the offer and a button-style CTA."
+    }
+  ],
+  "brief_skeleton": "Open on {HOOK} in the first 0.5s. Show {PRODUCT} in motion. End on {CTA} card with {LOGO} bottom-right.",
+  "placeholders": [
+    { "id": "HOOK", "label": "Attention-grabbing first line", "type": "string", "required": true },
+    { "id": "PRODUCT", "label": "Product to feature", "type": "string", "required": true },
+    { "id": "CTA", "label": "Call to action", "type": "string", "default": "Get started today." },
+    { "id": "LOGO", "label": "Brand logo", "type": "string" }
+  ],
+  "preview": "preview.lottie.json"
+}

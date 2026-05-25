@@ -1,0 +1,3 @@
+# 60-Second Explainer
+
+The workhorse format for product onboarding, deck inserts, and homepage hero loops. Sixty seconds is long enough to land a real idea but short enough to keep attention; the Chrono-derived 20-beat structure lets a narrator hit the hook, the solution, three concrete benefits, and a clear call to action without ever feeling rushed. The preview animates ten beat markers crossing a progress bar to communicate the rhythm — the actual rendered explainer will swap each marker for a full illustrated scene built from the cast (icons + narrator track + headline card). Pair with the `explainer` theme for warm, illustrative motion; swap for `corporate` if you need a more restrained, B2B feel.

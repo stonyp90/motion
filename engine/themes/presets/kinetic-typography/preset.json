@@ -1,0 +1,28 @@
+{
+  "id": "kinetic-typography",
+  "name": "Kinetic Typography",
+  "tagline": "10-second 3-word emphasis sequence.",
+  "category": "typography",
+  "duration_sec": 10.0,
+  "composition": {
+    "width": 1920,
+    "height": 1080,
+    "frame_rate": 30
+  },
+  "theme_slug": "minimalist",
+  "suggested_cast": [
+    {
+      "id": "word_chip",
+      "kind": "text",
+      "role": "primary",
+      "note": "Three word chips that hit hard, hold, then jet off. ~3 seconds each."
+    }
+  ],
+  "brief_skeleton": "Animate three words for emphasis: {WORD_1}, {WORD_2}, {WORD_3}. Each word lands hard, holds, then transitions.",
+  "placeholders": [
+    { "id": "WORD_1", "label": "First word", "type": "string", "required": true },
+    { "id": "WORD_2", "label": "Second word", "type": "string", "required": true },
+    { "id": "WORD_3", "label": "Third word", "type": "string", "required": true }
+  ],
+  "preview": "preview.lottie.json"
+}

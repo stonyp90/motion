@@ -1,0 +1,3 @@
+# Onboarding Sequence
+
+A 30-second five-screen walkthrough designed for new-user welcome modals, app store previews, and trial-conversion landing pages. Each screen gets six seconds: enough time to land one feature, show one affordance, and read one short headline. The preview swaps colored frames in from alternating sides — the actual render will substitute real UI screenshots from the customer's product into each `screen_frame` cast slot. The 1080x720 composition is intentionally chosen: it fits cleanly inside an in-app overlay, a 16:9 modal, or an iframe on a marketing page, and the cast doesn't need to be re-cropped per surface. Use the explainer theme for an illustrative feel; corporate fits more enterprise-grade tools.

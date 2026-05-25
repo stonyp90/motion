@@ -1,0 +1,3 @@
+# Lower Thirds
+
+Broadcast-style name + title cards for talks, interviews, podcasts, and product demos. Five seconds covers a clean slide-in, a three-second hold, and a slide-out — long enough to register, short enough to feel produced rather than amateur. The preview omits a background fill so the asset can be composited over any video; the corporate theme drives a deep-ink name bar with a brand-accent title bar beneath. The two bars stagger their entrances (top first, then bottom) so the eye lands on the name before the title — a small detail that makes broadcast graphics feel intentional. Reuse the same preset for every speaker in a session; only the cast text changes.

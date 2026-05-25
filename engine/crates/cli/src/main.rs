@@ -177,26 +177,9 @@ enum Command {
     /// List bundled themes.
     Themes,
 
-    /// Convert a Lottie JSON to a web-native animation target.
-    ///
-    /// Supported `--format` values:
-    ///   `svg-smil`        single-file SVG with `<animate>` / `<animateTransform>` (loops forever)
-    ///   `svg-css`         SVG geometry + `<style>` block of `@keyframes`
-    ///   `gsap`            JS module that builds a `gsap.timeline({ repeat: -1 })`
-    ///   `motion-js`       JS module using `animate()` from the tree-shakeable `motion` package
-    ///   `theatre`         Theatre.js project state JSON (pass to `getProject(..., { state })`)
-    ///   `framer-variants` React-friendly Framer Motion `variants` object
-    WebExport {
-        /// Target ecosystem.
-        #[arg(long)]
-        format: String,
-        /// Input Lottie JSON file.
-        #[arg(long, alias = "in")]
-        input: PathBuf,
-        /// Output file. Use `-` for stdout.
-        #[arg(long, alias = "out")]
-        output: PathBuf,
-    },
+    /// Browse the starter preset library.
+    #[command(subcommand)]
+    Presets(PresetsCommand),
 
     /// Start an HTTP server with an OpenAPI spec at /openapi.json.
     Serve {
@@ -230,6 +213,20 @@ enum FigmaSub {
         /// Where to write the converted Lottie layer JSON.
         #[arg(long)]
         out: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+enum PresetsCommand {
+    /// List every starter preset (id, name, tagline, dimensions).
+    List,
+    /// Show the full spec for a single preset, including its preview Lottie metadata.
+    Show {
+        /// Preset id, e.g. `logo-reveal`.
+        id: String,
+        /// Print the preview Lottie payload too (large; off by default).
+        #[arg(long)]
+        with_preview: bool,
     },
 }
 
@@ -365,11 +362,10 @@ async fn main() -> Result<()> {
             out_video,
         }),
         Command::Themes => cmd_themes(),
-        Command::WebExport {
-            format,
-            input,
-            output,
-        } => cmd_web_export(format, input, output),
+        Command::Presets(PresetsCommand::List) => cmd_presets_list(),
+        Command::Presets(PresetsCommand::Show { id, with_preview }) => {
+            cmd_presets_show(&id, with_preview)
+        }
         Command::Serve { bind } => motion_forge_http::serve(&bind).await,
         Command::Figma { sub } => match sub {
             FigmaSub::Import {
@@ -779,46 +775,48 @@ fn cmd_themes() -> Result<()> {
     Ok(())
 }
 
-fn cmd_web_export(format: String, input: PathBuf, output: PathBuf) -> Result<()> {
-    use motion_forge_web_export::{WebExportFormat, export};
-
-    let fmt = WebExportFormat::from_slug(&format).ok_or_else(|| {
-        anyhow::anyhow!(
-            "unknown --format `{format}`. Valid: {}",
-            WebExportFormat::all()
-                .iter()
-                .map(|f| f.slug())
-                .collect::<Vec<_>>()
-                .join(", ")
-        )
-    })?;
-    let raw = std::fs::read_to_string(&input)
-        .with_context(|| format!("reading lottie input {}", input.display()))?;
-    let lottie: serde_json::Value =
-        serde_json::from_str(&raw).with_context(|| "parsing input as Lottie JSON")?;
-    let payload = export(fmt, &lottie)?;
-
-    if output.as_os_str() == "-" {
-        use std::io::Write as _;
-        std::io::stdout()
-            .write_all(payload.as_bytes())
-            .with_context(|| "writing to stdout")?;
-    } else {
-        if let Some(parent) = output.parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent).ok();
-            }
-        }
-        std::fs::write(&output, &payload)
-            .with_context(|| format!("writing {}", output.display()))?;
+fn cmd_presets_list() -> Result<()> {
+    use motion_forge_prompt_orchestrator::presets;
+    let summaries = presets::all_presets().context("listing presets")?;
+    if summaries.is_empty() {
+        println!("(no presets found — set MOTION_FORGE_THEMES_DIR or run from the workspace root)");
+        return Ok(());
     }
-    tracing::info!(
-        format = fmt.slug(),
-        mime = fmt.mime_type(),
-        bytes = payload.len(),
-        out = %output.display(),
-        "web-export complete"
-    );
+    println!("Starter presets ({}):", summaries.len());
+    for s in &summaries {
+        println!(
+            "  {:<24} {}\n    {}\n    {}x{}@{}fps, {}s · theme: {}\n    brief: {}",
+            s.id,
+            s.name,
+            s.tagline,
+            s.width,
+            s.height,
+            s.frame_rate,
+            s.duration_sec,
+            s.theme_slug.as_deref().unwrap_or("(none)"),
+            s.brief_skeleton,
+        );
+    }
+    Ok(())
+}
+
+fn cmd_presets_show(id: &str, with_preview: bool) -> Result<()> {
+    use motion_forge_prompt_orchestrator::presets;
+    let mut p = presets::load_preset(id).with_context(|| format!("loading preset '{id}'"))?;
+    if !with_preview {
+        // Replace the preview payload with a tiny stub so the printout
+        // stays terminal-friendly. Users who want it pass --with-preview.
+        let stub = serde_json::json!({
+            "_omitted": "pass --with-preview to include the full Lottie",
+            "w": p.preview_lottie["w"],
+            "h": p.preview_lottie["h"],
+            "fr": p.preview_lottie["fr"],
+            "op": p.preview_lottie["op"],
+            "layers": p.preview_lottie["layers"].as_array().map(|a| a.len()).unwrap_or(0),
+        });
+        p.preview_lottie = stub;
+    }
+    println!("{}", serde_json::to_string_pretty(&p)?);
     Ok(())
 }
 

@@ -1,0 +1,3 @@
+# Square Feed Ad
+
+Fifteen seconds is the sweet spot for square feed ads — long enough to land three feature beats but short enough that Instagram and LinkedIn auto-play don't strip you mid-thought. Structure: a hero headline lands in the first three seconds (centered, full-bleed), then three feature dots cycle through the middle stretch (left / center / right), and a final card seals the offer. Square also works gracefully on a phone home-screen widget, a slide deck embed, or an in-app banner; treat it as the most portable of the social formats. Pair with the `playful` theme by default; swap for `corporate` when the audience is B2B.

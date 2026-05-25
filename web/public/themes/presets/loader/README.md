@@ -1,0 +1,3 @@
+# Loader Spinner
+
+A tiny utility asset: a two-hundred-pixel spinner that loops forever without a seam. The eight dots fade in chase around the ring; the cycle exits with the same opacity profile the next cycle enters with, so a Lottie player set to loop will never show a visual hitch. Two seconds is short enough that users perceive motion instantly but long enough to read as deliberate rather than frantic. Drop this into a button, an empty state, or a full-screen loading view; resize freely — the geometry is built around the composition center so it scales without distortion. The minimalist theme keeps the palette clean; only the dot color needs to be re-themed to match a brand accent.

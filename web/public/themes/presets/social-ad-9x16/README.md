@@ -1,0 +1,3 @@
+# Vertical Social Ad
+
+Native vertical for TikTok, Reels, Shorts, and Stories. Eight seconds, three beats: a half-second hook the moment the autoplay begins, the product in motion through the middle, and an end card with the offer and a CTA the viewer can act on without ever leaving the feed. The preview rolls a diagonal slash on the first frame as the "stopper," pumps a product pill onto the center, then bounces in the end card — the actual render will swap each block for the cast's headline, product shot, and branded CTA. This preset deliberately rejects subtlety: vertical feeds reward bold color blocks, fast scale changes, and one clear thought per second.

@@ -1,0 +1,3 @@
+# Kinetic Typography
+
+Three words, ten seconds, no fluff. Each word slams onto the screen with a sharp scale + skew, sits dead-center for the read, then jets off the way it came in. The preview uses three colored chips (white, hot-pink, electric-blue) to demonstrate the rhythm — the actual render will substitute kerned type into each cast slot. This preset is the workhorse for headline reveals, manifesto cards, value-prop hits, and end-card stingers. It pairs beautifully behind a voiceover that hits each word on its peak frame; ask the AI director to time the emphasis to a narration track and the result feels expensive. Keep the dark `minimalist` theme — kinetic type lives or dies by contrast.
