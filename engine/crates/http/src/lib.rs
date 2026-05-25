@@ -1,14 +1,12 @@
 //! HTTP surface for motion-forge — Adobe-style request/iterate flow.
 //!
 //! Endpoints (all JSON):
-//! - `GET  /healthz`             — liveness probe
-//! - `GET  /openapi.json`        — OpenAPI 3.1 spec (hand-written; small surface)
-//! - `GET  /themes`              — list bundled themes
-//! - `POST /generate`            — run the full pipeline on a reference video
-//! - `POST /iterate`             — re-prompt against an existing work-dir
-//! - `POST /v1/export/{format}`  — convert a Lottie JSON body to the requested
-//!   output format (mp4 | mov | webm | webm-av1 | gif | webp | apng |
-//!   lottie | dotlottie | svg). Returns the encoded bytes inline.
+//! - `GET  /healthz`          — liveness probe
+//! - `GET  /openapi.json`     — OpenAPI 3.1 spec (hand-written; small surface)
+//! - `GET  /themes`           — list bundled themes
+//! - `POST /generate`         — run the full pipeline on a reference video
+//! - `POST /iterate`          — re-prompt against an existing work-dir
+//! - `POST /v1/figma/import`  — pull a Figma frame as a character / scene
 //!
 //! The server is single-binary, single-tenant, local-first. Designed to
 //! sit behind a desktop UI that lets users iterate verbally or by prompt
@@ -25,7 +23,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use motion_forge_ingest::{SourceFormat, detect as ingest_detect, ingest as ingest_bytes};
+use motion_forge_figma::{ImportKind, fetch_frame, parse_figma_url, to_lottie_layer};
 use motion_forge_pipeline::{Composition, GenerateConfig, IterateConfig, Pipeline};
 use motion_forge_prompt_orchestrator::{
     brief::{Brief, parse_brief},
@@ -84,7 +82,7 @@ pub async fn serve(bind: &str) -> Result<()> {
         .route("/themes", get(themes))
         .route("/generate", post(generate))
         .route("/iterate", post(iterate))
-        .route("/v1/ingest", post(ingest))
+        .route("/v1/figma/import", post(figma_import))
         .layer(tower_http::cors::CorsLayer::permissive())
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state);
@@ -276,70 +274,35 @@ async fn iterate(
     }))
 }
 
-/// POST /v1/ingest — multipart upload of any supported source format.
-///
-/// Form fields:
-/// - `format` (optional, text): one of `lottie`, `bodymovin`, `dot-lottie`,
-///   `rive`, `dragon-bones`, `after-effects-jsx`, `mo-grt`. When omitted,
-///   the server sniffs the bytes.
-/// - `file` (required, file/bytes): the source asset.
-///
-/// Response: the normalized [`Composition`] as JSON.
-async fn ingest(
+async fn figma_import(
     State(_state): State<AppState>,
-    mut multipart: Multipart,
-) -> Result<Json<motion_forge_ingest::Composition>, ApiError> {
-    let mut explicit_format: Option<SourceFormat> = None;
-    let mut bytes: Option<Vec<u8>> = None;
-    while let Some(field) = multipart
-        .next_field()
-        .await
-        .map_err(|e| ApiError::bad_request(format!("multipart: {e}")))?
-    {
-        match field.name() {
-            Some("format") => {
-                let s = field
-                    .text()
-                    .await
-                    .map_err(|e| ApiError::bad_request(format!("format field: {e}")))?;
-                explicit_format = parse_format(&s)
-                    .ok_or_else(|| ApiError::bad_request(format!("unknown format: {s}")))
-                    .map(Some)?;
-            }
-            Some("file") => {
-                let data = field
-                    .bytes()
-                    .await
-                    .map_err(|e| ApiError::bad_request(format!("file field: {e}")))?;
-                bytes = Some(data.to_vec());
-            }
-            _ => { /* ignore unknown fields */ }
-        }
+    Json(req): Json<FigmaImportRequest>,
+) -> Result<Json<FigmaImportResponse>, ApiError> {
+    if req.figma_token.trim().is_empty() {
+        return Err(ApiError::bad_request("figma_token is empty"));
     }
-    let bytes = bytes.ok_or_else(|| ApiError::bad_request("missing \"file\" field"))?;
-    let format = match explicit_format {
-        Some(f) => f,
-        None => ingest_detect(&bytes).ok_or_else(|| {
-            ApiError::bad_request("unable to auto-detect format; pass explicit \"format\" field")
-        })?,
-    };
-    let comp = ingest_bytes(format, &bytes)
+    let parsed = parse_figma_url(&req.file_url).map_err(ApiError::bad_request)?;
+    let node_id = req
+        .node_id
+        .clone()
+        .or_else(|| parsed.node_id.clone())
+        .ok_or_else(|| ApiError::bad_request("node_id missing (not in URL, not in body)"))?;
+    let node = fetch_frame(&parsed.file_key, &node_id, &req.figma_token)
         .await
         .map_err(ApiError::internal)?;
-    Ok(Json(comp))
-}
-
-fn parse_format(s: &str) -> Option<SourceFormat> {
-    match s.trim().to_ascii_lowercase().as_str() {
-        "lottie" => Some(SourceFormat::Lottie),
-        "bodymovin" => Some(SourceFormat::Bodymovin),
-        "dot-lottie" | "dotlottie" => Some(SourceFormat::DotLottie),
-        "rive" => Some(SourceFormat::Rive),
-        "dragon-bones" | "dragonbones" => Some(SourceFormat::DragonBones),
-        "after-effects-jsx" | "ae-jsx" | "jsx" => Some(SourceFormat::AfterEffectsJsx),
-        "mo-grt" | "mogrt" => Some(SourceFormat::MoGRT),
-        _ => None,
-    }
+    let converted = to_lottie_layer(&node);
+    let warnings: Vec<String> = converted
+        .warnings
+        .iter()
+        .map(|w| format!("{}: {}", w.node_id, w.message))
+        .collect();
+    Ok(Json(FigmaImportResponse {
+        file_key: parsed.file_key,
+        node_id,
+        kind: req.kind,
+        layer: converted.layer,
+        warnings,
+    }))
 }
 
 // ---- types ----
@@ -384,6 +347,30 @@ pub struct GenerateResponse {
 #[derive(Debug, Serialize)]
 pub struct ThemesResponse {
     pub themes: Vec<ThemeEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FigmaImportRequest {
+    /// Share URL — accepts `/file/` or `/design/` or `/proto/` shapes.
+    pub file_url: String,
+    /// Optional override; falls back to the `node-id` query param in `file_url`.
+    #[serde(default)]
+    pub node_id: Option<String>,
+    /// Sprite vs. background.
+    pub kind: ImportKind,
+    /// User-scoped Figma personal-access token. Per the task brief this
+    /// is request-body for now; later moves to a Keycloak realm secret.
+    pub figma_token: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FigmaImportResponse {
+    pub file_key: String,
+    pub node_id: String,
+    pub kind: ImportKind,
+    /// The converted Lottie layer (ready to slot into a composition).
+    pub layer: serde_json::Value,
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -513,38 +500,26 @@ const OPENAPI_JSON: &str = r##"{
         }
       }
     },
-    "/v1/ingest": {
+    "/v1/figma/import": {
       "post": {
-        "summary": "Import a third-party motion-design file into motion-forge's internal Composition",
-        "description": "Accepts Lottie, Bodymovin, dotLottie, Rive (text JSON only), DragonBones, After Effects JSX-export JSON, or Premiere Pro MoGRT. The server sniffs the format from magic bytes if the `format` field is omitted.",
+        "summary": "Import a Figma frame as a character sprite or scene background",
         "requestBody": {
           "required": true,
           "content": {
-            "multipart/form-data": {
-              "schema": {
-                "type": "object",
-                "required": ["file"],
-                "properties": {
-                  "format": {
-                    "type": "string",
-                    "enum": ["lottie", "bodymovin", "dot-lottie", "rive", "dragon-bones", "after-effects-jsx", "mo-grt"]
-                  },
-                  "file": { "type": "string", "format": "binary" }
-                }
-              }
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/FigmaImportRequest" }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Normalized Composition (Lottie-shaped timeline)",
+            "description": "Converted Lottie layer plus any non-fatal conversion warnings",
             "content": {
               "application/json": {
-                "schema": { "type": "object" }
+                "schema": { "$ref": "#/components/schemas/FigmaImportResponse" }
               }
             }
-          },
-          "400": { "description": "Bad request — unknown format or missing file" }
+          }
         }
       }
     }
@@ -616,6 +591,27 @@ const OPENAPI_JSON: &str = r##"{
             "items": { "$ref": "#/components/schemas/ThemeEntry" }
           }
         }
+      },
+      "FigmaImportRequest": {
+        "type": "object",
+        "required": ["file_url", "kind", "figma_token"],
+        "properties": {
+          "file_url": { "type": "string", "description": "Share URL (/file/, /design/, or /proto/)." },
+          "node_id": { "type": ["string", "null"], "description": "Optional override; falls back to the URL's node-id." },
+          "kind": { "type": "string", "enum": ["character", "scene"] },
+          "figma_token": { "type": "string", "description": "User-scoped Figma PAT. Transport: request body (Phase 2: realm secret)." }
+        }
+      },
+      "FigmaImportResponse": {
+        "type": "object",
+        "required": ["file_key", "node_id", "kind", "layer", "warnings"],
+        "properties": {
+          "file_key": { "type": "string" },
+          "node_id": { "type": "string" },
+          "kind": { "type": "string", "enum": ["character", "scene"] },
+          "layer": { "type": "object", "description": "Converted Lottie layer." },
+          "warnings": { "type": "array", "items": { "type": "string" } }
+        }
       }
     }
   }
@@ -652,16 +648,8 @@ mod tests {
         assert!(v["paths"]["/generate"].is_object());
         assert!(v["paths"]["/iterate"].is_object());
         assert!(v["paths"]["/themes"].is_object());
-        assert!(v["paths"]["/v1/ingest"].is_object());
-    }
-
-    #[test]
-    fn parse_format_accepts_kebab_and_compact() {
-        assert_eq!(parse_format("lottie"), Some(SourceFormat::Lottie));
-        assert_eq!(parse_format("dot-lottie"), Some(SourceFormat::DotLottie));
-        assert_eq!(parse_format("dotlottie"), Some(SourceFormat::DotLottie));
-        assert_eq!(parse_format("MOGRT"), Some(SourceFormat::MoGRT));
-        assert_eq!(parse_format("nope"), None);
+        assert!(v["paths"]["/v1/figma/import"].is_object());
+        assert!(v["components"]["schemas"]["FigmaImportRequest"].is_object());
     }
 
     #[tokio::test]
@@ -679,7 +667,7 @@ mod tests {
             .route("/themes", get(themes))
             .route("/generate", post(generate))
             .route("/iterate", post(iterate))
-            .route("/v1/ingest", post(ingest))
+            .route("/v1/figma/import", post(figma_import))
             .with_state(state);
 
         let server = tokio::spawn(async move {

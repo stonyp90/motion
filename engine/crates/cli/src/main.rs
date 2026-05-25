@@ -183,21 +183,32 @@ enum Command {
         bind: String,
     },
 
-    /// Import a third-party motion-design file (Lottie / Bodymovin /
-    /// dotLottie / Rive / DragonBones / MoGRT / AE-JSX-export) and write
-    /// the normalized internal Composition to disk.
-    Ingest {
-        /// Source format. Omit to auto-detect from magic bytes. Accepted
-        /// values: lottie, bodymovin, dot-lottie, rive, dragon-bones,
-        /// after-effects-jsx, mo-grt.
+    /// Figma ingest commands (import a frame as a character or scene).
+    Figma {
+        #[command(subcommand)]
+        sub: FigmaSub,
+    },
+}
+
+#[derive(Subcommand)]
+enum FigmaSub {
+    /// Import a Figma frame as a character sprite or scene background.
+    Import {
+        /// Figma share URL — accepts /file/, /design/, or /proto/ shapes.
         #[arg(long)]
-        format: Option<String>,
-        /// Input file path. Required.
-        #[arg(long = "in")]
-        input: PathBuf,
-        /// Where to write the normalized Composition (JSON).
-        #[arg(long = "out")]
-        output: PathBuf,
+        url: String,
+        /// Optional node id override; falls back to the URL's `node-id` param.
+        #[arg(long)]
+        node_id: Option<String>,
+        /// `character` (sprite) or `scene` (background).
+        #[arg(long, default_value = "character")]
+        kind: String,
+        /// Figma personal-access token. Reads `FIGMA_TOKEN` env if omitted.
+        #[arg(long, env = "FIGMA_TOKEN")]
+        token: String,
+        /// Where to write the converted Lottie layer JSON.
+        #[arg(long)]
+        out: PathBuf,
     },
 }
 
@@ -334,11 +345,15 @@ async fn main() -> Result<()> {
         }),
         Command::Themes => cmd_themes(),
         Command::Serve { bind } => motion_forge_http::serve(&bind).await,
-        Command::Ingest {
-            format,
-            input,
-            output,
-        } => cmd_ingest(format, input, output).await,
+        Command::Figma { sub } => match sub {
+            FigmaSub::Import {
+                url,
+                node_id,
+                kind,
+                token,
+                out,
+            } => cmd_figma_import(url, node_id, kind, token, out).await,
+        },
     }
 }
 
@@ -738,49 +753,60 @@ fn cmd_themes() -> Result<()> {
     Ok(())
 }
 
-async fn cmd_ingest(format: Option<String>, input: PathBuf, output: PathBuf) -> Result<()> {
-    use motion_forge_ingest::{SourceFormat, detect, ingest};
-    let bytes = std::fs::read(&input).with_context(|| format!("reading {}", input.display()))?;
-    let resolved = match format {
-        Some(s) => parse_cli_format(&s).ok_or_else(|| anyhow::anyhow!("unknown --format: {s}"))?,
-        None => match detect(&bytes) {
-            Some(f) => f,
-            None => {
-                // Fall back to extension hint, otherwise bail.
-                let ext = input.extension().and_then(|e| e.to_str()).unwrap_or("");
-                SourceFormat::from_extension(ext).ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "could not auto-detect format from bytes or extension; pass --format explicitly"
-                    )
-                })?
-            }
-        },
-    };
-    tracing::info!(format = resolved.label(), in_path = %input.display(), "ingest: starting");
-    let comp = ingest(resolved, &bytes).await?;
-    let json = serde_json::to_string_pretty(&comp).context("serializing composition")?;
-    std::fs::write(&output, json).with_context(|| format!("writing {}", output.display()))?;
-    tracing::info!(
-        out = %output.display(),
-        shots = comp.shots.len(),
-        duration_s = comp.duration_seconds,
-        "ingest: wrote normalized composition"
-    );
-    Ok(())
-}
+async fn cmd_figma_import(
+    url: String,
+    node_id_override: Option<String>,
+    kind: String,
+    token: String,
+    out: PathBuf,
+) -> Result<()> {
+    use motion_forge_figma::{ImportKind, fetch_frame, parse_figma_url, to_lottie_layer};
 
-fn parse_cli_format(s: &str) -> Option<motion_forge_ingest::SourceFormat> {
-    use motion_forge_ingest::SourceFormat;
-    match s.trim().to_ascii_lowercase().as_str() {
-        "lottie" => Some(SourceFormat::Lottie),
-        "bodymovin" => Some(SourceFormat::Bodymovin),
-        "dot-lottie" | "dotlottie" => Some(SourceFormat::DotLottie),
-        "rive" => Some(SourceFormat::Rive),
-        "dragon-bones" | "dragonbones" => Some(SourceFormat::DragonBones),
-        "after-effects-jsx" | "ae-jsx" | "jsx" => Some(SourceFormat::AfterEffectsJsx),
-        "mo-grt" | "mogrt" => Some(SourceFormat::MoGRT),
-        _ => None,
+    let parsed = parse_figma_url(&url).with_context(|| format!("parsing Figma URL {url}"))?;
+    let node_id = node_id_override
+        .or(parsed.node_id.clone())
+        .ok_or_else(|| anyhow::anyhow!("no --node-id provided and URL has no node-id param"))?;
+    let import_kind = match kind.to_ascii_lowercase().as_str() {
+        "character" | "sprite" => ImportKind::Character,
+        "scene" | "background" => ImportKind::Scene,
+        other => anyhow::bail!("--kind must be `character` or `scene`, got {other:?}"),
+    };
+    tracing::info!(
+        file_key = %parsed.file_key,
+        node_id = %node_id,
+        kind = ?import_kind,
+        "figma: fetching frame"
+    );
+    let node = fetch_frame(&parsed.file_key, &node_id, &token).await?;
+    let converted = to_lottie_layer(&node);
+    let envelope = serde_json::json!({
+        "file_key": parsed.file_key,
+        "node_id": node_id,
+        "kind": match import_kind {
+            ImportKind::Character => "character",
+            ImportKind::Scene => "scene",
+        },
+        "source_name": node.name,
+        "source_type": node.node_type,
+        "layer": converted.layer,
+        "warnings": converted.warnings,
+    });
+    if let Some(parent) = out.parent() {
+        std::fs::create_dir_all(parent).ok();
     }
+    std::fs::write(&out, serde_json::to_string_pretty(&envelope)?)
+        .with_context(|| format!("writing {}", out.display()))?;
+    tracing::info!(
+        out = %out.display(),
+        warnings = converted.warnings.len(),
+        "figma: layer written"
+    );
+    if !converted.warnings.is_empty() {
+        for w in &converted.warnings {
+            tracing::warn!(node = %w.node_id, kind = ?w.kind, "{}", w.message);
+        }
+    }
+    Ok(())
 }
 
 // ---- helpers ----
