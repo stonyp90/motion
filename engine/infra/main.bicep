@@ -514,7 +514,8 @@ resource apiApp 'Microsoft.App/containerApps@2025-01-01' = {
       ingress: {
         external: true
         targetPort: 7755
-        transport: 'http2'
+        // axum speaks HTTP/1.1 by default; 'auto' lets ACA detect h1c vs h2c.
+        transport: 'auto'
         allowInsecure: false
         traffic: [ { latestRevision: true, weight: 100 } ]
         corsPolicy: {
