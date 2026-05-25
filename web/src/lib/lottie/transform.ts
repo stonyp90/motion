@@ -222,3 +222,97 @@ export function downloadJson(lottie: LottieJson, filename: string): void {
   a.remove();
   URL.revokeObjectURL(url);
 }
+
+/**
+ * Lightweight per-layer summary used by the studio's LayersPanel.
+ * Pulled out of LottieLayer so the panel can render without dragging
+ * the whole layer payload through React state on every selection.
+ */
+export interface LayerSummary {
+  index: number;
+  name: string;
+  /** Lottie layer type: 1=solid, 2=image, 3=null, 4=shape, 5=text, etc. */
+  type: number;
+  hidden: boolean;
+  locked: boolean;
+  isBackground: boolean;
+}
+
+/**
+ * Lottie uses `hd: true` on a layer to hide it, and an undeclared
+ * convention for lock — motion-forge stamps `_locked: true` so the
+ * client editor has somewhere to remember the lock state.
+ */
+export function summarizeLayers(lottie: LottieJson | null): LayerSummary[] {
+  if (!lottie?.layers) return [];
+  return lottie.layers.map((layer, index) => ({
+    index,
+    name: (layer.nm as string | undefined) ?? `layer ${index + 1}`,
+    type: (layer.ty as number | undefined) ?? 4,
+    hidden: Boolean((layer as Record<string, unknown>).hd),
+    locked: Boolean((layer as Record<string, unknown>)._locked),
+    isBackground: ((layer.nm as string | undefined) ?? '') === 'background',
+  }));
+}
+
+/**
+ * Flip the `hd` field on a layer. The Lottie spec treats missing as
+ * visible, so we delete the key on toggle-off to stay round-trip
+ * clean with renderers that don't tolerate the field.
+ */
+export function toggleLayerVisibility(lottie: LottieJson, index: number): LottieJson {
+  const layer = lottie.layers?.[index] as Record<string, unknown> | undefined;
+  if (!layer) return lottie;
+  if (layer.hd) delete layer.hd;
+  else layer.hd = true;
+  return lottie;
+}
+
+export function toggleLayerLock(lottie: LottieJson, index: number): LottieJson {
+  const layer = lottie.layers?.[index] as Record<string, unknown> | undefined;
+  if (!layer) return lottie;
+  if (layer._locked) delete layer._locked;
+  else layer._locked = true;
+  return lottie;
+}
+
+/**
+ * Move a layer in the z-order. Lottie renders layers in array order
+ * (index 0 is on top of index 1, etc.) so "move up" means lowering
+ * the array index.
+ */
+export function reorderLayer(
+  lottie: LottieJson,
+  from: number,
+  to: number,
+): LottieJson {
+  if (!lottie.layers) return lottie;
+  if (from < 0 || from >= lottie.layers.length) return lottie;
+  if (to < 0 || to >= lottie.layers.length) return lottie;
+  if (from === to) return lottie;
+  const [layer] = lottie.layers.splice(from, 1);
+  lottie.layers.splice(to, 0, layer);
+  return lottie;
+}
+
+/** Resolve a single fill on a single layer; null when not animatable. */
+export function readLayerFill(
+  lottie: LottieJson,
+  index: number,
+): [number, number, number] | null {
+  const layer = lottie.layers?.[index];
+  if (!layer) return null;
+  let found: [number, number, number] | null = null;
+  walkFills(layer, (fill) => {
+    if (found) return;
+    const c = fill.c as { a?: number; k?: unknown } | undefined;
+    if (!c) return;
+    if (c.a === 0 && Array.isArray(c.k)) {
+      found = lottieToRgb(c.k as number[]);
+    } else if (Array.isArray(c.k) && c.k.length > 0) {
+      const first = c.k[0] as Record<string, unknown>;
+      if (Array.isArray(first.s)) found = lottieToRgb(first.s as number[]);
+    }
+  });
+  return found;
+}

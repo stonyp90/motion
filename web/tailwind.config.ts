@@ -86,6 +86,22 @@ const config: Config = {
           DEFAULT: 'var(--color-border-default)',
           dark: 'var(--color-border-dark)',
         },
+        editor: {
+          bg: 'var(--color-editor-bg)',
+          panel: 'var(--color-editor-panel)',
+          toolbar: 'var(--color-editor-toolbar)',
+          border: 'var(--color-editor-border)',
+          text: 'var(--color-editor-text)',
+          muted: 'var(--color-editor-muted)',
+          accent: 'var(--color-editor-accent)',
+          selection: 'var(--color-editor-selection)',
+        },
+      },
+      fontSize: {
+        // Two named small sizes so components stop reaching for
+        // `text-[10px]` / `text-[11px]` arbitrary values.
+        '2xs': ['0.625rem', { lineHeight: '0.875rem' }],   // 10px / 14px
+        '3xs': ['0.6875rem', { lineHeight: '0.9375rem' }], // 11px / 15px
       },
       fontFamily: {
         sans: ['var(--font-sans)', 'system-ui', '-apple-system', 'sans-serif'],
