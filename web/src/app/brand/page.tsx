@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { Moon, Sun, Sparkles, Play, ArrowRight, Check, Cpu } from 'lucide-react';
 
 /* The /brand route is the source of truth for what's available in the
@@ -67,9 +68,9 @@ function BrandHeader({ mode, onToggle }: { mode: Mode; onToggle: () => void }) {
         </div>
 
         <div className="flex items-center gap-2">
-          <a href="/" className="btn-motion-outline py-2 text-sm">
+          <Link href="/" className="btn-motion-outline py-2 text-sm">
             Back to site
-          </a>
+          </Link>
           <button
             onClick={onToggle}
             aria-label={`Switch to ${mode === 'light' ? 'dark' : 'light'} mode`}
