@@ -68,66 +68,10 @@
     --color-border-default: #cbd5e1;
     --color-border-dark:    #94a3b8;
 
-    /* Studio editor surfaces — distinct from marketing semantics so
-       the studio can be dark while the marketing pages stay light. */
-    --color-editor-bg:        #f8fafc;  /* canvas background */
-    --color-editor-panel:     #ffffff;  /* side panels */
-    --color-editor-toolbar:   #f1f5f9;  /* top/bottom bars */
-    --color-editor-border:    #e2e8f0;
-    --color-editor-text:      #0f172a;
-    --color-editor-muted:     #64748b;
-    --color-editor-accent:    #10b981;
-    --color-editor-selection: #d1fae5;
-
     --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
       'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo,
       Monaco, Consolas, monospace;
-  }
-
-  /* ---- Dark theme override ----
-     Every CSS variable defined in :root above gets a dark companion
-     here. Components reference the named utility (bg-bg-primary,
-     text-text-primary, etc.) so a `data-theme="dark"` on <html>
-     flips the entire surface without touching any component.
-     Used today by /studio; the marketing /, /pricing, /faq pages
-     stay light by default. */
-  :root[data-theme="dark"] {
-    /* Soft-blacks per IDE convention — never pure #000. */
-    --color-bg-primary:    #0e1014;
-    --color-bg-secondary:  #14171c;
-    --color-bg-tertiary:   #1a1e25;
-    --color-bg-inverse:    #f8fafc;
-
-    --color-text-primary:   #e8eaf0;
-    --color-text-secondary: #b8bdc7;
-    --color-text-tertiary:  #7e8694;
-    --color-text-inverse:   #0e1014;
-    --color-text-accent:    #34d399;
-
-    --color-border-light:   #23272f;
-    --color-border-default: #2e3340;
-    --color-border-dark:    #424757;
-
-    /* Studio surfaces — slightly darker than the marketing dark mode
-       to maximise canvas contrast. */
-    --color-editor-bg:        #16191f;
-    --color-editor-panel:     #1c2027;
-    --color-editor-toolbar:   #14171c;
-    --color-editor-border:    #2a2f38;
-    --color-editor-text:      #e8eaf0;
-    --color-editor-muted:     #8a92a1;
-    --color-editor-accent:    #34d399;
-    --color-editor-selection: #064e3b;
-  }
-
-  /* Honor the OS preference on first paint when no explicit user choice
-     has been stored yet. The studio's ThemeProvider overrides this with
-     localStorage on mount. */
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme]) {
-      color-scheme: dark;
-    }
   }
 
   html { scroll-behavior: smooth; }
@@ -193,16 +137,6 @@
   }
 }
 
-/* Subtle marquee animation for the panel-rail in the hero. */
-@keyframes panel-drift {
-  0%   { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
-}
-.animate-panel-drift {
-  animation: panel-drift 38s linear infinite;
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .animate-panel-drift { animation: none; }
   html { scroll-behavior: auto; }
 }

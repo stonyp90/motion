@@ -4,15 +4,15 @@ import './globals.css';
 export const metadata: Metadata = {
   metadataBase: new URL('https://motion-forge.io'),
   title: {
-    default: 'motion-forge — motion design at the speed of your roadmap',
+    default: 'motion-forge — prompt-based motion graphics',
     template: '%s · motion-forge',
   },
   description:
-    'Ship broadcast-grade motion design from a prompt, your illustrations, or a reference video. Local-first, backend-agnostic, deployable on Azure in one command. License the engine instead of paying per video.',
+    'Type a prompt, get a motion graphic. 90s first render, sub-second iterations, $0.18 per spot.',
   openGraph: {
-    title: 'motion-forge — motion design at the speed of your roadmap',
+    title: 'motion-forge — prompt-based motion graphics',
     description:
-      'License the engine that turns illustrations + a prompt into shipped motion in 90 seconds.',
+      'Type a prompt, get a motion graphic. 90s first render, sub-second iterations, $0.18 per spot.',
     type: 'website',
   },
   twitter: { card: 'summary_large_image' },

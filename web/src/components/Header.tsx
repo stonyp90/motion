@@ -1,84 +1,48 @@
-'use client';
-
 import Link from 'next/link';
-import { useState } from 'react';
-import { Menu, X } from 'lucide-react';
+import { Github } from 'lucide-react';
 
-const navItems = [
-  { label: 'Studio', href: '/studio' },
-  { label: 'How it works', href: '/#how-it-works' },
-  { label: 'Compare', href: '/#compare' },
-  { label: 'Architecture', href: '/#architecture' },
-  { label: 'Pricing', href: '/#pricing' },
-  { label: 'FAQ', href: '/#faq' },
-];
-
+/**
+ * Slim app header: logo + GitHub link + Sign in.
+ *
+ * The single-screen app does not have marketing nav — the page itself
+ * IS the call to action. We keep just enough chrome to identify the
+ * product and give a user a way back into their account.
+ */
 export function Header() {
-  const [open, setOpen] = useState(false);
-
   return (
     <header className="sticky top-0 z-40 w-full border-b border-border-light bg-bg-primary/85 backdrop-blur-md">
-      <div className="container flex h-16 items-center justify-between">
-        <Link href="/" className="flex items-center gap-2.5 group">
+      <div className="container flex h-14 items-center justify-between">
+        <Link href="/" className="flex items-center gap-2.5 group" aria-label="motion-forge home">
           <span
             aria-hidden
-            className="grid h-8 w-8 place-items-center rounded-lg bg-primary-900 text-text-inverse transition group-hover:bg-accent-500"
+            className="grid h-7 w-7 place-items-center rounded-lg bg-primary-900 text-text-inverse transition group-hover:bg-accent-500"
           >
-            <span className="text-base font-bold tracking-tight">M</span>
+            <span className="text-sm font-bold tracking-tight">M</span>
           </span>
-          <span className="font-semibold tracking-tight text-text-primary">motion-forge</span>
+          <span className="text-sm font-semibold tracking-tight text-text-primary">
+            motion-forge
+          </span>
         </Link>
 
-        <nav className="hidden lg:flex items-center gap-7" aria-label="Primary">
-          {navItems.map((item) => (
-            <a
-              key={item.href}
-              href={item.href}
-              className="text-sm text-text-secondary transition hover:text-text-primary"
-            >
-              {item.label}
-            </a>
-          ))}
-        </nav>
-
-        <div className="hidden lg:flex items-center gap-3">
-          <a href="https://github.com/" className="btn-ghost py-2 text-sm">
-            GitHub
+        <div className="flex items-center gap-2">
+          <a
+            href="https://github.com/"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-text-secondary transition hover:bg-bg-tertiary hover:text-text-primary"
+            aria-label="GitHub repository"
+          >
+            <Github className="h-4 w-4" />
+            <span className="hidden sm:inline">GitHub</span>
           </a>
-          <a href="#cta" className="btn-primary py-2 text-sm">
-            Book a demo
-          </a>
+          <button
+            type="button"
+            className="rounded-full border border-border px-3 py-1.5 text-sm font-medium text-text-primary transition hover:bg-bg-tertiary"
+          >
+            Sign in
+          </button>
         </div>
-
-        <button
-          className="lg:hidden text-text-primary"
-          onClick={() => setOpen((v) => !v)}
-          aria-label={open ? 'Close menu' : 'Open menu'}
-          aria-expanded={open}
-        >
-          {open ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
-        </button>
       </div>
-
-      {open && (
-        <div className="lg:hidden border-t border-border-light bg-bg-primary">
-          <nav className="container flex flex-col gap-3 py-4" aria-label="Mobile">
-            {navItems.map((item) => (
-              <a
-                key={item.href}
-                href={item.href}
-                className="rounded-lg px-3 py-2 text-sm font-medium text-text-secondary hover:bg-bg-tertiary"
-                onClick={() => setOpen(false)}
-              >
-                {item.label}
-              </a>
-            ))}
-            <a href="#cta" className="btn-primary mt-2" onClick={() => setOpen(false)}>
-              Book a demo
-            </a>
-          </nav>
-        </div>
-      )}
     </header>
   );
 }
