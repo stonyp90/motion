@@ -1,12 +1,15 @@
 //! HTTP surface for motion-forge — Adobe-style request/iterate flow.
 //!
-//! Endpoints (all JSON):
-//! - `GET  /healthz`          — liveness probe
-//! - `GET  /openapi.json`     — OpenAPI 3.1 spec (hand-written; small surface)
-//! - `GET  /themes`           — list bundled themes
-//! - `POST /generate`         — run the full pipeline on a reference video
-//! - `POST /iterate`          — re-prompt against an existing work-dir
-//! - `POST /v1/figma/import`  — pull a Figma frame as a character / scene
+//! Endpoints (all JSON unless noted):
+//! - `GET  /healthz`                   — liveness probe
+//! - `GET  /openapi.json`              — OpenAPI 3.1 spec (hand-written; small surface)
+//! - `GET  /themes`                    — list bundled themes
+//! - `POST /generate`                  — run the full pipeline on a reference video
+//! - `POST /iterate`                   — re-prompt against an existing work-dir
+//! - `POST /v1/web-export/{format}`    — convert a Lottie JSON body into a
+//!   web-native target (SVG+SMIL, SVG+CSS, GSAP, Motion, Theatre.js,
+//!   Framer Motion variants). Response body is the exported text in
+//!   the right MIME type for the format.
 //!
 //! The server is single-binary, single-tenant, local-first. Designed to
 //! sit behind a desktop UI that lets users iterate verbally or by prompt
@@ -18,7 +21,7 @@ pub mod stt_route;
 use anyhow::Result;
 use axum::{
     Json, Router,
-    extract::{Multipart, State},
+    extract::{Path, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -35,6 +38,7 @@ use motion_forge_render::{
     format::{build_svg, copy_lottie, pack_dotlottie, transcode_with_ffmpeg},
 };
 use motion_forge_style_extract::Theme;
+use motion_forge_web_export::{WebExportFormat, export as web_export};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -82,7 +86,7 @@ pub async fn serve(bind: &str) -> Result<()> {
         .route("/themes", get(themes))
         .route("/generate", post(generate))
         .route("/iterate", post(iterate))
-        .route("/v1/figma/import", post(figma_import))
+        .route("/v1/web-export/:format", post(web_export_handler))
         .layer(tower_http::cors::CorsLayer::permissive())
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state);
@@ -274,35 +278,33 @@ async fn iterate(
     }))
 }
 
-async fn figma_import(
+/// `POST /v1/web-export/{format}` — convert a Lottie JSON body to the
+/// requested web-native target. The body is the full Lottie document
+/// (same shape we ship from `/generate`). The response body is the
+/// exported text in the appropriate MIME type for the format.
+///
+/// Valid `{format}` values: `svg-smil`, `svg-css`, `gsap`, `motion-js`,
+/// `theatre`, `framer-variants`.
+async fn web_export_handler(
     State(_state): State<AppState>,
-    Json(req): Json<FigmaImportRequest>,
-) -> Result<Json<FigmaImportResponse>, ApiError> {
-    if req.figma_token.trim().is_empty() {
-        return Err(ApiError::bad_request("figma_token is empty"));
-    }
-    let parsed = parse_figma_url(&req.file_url).map_err(ApiError::bad_request)?;
-    let node_id = req
-        .node_id
-        .clone()
-        .or_else(|| parsed.node_id.clone())
-        .ok_or_else(|| ApiError::bad_request("node_id missing (not in URL, not in body)"))?;
-    let node = fetch_frame(&parsed.file_key, &node_id, &req.figma_token)
-        .await
-        .map_err(ApiError::internal)?;
-    let converted = to_lottie_layer(&node);
-    let warnings: Vec<String> = converted
-        .warnings
-        .iter()
-        .map(|w| format!("{}: {}", w.node_id, w.message))
-        .collect();
-    Ok(Json(FigmaImportResponse {
-        file_key: parsed.file_key,
-        node_id,
-        kind: req.kind,
-        layer: converted.layer,
-        warnings,
-    }))
+    Path(format): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Response, ApiError> {
+    let fmt = WebExportFormat::from_slug(&format)
+        .ok_or_else(|| ApiError::bad_request(format!("unknown format `{format}`")))?;
+    let payload = web_export(fmt, &body).map_err(ApiError::internal)?;
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static(fmt.mime_type()),
+    );
+    // Convenience for `curl -OJ`.
+    let disposition = format!("inline; filename=\"motion.{}\"", fmt.extension());
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_str(&disposition).unwrap_or_else(|_| HeaderValue::from_static("inline")),
+    );
+    Ok((StatusCode::OK, headers, payload).into_response())
 }
 
 // ---- types ----
@@ -500,26 +502,40 @@ const OPENAPI_JSON: &str = r##"{
         }
       }
     },
-    "/v1/figma/import": {
+    "/v1/web-export/{format}": {
       "post": {
-        "summary": "Import a Figma frame as a character sprite or scene background",
+        "summary": "Convert a Lottie JSON body to a web-native animation target",
+        "description": "Re-emit the same composition as SVG+SMIL, SVG+CSS @keyframes, a GSAP timeline JS module, a Motion (framer-motion vanilla) snippet, a Theatre.js project state JSON, or a Framer Motion variants object. Response body is text in the appropriate MIME type for the format.",
+        "parameters": [
+          {
+            "name": "format",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": ["svg-smil", "svg-css", "gsap", "motion-js", "theatre", "framer-variants"]
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
+          "description": "A complete Lottie JSON document.",
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/FigmaImportRequest" }
+              "schema": { "type": "object" }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Converted Lottie layer plus any non-fatal conversion warnings",
+            "description": "Exported payload.",
             "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/FigmaImportResponse" }
-              }
+              "image/svg+xml": { "schema": { "type": "string" } },
+              "application/javascript": { "schema": { "type": "string" } },
+              "application/json": { "schema": { "type": "object" } }
             }
-          }
+          },
+          "400": { "description": "Unknown format slug or invalid Lottie body." }
         }
       }
     }
@@ -667,7 +683,7 @@ mod tests {
             .route("/themes", get(themes))
             .route("/generate", post(generate))
             .route("/iterate", post(iterate))
-            .route("/v1/figma/import", post(figma_import))
+            .route("/v1/web-export/:format", post(web_export_handler))
             .with_state(state);
 
         let server = tokio::spawn(async move {
@@ -682,7 +698,8 @@ mod tests {
         assert_eq!(openapi_resp.status(), 200);
         let body: serde_json::Value = openapi_resp.json().await.unwrap();
         assert_eq!(body["openapi"], "3.1.0");
-        assert!(body["paths"]["/v1/export/{format}"].is_object());
+        // The web-export route should be advertised.
+        assert!(body["paths"]["/v1/web-export/{format}"].is_object());
 
         let themes_resp = reqwest::get(format!("{base}/themes")).await.unwrap();
         assert_eq!(themes_resp.status(), 200);
@@ -690,48 +707,33 @@ mod tests {
         // Themes directory might not be present in every test env; tolerate.
         assert!(body["themes"].is_array());
 
-        // /v1/export/dotlottie is a zero-render path — it should always
-        // work (no python sidecar, no ffmpeg, just zip packing) so we can
-        // exercise the route end-to-end without any external tools.
-        let lottie_body = r#"{"v":"5.7","fr":30,"ip":0,"op":30,"w":320,"h":180,"layers":[]}"#;
-        let resp = reqwest::Client::new()
-            .post(format!("{base}/v1/export/dotlottie"))
-            .header("Content-Type", "application/json")
-            .body(lottie_body)
+        // POST a tiny Lottie to the web-export endpoint; expect SVG.
+        let tiny = serde_json::json!({
+            "v":"5.7.0","fr":30,"ip":0,"op":1,"w":10,"h":10,"layers":[]
+        });
+        let client = reqwest::Client::new();
+        let resp = client
+            .post(format!("{base}/v1/web-export/svg-smil"))
+            .json(&tiny)
             .send()
             .await
             .unwrap();
         assert_eq!(resp.status(), 200);
-        assert_eq!(resp.headers()["content-type"], "application/zip");
-        let bytes = resp.bytes().await.unwrap();
-        assert!(
-            bytes.len() > 100,
-            "dotlottie body suspiciously small ({} bytes)",
-            bytes.len()
+        assert_eq!(
+            resp.headers().get(reqwest::header::CONTENT_TYPE).unwrap(),
+            "image/svg+xml"
         );
+        let body = resp.text().await.unwrap();
+        assert!(body.contains("<svg"));
 
-        // Bad format slug should 400.
-        let bad = reqwest::Client::new()
-            .post(format!("{base}/v1/export/nonsense"))
-            .header("Content-Type", "application/json")
-            .body("{}")
+        // Unknown format returns 400.
+        let resp = client
+            .post(format!("{base}/v1/web-export/bogus"))
+            .json(&tiny)
             .send()
             .await
             .unwrap();
-        assert_eq!(bad.status(), 400);
-
-        // SVG zero-render path.
-        let svg = reqwest::Client::new()
-            .post(format!("{base}/v1/export/svg"))
-            .header("Content-Type", "application/json")
-            .body(lottie_body)
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(svg.status(), 200);
-        assert_eq!(svg.headers()["content-type"], "image/svg+xml");
-        let svg_body = svg.text().await.unwrap();
-        assert!(svg_body.starts_with("<svg"));
+        assert_eq!(resp.status(), 400);
 
         server.abort();
     }

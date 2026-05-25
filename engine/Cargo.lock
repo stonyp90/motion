@@ -1179,6 +1179,7 @@ dependencies = [
  "motion-forge-segment",
  "motion-forge-style-extract",
  "motion-forge-video-io",
+ "motion-forge-web-export",
  "serde_json",
  "tokio",
  "tracing",
@@ -1224,7 +1225,7 @@ dependencies = [
  "motion-forge-render",
  "motion-forge-stt",
  "motion-forge-style-extract",
- "motion-forge-video-io",
+ "motion-forge-web-export",
  "reqwest",
  "serde",
  "serde_json",
@@ -1373,6 +1374,18 @@ dependencies = [
  "ffmpeg-sidecar",
  "tempfile",
  "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
+name = "motion-forge-web-export"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
  "tracing",
 ]
 

@@ -19,7 +19,7 @@ motion-forge-lottie-gen = { path = "crates/lottie-gen" }
 motion-forge-render = { path = "crates/render" }
 motion-forge-pipeline = { path = "crates/pipeline" }
 motion-forge-http = { path = "crates/http" }
-motion-forge-figma = { path = "crates/figma" }
+motion-forge-web-export = { path = "crates/web-export" }
 
 anyhow = "1"
 thiserror = "2"
