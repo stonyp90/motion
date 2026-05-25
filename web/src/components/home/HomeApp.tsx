@@ -14,6 +14,7 @@ import CastRow from './CastRow';
 import VoiceButton from './VoiceButton';
 import { KPIStrip } from './KPIStrip';
 import { SignInGate } from './SignInGate';
+import { ProcessDemo } from './ProcessDemo';
 
 interface HomeAppProps {
   /**
@@ -161,7 +162,15 @@ export function HomeApp({ isAuthenticated = false }: HomeAppProps = {}) {
             {!prompt && <ExamplePromptChips onPick={setPrompt} />}
           </>
         ) : (
-          <SignInGate />
+          <>
+            <SignInGate />
+            <div className="flex flex-col items-center gap-2 pt-4">
+              <p className="font-mono text-2xs uppercase tracking-wider text-text-tertiary">
+                How it works · 16 second loop
+              </p>
+            </div>
+            <ProcessDemo />
+          </>
         )}
 
         {error && (

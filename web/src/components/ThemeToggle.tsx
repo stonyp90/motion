@@ -1,21 +1,29 @@
 'use client';
 
 /**
- * ThemeToggle — three-state segmented control (light / dark / system).
+ * ThemeToggle — two-state segmented control (light / dark).
  *
  * Designed for the slim Header. Each option is a real <button> so the
  * native focus ring and keyboard nav work for free. ArrowLeft / ArrowRight
  * move focus within the group; Enter / Space activate.
  *
+ * The provider still supports `'system'` as a stored value (for users
+ * whose localStorage carried over from the prior three-state UI). When
+ * choice === 'system' we highlight whichever button matches the resolved
+ * theme so the segmented control never reads as "nothing selected"; the
+ * first explicit click coerces the stored value to 'light' or 'dark'.
+ *
  * Visually a tight segmented pill, matching the .chip register already in
  * use across the home (rounded-full, border-border-light, bg-bg-secondary).
  */
 import { useEffect, useRef } from 'react';
-import { Monitor, Moon, Sun } from 'lucide-react';
-import { useTheme, type ThemeChoice } from './ThemeProvider';
+import { Moon, Sun } from 'lucide-react';
+import { useTheme } from './ThemeProvider';
+
+type ExplicitChoice = 'light' | 'dark';
 
 interface Option {
-  value: ThemeChoice;
+  value: ExplicitChoice;
   label: string;
   Icon: typeof Sun;
 }
@@ -23,11 +31,10 @@ interface Option {
 const OPTIONS: ReadonlyArray<Option> = [
   { value: 'light', label: 'Light theme', Icon: Sun },
   { value: 'dark', label: 'Dark theme', Icon: Moon },
-  { value: 'system', label: 'Match system theme', Icon: Monitor },
 ];
 
 export function ThemeToggle({ className = '' }: { className?: string }) {
-  const { choice, setChoice } = useTheme();
+  const { choice, resolved, setChoice } = useTheme();
   const groupRef = useRef<HTMLDivElement>(null);
 
   // Roving-focus keyboard nav: ArrowLeft / ArrowRight cycle focus through
@@ -58,7 +65,10 @@ export function ThemeToggle({ className = '' }: { className?: string }) {
       className={`inline-flex items-center gap-0.5 rounded-full border border-border-light bg-bg-secondary p-0.5 ${className}`}
     >
       {OPTIONS.map(({ value, label, Icon }) => {
-        const selected = choice === value;
+        // If the stored choice is 'system' (legacy), fall back to the
+        // resolved theme so exactly one button stays visually selected.
+        const selected =
+          choice === value || (choice === 'system' && resolved === value);
         return (
           <button
             key={value}

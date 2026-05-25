@@ -1,6 +1,6 @@
-import Link from 'next/link';
 import { Github } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
+import { MotionLogo } from './MotionLogo';
 
 /**
  * Slim app header: logo + GitHub link + Sign in.
@@ -13,17 +13,7 @@ export function Header() {
   return (
     <header className="sticky top-0 z-40 w-full border-b border-border-light bg-bg-primary/85 backdrop-blur-md">
       <div className="container flex h-14 items-center justify-between">
-        <Link href="/" className="flex items-center gap-2.5 group" aria-label="motion-forge home">
-          <span
-            aria-hidden
-            className="grid h-7 w-7 place-items-center rounded-lg bg-primary-900 text-text-inverse transition group-hover:bg-accent-500"
-          >
-            <span className="text-sm font-bold tracking-tight">M</span>
-          </span>
-          <span className="text-sm font-semibold tracking-tight text-text-primary">
-            motion-forge
-          </span>
-        </Link>
+        <MotionLogo size="sm" />
 
         <div className="flex items-center gap-2">
           <ThemeToggle />

@@ -31,12 +31,14 @@ import {
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { useTheme } from '@/components/ThemeProvider';
+import { MotionLogo } from '@/components/MotionLogo';
 
 export default function BrandPage() {
   return (
     <main className="min-h-screen bg-bg-primary text-text-primary">
       <BrandHeader />
 
+      <LogoSection />
       <PaletteSection />
       <SurfacesSection />
       <ShadowsSection />
@@ -90,6 +92,33 @@ function BrandHeader() {
         </div>
       </div>
     </header>
+  );
+}
+
+/* -------------------------------------------------------------------- logo */
+
+function LogoSection() {
+  return (
+    <BrandSection
+      eyebrow="Logo"
+      title="motion-forge mark"
+      lead="The wordmark is the primary brand surface. Use the icon-only variant when space is tight; the horizontal lockup everywhere else."
+    >
+      <div className="flex flex-wrap items-center gap-10">
+        <div className="flex flex-col items-start gap-3">
+          <MotionLogo size="lg" />
+          <span className="font-mono text-2xs text-text-tertiary">size=&quot;lg&quot;</span>
+        </div>
+        <div className="flex flex-col items-start gap-3">
+          <MotionLogo size="md" />
+          <span className="font-mono text-2xs text-text-tertiary">size=&quot;md&quot; (default)</span>
+        </div>
+        <div className="flex flex-col items-start gap-3">
+          <MotionLogo size="sm" />
+          <span className="font-mono text-2xs text-text-tertiary">size=&quot;sm&quot;</span>
+        </div>
+      </div>
+    </BrandSection>
   );
 }
 

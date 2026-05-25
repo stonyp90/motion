@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { MotionLogo } from './MotionLogo';
 
 /**
  * One-row slim footer: logo + 3 links + copyright.
@@ -11,17 +11,7 @@ export function Footer() {
     <footer className="border-t border-border-light bg-bg-secondary">
       <div className="container flex flex-col gap-3 py-5 text-xs text-text-tertiary sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2.5">
-          <Link href="/" className="flex items-center gap-2" aria-label="motion-forge home">
-            <span
-              aria-hidden
-              className="grid h-5 w-5 place-items-center rounded-md bg-primary-900 text-text-inverse"
-            >
-              <span className="text-[10px] font-bold tracking-tight">M</span>
-            </span>
-            <span className="text-xs font-semibold tracking-tight text-text-primary">
-              motion-forge
-            </span>
-          </Link>
+          <MotionLogo size="sm" />
           <span>· © {year}</span>
         </div>
 
