@@ -1,0 +1,94 @@
+{
+  "$schema_version": 1,
+  "description": "Example briefs users can load into the prompt as a starter. Each brief is parsable by the W4 brief parser (numbered scenes 'N.0 ...' with 'Visual : ...' direction lines).",
+  "briefs": [
+    {
+      "id": "chrono-sred",
+      "name": "Chrono SR&ED — 60s explainer",
+      "description": "AI co-pilot for SR&ED preparers. Mixed English VO with French visual directions. Shows the canonical W4 reference brief.",
+      "scene_count": 21,
+      "duration_sec": 60,
+      "language": "en",
+      "persona": "founder",
+      "industry": "fintech",
+      "file": "chrono-sred.txt"
+    },
+    {
+      "id": "saas-product-launch",
+      "name": "Forge — Developer tools launch",
+      "description": "B2B SaaS product launch teaser. Hook around broken CI, pitch around smarter parallel test selection, CTA to free OSS tier.",
+      "scene_count": 15,
+      "duration_sec": 45,
+      "language": "en",
+      "persona": "founder",
+      "industry": "developer tools",
+      "file": "saas-product-launch.txt"
+    },
+    {
+      "id": "series-a-fundraise",
+      "name": "Lattice Capital — Series A investor teaser",
+      "description": "Investor pitch teaser: cross-border payments thesis, traction (18x volume, 147% NRR), and a $30M Series A ask.",
+      "scene_count": 18,
+      "duration_sec": 90,
+      "language": "en",
+      "persona": "ceo",
+      "industry": "fintech",
+      "file": "series-a-fundraise.txt"
+    },
+    {
+      "id": "internal-explainer",
+      "name": "New PTO policy — internal rollout",
+      "description": "Internal launch explainer for employees: unified time-off pool, no-questions-asked PTO, policy doc link.",
+      "scene_count": 12,
+      "duration_sec": 30,
+      "language": "en",
+      "persona": "hr",
+      "industry": "enterprise",
+      "file": "internal-explainer.txt"
+    },
+    {
+      "id": "social-ad-9x16",
+      "name": "Pulsewell — vertical social ad",
+      "description": "Short vertical 9x16 for LinkedIn/TikTok. Nurses-spending-too-much-time-on-paperwork hook, swipe-up CTA.",
+      "scene_count": 6,
+      "duration_sec": 8,
+      "language": "en",
+      "persona": "marketer",
+      "industry": "healthtech",
+      "file": "social-ad-9x16.txt"
+    },
+    {
+      "id": "conference-keynote-teaser",
+      "name": "Inference '26 — conference teaser",
+      "description": "Pre-event teaser: vision frame, speaker reveals, mascot cameo, ticket-drop CTA.",
+      "scene_count": 14,
+      "duration_sec": 30,
+      "language": "en",
+      "persona": "head of marketing",
+      "industry": "ai",
+      "file": "conference-keynote-teaser.txt"
+    },
+    {
+      "id": "api-changelog",
+      "name": "Hexapod API v4 — release walkthrough",
+      "description": "DevRel walkthrough of a major API release: streaming endpoints, simplified auth, docs assistant, migration link.",
+      "scene_count": 10,
+      "duration_sec": 20,
+      "language": "en",
+      "persona": "devrel",
+      "industry": "developer tools",
+      "file": "api-changelog.txt"
+    },
+    {
+      "id": "customer-success-story",
+      "name": "Northwind + Tideway — customer story",
+      "description": "Case study explainer: customer-X-used-product-Y-to-achieve-Z arc with named driver and COO testimonial moments.",
+      "scene_count": 16,
+      "duration_sec": 50,
+      "language": "en",
+      "persona": "marketing",
+      "industry": "saas",
+      "file": "customer-success-story.txt"
+    }
+  ]
+}

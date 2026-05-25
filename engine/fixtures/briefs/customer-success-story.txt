@@ -1,0 +1,51 @@
+Northwind + Tideway — Customer Story (50s)
+
+1.0 Northwind Logistics moves twelve thousand parcels every hour.
+Visual : a wide drone shot of a vast sorting facility at dawn, conveyors humming
+
+2.0 But two years ago, their dispatch system couldn't keep up.
+Visual : a control room with a frustrated dispatcher; a screen flashes "ROUTE QUEUE: 4,212"
+
+3.0 Routes were stuck. Drivers were idle. Customers were waiting.
+Visual : a delivery truck parked, the driver checking a watch through the side mirror
+
+4.0 They needed something that learned, not just something that scheduled.
+Visual : Sam, Northwind's COO, leans over a desk pointing at a printed network diagram
+
+5.0 So they brought in Tideway.
+Visual : the Tideway logo materialises across the network diagram, lines lighting up green
+
+6.0 Tideway's dispatch engine ingested two years of routing history in under a day.
+Visual : a clock spins fast forward across a calendar; data files pour into a glowing model
+
+7.0 N/A
+Visual : transition; the model resolves into a clean, live route map
+
+8.0 By month two, average route time dropped twenty-three percent.
+Visual : a bar chart drops sharply; "−23%" lands beside it in brand color
+
+9.0 By month four, on-time deliveries crossed ninety-eight percent.
+Visual : a circular gauge fills clockwise and locks at 98% with a soft click
+
+10.0 Alex, a Northwind driver, says it best.
+Visual : Alex stands beside a delivery truck, ID badge clipped to a uniform, addressing camera
+10.1 Tight on Alex smiling, the truck behind sparkling in morning light
+10.2 Pull back to Alex climbing back into the cab and starting the engine
+
+11.0 "I get to clock out on time again."
+Visual : a sunset highway shot; the truck heads home into golden light
+
+12.0 Sam's leadership team got their evenings back too.
+Visual : the once-frantic control room is now calm; two operators chat over coffee
+
+13.0 Northwind didn't just buy software. They bought back their bandwidth.
+Visual : a split-screen — chaos on the left dissolves into the calm of today on the right
+
+14.0 If your operations team is drowning in dispatch, we should talk.
+Visual : a quiet, well-lit conference room shot; an empty chair faces the camera
+
+15.0 Book a thirty-minute walkthrough at tideway.com/demo.
+Visual : a clean booking modal slides in; "Book a demo" button pulses softly
+
+16.0 N/A
+Visual : Tideway wordmark with tagline "Software that learns your operation", URL underneath

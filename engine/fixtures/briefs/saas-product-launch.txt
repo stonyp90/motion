@@ -1,0 +1,48 @@
+Forge — Developer Tools Launch (45s)
+
+1.0 Every team ships code.
+Visual : a wide shot of Alex hunched over a glowing terminal, blue light on the face
+
+2.0 Every team breaks production.
+Visual : the terminal lights up red, a pager-duty notification slides in from screen-right
+
+3.0 What if your CI knew about it first?
+Visual : freeze frame on the red terminal, the word "first" lands with a soft chime
+
+4.0 Meet Forge.
+Visual : the Forge logo materialises out of the pixels of the broken build
+
+5.0 Forge runs your tests in parallel across hundreds of micro-runners.
+Visual : a grid of tiny terminal windows fan out, each one ticking green one by one
+
+6.0 But faster tests are just the start.
+Visual : push in on Sam at a second desk, watching the grid populate on a big screen
+
+7.0 Forge learns which tests matter for your change.
+Visual : a dependency graph lights up; only the relevant nodes pulse amber
+
+8.0 N/A
+Visual : transition; the graph collapses into a single highlighted commit
+
+9.0 Skip the noise. Catch the signal.
+Visual : a list of test names; non-essential lines fade out, key tests stay bright
+
+10.0 Get a flake-free dev loop.
+Visual : Alex stares at a perfectly green CI dashboard; relief breaks across the face
+10.1 Tight close-up of the screen — every check has a tiny green checkmark
+10.2 Pull back to show Alex closing the laptop and smiling
+
+11.0 Trusted by the teams shipping the future.
+Visual : a montage of recognisable dev-tool logos drift across the screen on a dark grid
+
+12.0 Free for open source. Forever.
+Visual : the words "Forever." typeset large; a small Forge mark pulses underneath
+
+13.0 No credit card. No catch.
+Visual : a credit card icon and a fishing-hook icon both crossed out with a swipe
+
+14.0 Start your first build in under a minute.
+Visual : a stopwatch ticks up from 0:00 toward 0:59 as a CLI install scrolls past
+
+15.0 N/A
+Visual : final Forge wordmark, URL "forge.dev" centered below, gentle fade to black

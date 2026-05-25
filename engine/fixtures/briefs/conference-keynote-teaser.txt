@@ -1,0 +1,45 @@
+Inference '26 — Conference Teaser (30s)
+
+1.0 Every model you've ever used was built by maybe two hundred people.
+Visual : a black field; two hundred small dots glow softly, then drift apart
+
+2.0 What if it were two million?
+Visual : the dots multiply into a sea of points, scrolling endlessly past the frame
+
+3.0 What if every team had its own frontier?
+Visual : the points cluster into many small constellations, each pulsing on its own beat
+
+4.0 That's the thesis behind this year's Inference.
+Visual : the constellations resolve into the "INFERENCE '26" wordmark, bold and centered
+
+5.0 Three days in San Francisco.
+Visual : a quick aerial of San Francisco at dusk, fog rolling under the Golden Gate
+
+6.0 Sixty speakers.
+Visual : a wall of speaker portraits assembles in a clean grid
+
+7.0 N/A
+Visual : transition; a single portrait — Alex, this year's keynote — fades up from the grid
+
+8.0 Alex Ono will open the keynote on agent reliability at scale.
+Visual : Alex on a darkened stage, key light only, mid-thought
+
+9.0 Sam Kang will share new benchmarks for multi-agent coordination.
+Visual : a fast-cut close-up of Sam at a whiteboard, marker mid-stroke
+
+10.0 And lucius-bot — our event mascot — will be there to answer your questions live.
+Visual : the lucius-bot mascot waddles into frame, waves a tiny paw at camera
+10.1 Tight on lucius-bot blinking up at the audience
+10.2 Pull back to lucius-bot beside Alex on stage
+
+11.0 Workshops sell out every year.
+Visual : a workshop room from last year, full to the back wall, hands raised
+
+12.0 Tickets open Thursday at 9 AM Pacific.
+Visual : a stylised ticket flutters down, "Thursday — 9 AM PT" stamped across it
+
+13.0 You don't want to miss this one.
+Visual : a wide auditorium shot, lights down, anticipation in the crowd
+
+14.0 N/A
+Visual : final wordmark "INFERENCE '26", URL "inference.events" below, hard cut to black
