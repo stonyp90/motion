@@ -121,6 +121,19 @@ jobs:
       # tauri-action is the canonical CI wrapper. It runs `tauri build`,
       # picks up our tauri.conf.json, and uploads the produced installers
       # to the GitHub Release named by `releaseId`.
+      # Pre-flight diagnostic — confirms the toolchain + Tauri CLI
+      # are reachable so a silent failure in tauri-action is easy to
+      # tell apart from a true build error in the logs.
+      - name: Tauri CLI version (pre-flight)
+        working-directory: desktop
+        shell: bash
+        run: |
+          npx tauri --version
+          rustc --version
+          cargo --version
+          echo "Targets installed:"
+          rustup target list --installed
+
       - name: Build IMTN desktop (${{ matrix.target }})
         uses: tauri-apps/tauri-action@v0
         env:

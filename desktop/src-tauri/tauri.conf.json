@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "io.imtn.desktop",
   "build": {
-    "frontendDist": "http://localhost:3010",
+    "frontendDist": "https://imtn.io",
     "devUrl": "http://localhost:3010"
   },
   "app": {
