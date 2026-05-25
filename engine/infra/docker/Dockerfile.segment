@@ -6,7 +6,7 @@
 #
 # Base: NVIDIA CUDA + cuDNN runtime so ultralytics finds the GPU.
 
-FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04 AS runtime
+FROM nvidia/cuda:13.2.1-cudnn-runtime-ubuntu22.04 AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
