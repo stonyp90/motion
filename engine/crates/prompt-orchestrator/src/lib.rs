@@ -227,18 +227,29 @@ impl PromptOrchestrator {
             );
         }
 
+        // User prompt structure mirrors a creative-brief template the
+        // model has seen thousands of times in training — TARGET /
+        // REFERENCE / CONSTRAINTS / RETURN — so it slots cleanly into
+        // its existing pattern matching. Numbered hard constraints
+        // beat bullets because the model parses them as a checklist.
         let user = format!(
-            "{doc_prelude}Generate a motion-design animation timeline for: \"{user_prompt}\"\n\n\
-             Reference style:\n{style_summary}\n\n\
-             Cast:\n{cast_summary}\n\n\
-             Constraints:\n\
-             - Composition: {w}x{h} at {fps} fps.\n\
-             - Total duration: exactly {dur:.2} seconds.\n\
-             - Use only the easing labels: Linear, Standard, Decelerate, Accelerate, Sharp, Bounce.\n\
-             - Shots should follow the reference rhythm where possible.\n\
-             - Each layer must have at least 2 keyframes covering its shot.\n\
-             - Layer kinds: Rect, Ellipse, Text, Image. For Text layers set the `text` field.\n\
-             - All shot start_seconds + duration_seconds must stay within [0, {dur:.2}].",
+            "{doc_prelude}TARGET\n{user_prompt}\n\n\
+             REFERENCE STYLE\n{style_summary}\n\n\
+             CAST\n{cast_summary}\n\n\
+             HARD CONSTRAINTS (every one must hold)\n\
+             1. Composition: {w}×{h} at {fps} fps.\n\
+             2. Total duration: exactly {dur:.2} seconds.\n\
+             3. Easing labels — use only: Linear, Standard, Decelerate, Accelerate, Sharp, Bounce.\n\
+             4. Layer kinds — use only: Rect, Ellipse, Text, Image. Text layers MUST set the `text` field.\n\
+             5. Every layer has ≥2 keyframes covering its shot.\n\
+             6. All shot start_seconds + duration_seconds within [0, {dur:.2}].\n\n\
+             SOFT DIRECTIVES (use judgement)\n\
+             - Match the reference style's palette and easing tendencies.\n\
+             - Follow the reference shot rhythm where it serves the brief.\n\
+             - Open with a clear establishing shot; close on a single takeaway.\n\
+             - Vary the animation patterns across shots — no two consecutive shots animate the same way.\n\n\
+             RETURN\n\
+             A single JSON object matching the schema. No prose, no fences.",
             w = self.composition_width,
             h = self.composition_height,
             fps = self.frame_rate,
@@ -251,9 +262,13 @@ impl PromptOrchestrator {
             system.push_str(addendum);
         }
         if !reference_images.is_empty() {
+            // Reinforce the "use, don't copy" guidance from the system
+            // prompt the moment the model actually sees images attached.
             system.push_str(
-                "\n\nThe user attached reference images. Use them to inform palette, \
-                 layout, and overall feel of the animation.",
+                "\n\nUSER HAS ATTACHED REFERENCE IMAGES\n\
+                Inspect them now. Extract: palette, dominant shapes, typographic register, \
+                spacing rhythm, and the brand's overall mood. DO NOT trace them — synthesise \
+                a new composition that *feels* like the same brand family.",
             );
         }
 
@@ -282,8 +297,13 @@ impl PromptOrchestrator {
             self.frame_rate,
             self.duration_seconds,
         );
+        // Temperature 0.3 (was 0.4): structured-JSON generation
+        // benefits from a slightly tighter sampler. Below 0.3 the
+        // model starts repeating boilerplate; 0.3 is the sweet spot
+        // for "creative within the schema."
         let req = llm::LlmRequest::new(system, user)
             .with_schema(schema)
+            .with_temperature(0.3)
             .with_images(images_b64);
         let timeline: LottieTimeline =
             llm::LlmBackendExt::complete_into(&*self.backend, &req).await?;
@@ -346,10 +366,47 @@ fn extract_document_text(path: &std::path::Path) -> Result<String> {
     Ok(raw)
 }
 
-const SYSTEM_PROMPT: &str = "You are a motion-design director. Given a prompt and a reference \
-style descriptor, you emit a JSON timeline that a renderer turns into a Lottie animation. Be \
-specific with positions, sizes, and easings. Prefer short shots (1-3 seconds) and clear, readable \
-motion. Output ONLY the JSON object, no commentary.";
+// Prompt engineering rationale (kept inline so a future tweak doesn't
+// lose the *why*):
+//   - Strong persona ("senior motion designer who's shipped for…") +
+//     concrete proof points yields tighter, more disciplined output
+//     than the generic "you are a director" framing.
+//   - Quality bar uses the language of motion craft (12 principles,
+//     focal point, anticipation) so the model anchors on those
+//     concepts when it picks easings + keyframe timings.
+//   - "ANTI-PATTERNS — never emit" is the single highest-leverage
+//     block. Modern LLMs follow explicit negative constraints much
+//     more reliably than implicit "be good" framings.
+//   - Output format is emphasized three times (system, user, schema)
+//     because Ollama-loaded vision models occasionally wrap JSON in
+//     prose; redundancy here is cheap and the floor for parse rate.
+const SYSTEM_PROMPT: &str = "You are a senior motion designer who has shipped explainer videos \
+for product-led B2B brands (think Linear, Vercel, Stripe). Your job is to convert a brief and a \
+reference style card into a JSON animation timeline that a Lottie renderer plays back as-is.\n\n\
+QUALITY BAR\n\
+- Composition reads in the first 500ms. No slow build-ups before the focal point lands.\n\
+- Each shot has exactly one focal point. Supporting layers point at it; never compete with it.\n\
+- Motion follows the 12 principles of animation — anticipation, follow-through, ease in/out.\n\
+- Pace: 1-3 second shots for explainer rhythm. Longer only when the focal point is type the \
+viewer needs to read.\n\
+- Easing is the line between premium and amateur. Prefer 'Standard' and 'Decelerate' over \
+'Linear'. Reserve 'Sharp' and 'Bounce' for accent beats.\n\
+- Palette: pull from the reference style card's swatches. Do not invent colours.\n\n\
+OUTPUT FORMAT\n\
+- Return ONLY a JSON object. No prose, no markdown, no code fences, no leading or trailing text.\n\
+- The object must exactly match the JSON Schema in the user message.\n\
+- Every numeric field is a number (not a string). Every required field is present.\n\n\
+ANTI-PATTERNS — never emit any of these\n\
+- A layer with fewer than 2 keyframes (every layer needs ≥2 covering its shot window).\n\
+- shot.start_seconds < 0, or shot.start_seconds + duration_seconds > total duration.\n\
+- Empty `text` on a Text layer (Lottie renders nothing).\n\
+- More than 7 layers in a single shot (compositions get muddy past that).\n\
+- The same animation pattern repeated across consecutive shots (visual fatigue).\n\
+- Layer text that mentions framework / library / model names. Use product language only.\n\n\
+WHEN REFERENCE IMAGES ARE ATTACHED\n\
+- Read them for palette, composition, mood, and brand cues — NOT as content to copy literally.\n\
+- If an image shows a logo or wordmark, you may emit a Text layer naming the brand verbatim.\n\
+- Otherwise reuse the colour intent + shape language, not the exact pixels.";
 
 fn summarize_style(s: &StyleCard) -> String {
     let palette = if s.palette.is_empty() {

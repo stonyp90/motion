@@ -1,8 +1,10 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
   Apple,
+  ArrowRight,
   Cpu,
   Download as DownloadIcon,
   Loader2,
@@ -136,21 +138,15 @@ export function DownloadHero() {
         />
       </div>
 
-      <p className="mx-auto mt-10 max-w-3xl text-center text-xs text-text-tertiary">
-        Ollama is not yet bundled — install it once from{' '}
-        <a
-          href="https://ollama.com/download"
-          target="_blank"
-          rel="noreferrer"
-          className="text-text-accent underline-offset-2 hover:underline"
+      <p className="mx-auto mt-10 flex max-w-3xl items-center justify-center gap-2 text-center text-xs text-text-tertiary">
+        First time setting up?
+        <Link
+          href={"/install" as never}
+          className="inline-flex items-center gap-1 font-medium text-text-accent underline-offset-2 hover:underline"
         >
-          ollama.com/download
-        </a>{' '}
-        and run{' '}
-        <code className="rounded bg-bg-tertiary px-1.5 py-0.5 font-mono text-2xs">
-          ollama pull llava
-        </code>{' '}
-        so the desktop can talk to a vision model on first launch.
+          Read the setup guide
+          <ArrowRight className="h-3 w-3" aria-hidden />
+        </Link>
       </p>
     </section>
   );
