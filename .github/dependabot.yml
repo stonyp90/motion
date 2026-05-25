@@ -1,5 +1,11 @@
 version: 2
 
+# Dependabot — weekly cadence across all four ecosystems: cargo, npm,
+# docker, github-actions. Verified for W25:
+#   * /engine               → cargo workspace
+#   * /web                  → next/react npm app
+#   * /engine/infra/docker  → Dockerfile.api / .render / .segment base images
+#   * /                     → github-actions referenced from .github/workflows
 updates:
   # Rust workspace
   - package-ecosystem: cargo
@@ -38,13 +44,18 @@ updates:
     commit-message:
       prefix: "deps(web)"
 
-  # GitHub Actions
+  # GitHub Actions (every workflow under .github/workflows/)
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
       day: monday
+      time: "06:00"
+      timezone: America/Toronto
     open-pull-requests-limit: 5
+    groups:
+      actions-minor-patch:
+        update-types: [minor, patch]
     labels: [dependencies, ci]
     commit-message:
       prefix: "deps(ci)"
@@ -55,7 +66,12 @@ updates:
     schedule:
       interval: weekly
       day: monday
+      time: "06:00"
+      timezone: America/Toronto
     open-pull-requests-limit: 3
+    groups:
+      docker-minor-patch:
+        update-types: [minor, patch]
     labels: [dependencies, docker]
     commit-message:
       prefix: "deps(docker)"

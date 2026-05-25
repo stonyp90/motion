@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json.schemastore.org/github-environment.json",
+  "_comment": [
+    "Source of truth for the `prod` GitHub Environment protection rules.",
+    "GitHub does not yet ingest this file on its own — apply it via the REST",
+    "API or a thin Terraform `github_repository_environment` resource (see",
+    "the `apply` snippet at the bottom of this file). Committing it here keeps",
+    "the rules code-reviewed under CODEOWNERS and audit-traceable for SOC 2.",
+    "",
+    "Referenced by .github/workflows/azure-deploy.yml::deploy-prod which sets",
+    "  environment: { name: prod }",
+    "and therefore inherits these rules + the env-scoped secrets listed below."
+  ],
+  "name": "prod",
+  "deployment_branch_policy": {
+    "_comment": "Only the protected main branch can deploy to prod.",
+    "protected_branches": true,
+    "custom_branch_policies": false
+  },
+  "wait_timer": 5,
+  "prevent_self_review": true,
+  "reviewers": [
+    {
+      "_comment": "Required reviewer. Replace login with a security team once it exists.",
+      "type": "User",
+      "login": "stonyp90"
+    }
+  ],
+  "secrets": {
+    "_comment": [
+      "These secrets must exist as `Environment secrets` on the `prod`",
+      "Environment in GitHub Settings, not as repo or org secrets. That",
+      "scoping is what makes prod a hard wall — the dev deploy job, which",
+      "uses `environment: dev`, can't read them."
+    ],
+    "required": [
+      "AZURE_CLIENT_ID",
+      "AZURE_TENANT_ID",
+      "AZURE_SUBSCRIPTION_ID",
+      "KEYCLOAK_URL",
+      "KEYCLOAK_REALM",
+      "KEYCLOAK_SMOKE_CLIENT_ID",
+      "KEYCLOAK_SMOKE_USER",
+      "KEYCLOAK_SMOKE_PASSWORD"
+    ]
+  },
+  "_apply": {
+    "_comment": [
+      "One-shot sync to GitHub (run from a workstation with `gh auth login`):"
+    ],
+    "command": "gh api -X PUT repos/${OWNER}/${REPO}/environments/prod --input .github/environments/prod.json"
+  }
+}
