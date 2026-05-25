@@ -1086,10 +1086,13 @@ dependencies = [
  "axum",
  "motion-forge-pipeline",
  "motion-forge-prompt-orchestrator",
+ "motion-forge-render",
  "motion-forge-style-extract",
+ "motion-forge-video-io",
  "reqwest",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror",
  "tokio",
  "tower-http",
@@ -1155,8 +1158,12 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "motion-forge-video-io",
+ "serde",
+ "serde_json",
+ "tempfile",
  "thiserror",
  "tracing",
+ "zip",
 ]
 
 [[package]]
@@ -2103,6 +2110,7 @@ dependencies = [
  "futures-util",
  "http",
  "http-body",
+ "http-body-util",
  "pin-project-lite",
  "tower",
  "tower-layer",

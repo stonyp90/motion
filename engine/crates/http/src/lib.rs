@@ -1,11 +1,14 @@
 //! HTTP surface for motion-forge — Adobe-style request/iterate flow.
 //!
 //! Endpoints (all JSON):
-//! - `GET  /healthz`          — liveness probe
-//! - `GET  /openapi.json`     — OpenAPI 3.1 spec (hand-written; small surface)
-//! - `GET  /themes`           — list bundled themes
-//! - `POST /generate`         — run the full pipeline on a reference video
-//! - `POST /iterate`          — re-prompt against an existing work-dir
+//! - `GET  /healthz`             — liveness probe
+//! - `GET  /openapi.json`        — OpenAPI 3.1 spec (hand-written; small surface)
+//! - `GET  /themes`              — list bundled themes
+//! - `POST /generate`            — run the full pipeline on a reference video
+//! - `POST /iterate`             — re-prompt against an existing work-dir
+//! - `POST /v1/export/{format}`  — convert a Lottie JSON body to the requested
+//!   output format (mp4 | mov | webm | webm-av1 | gif | webp | apng |
+//!   lottie | dotlottie | svg). Returns the encoded bytes inline.
 //!
 //! The server is single-binary, single-tenant, local-first. Designed to
 //! sit behind a desktop UI that lets users iterate verbally or by prompt
@@ -14,15 +17,21 @@
 use anyhow::Result;
 use axum::{
     Json, Router,
-    extract::State,
+    body::Bytes,
+    extract::{Path as AxumPath, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
 use motion_forge_pipeline::{Composition, GenerateConfig, IterateConfig, Pipeline};
+use motion_forge_render::{
+    OutputFormat,
+    format::{build_svg, copy_lottie, pack_dotlottie, transcode_with_ffmpeg},
+};
 use motion_forge_style_extract::Theme;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -41,6 +50,12 @@ pub async fn serve(bind: &str) -> Result<()> {
         .route("/themes", get(themes))
         .route("/generate", post(generate))
         .route("/iterate", post(iterate))
+        .route("/v1/export/:format", post(export))
+        .layer(tower_http::limit::RequestBodyLimitLayer::new(
+            // 32 MiB is well above any realistic Lottie + audio payload
+            // but stops a runaway upload from chewing all process RAM.
+            32 * 1024 * 1024,
+        ))
         .layer(tower_http::cors::CorsLayer::permissive())
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state);
@@ -223,6 +238,90 @@ async fn iterate(
     }))
 }
 
+/// POST /v1/export/{format}
+///
+/// Body: the raw Lottie JSON. Returns the encoded artifact inline with
+/// the format's MIME type as `Content-Type`. For raster formats (MP4 /
+/// WebM / GIF / ...) the python sidecar renders an intermediate MP4 and
+/// ffmpeg transcodes to the requested codec. For zero-render formats
+/// (lottie / dotlottie / svg) we skip rasterization entirely.
+async fn export(
+    AxumPath(format_slug): AxumPath<String>,
+    body: Bytes,
+) -> Result<Response, ApiError> {
+    let format = OutputFormat::from_str(&format_slug).map_err(ApiError::bad_request)?;
+    if body.is_empty() {
+        return Err(ApiError::bad_request("request body is empty"));
+    }
+
+    // Validate the body is parseable Lottie JSON before we touch disk.
+    let parsed: serde_json::Value = serde_json::from_slice(&body)
+        .map_err(|e| ApiError::bad_request(format!("invalid JSON: {e}")))?;
+    if !parsed.is_object() {
+        return Err(ApiError::bad_request("Lottie body must be a JSON object"));
+    }
+
+    // Stash the body in a private tempdir + run the conversion. We do
+    // synchronous I/O here off the async runtime to avoid blocking other
+    // requests during long ffmpeg runs.
+    let bytes = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<u8>> {
+        let tmp = tempfile::tempdir()?;
+        let in_path = tmp.path().join("in.lottie.json");
+        std::fs::write(&in_path, &body)?;
+        let out_path = tmp.path().join(format!("out.{}", format.extension()));
+
+        match format {
+            OutputFormat::Lottie => {
+                copy_lottie(&in_path, &out_path)?;
+            }
+            OutputFormat::DotLottie => {
+                pack_dotlottie(&in_path, &out_path)?;
+            }
+            OutputFormat::Svg => {
+                build_svg(&in_path, &out_path)?;
+            }
+            _ => {
+                // Raster pipeline: shell to the python renderer for
+                // the intermediate MP4, then transcode with ffmpeg.
+                use motion_forge_render::{
+                    RenderConfig, Renderer, python_sidecar_adapter::PythonLottieRenderer,
+                };
+                let intermediate = tmp.path().join("intermediate.mp4");
+                let cfg = RenderConfig {
+                    width: parsed.get("w").and_then(|x| x.as_u64()).unwrap_or(1920) as u32,
+                    height: parsed.get("h").and_then(|x| x.as_u64()).unwrap_or(1080) as u32,
+                    frame_rate: parsed.get("fr").and_then(|x| x.as_f64()).unwrap_or(30.0),
+                    bitrate_kbps: 4000,
+                    codec: motion_forge_video_io::Codec::H264,
+                    format: OutputFormat::Mp4,
+                };
+                let mut r = PythonLottieRenderer::default_in_workspace();
+                r.render(&in_path, &intermediate, &cfg)?;
+                transcode_with_ffmpeg(format, &intermediate, &out_path)?;
+            }
+        }
+        Ok(std::fs::read(&out_path)?)
+    })
+    .await
+    .map_err(|e| ApiError::internal(format!("join error: {e}")))?
+    .map_err(ApiError::internal)?;
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static(format.mime()),
+    );
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_str(&format!(
+            "attachment; filename=\"export.{}\"",
+            format.extension()
+        ))
+        .unwrap_or(HeaderValue::from_static("attachment")),
+    );
+    Ok((StatusCode::OK, headers, bytes).into_response())
+}
+
 // ---- types ----
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -393,6 +492,43 @@ const OPENAPI_JSON: &str = r##"{
           }
         }
       }
+    },
+    "/v1/export/{format}": {
+      "post": {
+        "summary": "Convert a Lottie JSON body to any supported output format",
+        "description": "Streams the encoded artifact back inline (Content-Type matches the requested format).",
+        "parameters": [
+          {
+            "name": "format",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": ["mp4", "mov", "webm", "webm-av1", "gif", "webp", "apng", "lottie", "dotlottie", "svg"]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "type": "object", "description": "Lottie animation JSON" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Encoded artifact in the requested format",
+            "content": {
+              "application/octet-stream": {
+                "schema": { "type": "string", "format": "binary" }
+              }
+            }
+          },
+          "400": { "description": "Invalid format slug or malformed Lottie body" },
+          "500": { "description": "Conversion failed (ffmpeg / python sidecar error)" }
+        }
+      }
     }
   },
   "components": {
@@ -515,6 +651,7 @@ mod tests {
             .route("/themes", get(themes))
             .route("/generate", post(generate))
             .route("/iterate", post(iterate))
+            .route("/v1/export/:format", post(export))
             .with_state(state);
 
         let server = tokio::spawn(async move {
@@ -529,12 +666,56 @@ mod tests {
         assert_eq!(openapi_resp.status(), 200);
         let body: serde_json::Value = openapi_resp.json().await.unwrap();
         assert_eq!(body["openapi"], "3.1.0");
+        assert!(body["paths"]["/v1/export/{format}"].is_object());
 
         let themes_resp = reqwest::get(format!("{base}/themes")).await.unwrap();
         assert_eq!(themes_resp.status(), 200);
         let body: serde_json::Value = themes_resp.json().await.unwrap();
         // Themes directory might not be present in every test env; tolerate.
         assert!(body["themes"].is_array());
+
+        // /v1/export/dotlottie is a zero-render path — it should always
+        // work (no python sidecar, no ffmpeg, just zip packing) so we can
+        // exercise the route end-to-end without any external tools.
+        let lottie_body = r#"{"v":"5.7","fr":30,"ip":0,"op":30,"w":320,"h":180,"layers":[]}"#;
+        let resp = reqwest::Client::new()
+            .post(format!("{base}/v1/export/dotlottie"))
+            .header("Content-Type", "application/json")
+            .body(lottie_body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+        assert_eq!(resp.headers()["content-type"], "application/zip");
+        let bytes = resp.bytes().await.unwrap();
+        assert!(
+            bytes.len() > 100,
+            "dotlottie body suspiciously small ({} bytes)",
+            bytes.len()
+        );
+
+        // Bad format slug should 400.
+        let bad = reqwest::Client::new()
+            .post(format!("{base}/v1/export/nonsense"))
+            .header("Content-Type", "application/json")
+            .body("{}")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(bad.status(), 400);
+
+        // SVG zero-render path.
+        let svg = reqwest::Client::new()
+            .post(format!("{base}/v1/export/svg"))
+            .header("Content-Type", "application/json")
+            .body(lottie_body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(svg.status(), 200);
+        assert_eq!(svg.headers()["content-type"], "image/svg+xml");
+        let svg_body = svg.text().await.unwrap();
+        assert!(svg_body.starts_with("<svg"));
 
         server.abort();
     }

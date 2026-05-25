@@ -96,8 +96,18 @@ enum Command {
         out_video: Option<PathBuf>,
     },
 
-    /// Phase 6 — render a .lottie file to MP4.
-    Render { input: PathBuf, output: PathBuf },
+    /// Phase 6 — render a Lottie JSON file to any supported output format.
+    /// Format is detected from `--format`, then `output`'s extension, then
+    /// defaults to `mp4`. Supported: mp4 | mov | webm | webm-av1 | gif |
+    /// webp | apng | lottie | dotlottie | svg.
+    Render {
+        input: PathBuf,
+        output: PathBuf,
+        /// Output format. Defaults to inferring from `output`'s extension
+        /// (or `mp4` if neither is given).
+        #[arg(long)]
+        format: Option<String>,
+    },
 
     /// Convenience: full pipeline that also writes MP4 (alias of `generate --out-video`).
     Pipeline {
@@ -249,7 +259,11 @@ async fn main() -> Result<()> {
             })
             .await
         }
-        Command::Render { input, output } => cmd_render(input, output),
+        Command::Render {
+            input,
+            output,
+            format,
+        } => cmd_render(input, output, format),
         Command::Pipeline {
             reference,
             prompt,
@@ -545,11 +559,23 @@ async fn cmd_iterate(args: IterateArgs) -> Result<()> {
     Ok(())
 }
 
-fn cmd_render(input: PathBuf, output: PathBuf) -> Result<()> {
+fn cmd_render(input: PathBuf, output: PathBuf, format: Option<String>) -> Result<()> {
     use motion_forge_render::{
-        RenderConfig, Renderer, python_sidecar_adapter::PythonLottieRenderer,
+        OutputFormat, RenderConfig, format as fmt_mod,
+        python_sidecar_adapter::PythonLottieRenderer, render_to_format,
     };
-    let mut r = PythonLottieRenderer::default_in_workspace();
+    use std::str::FromStr;
+
+    // Resolve format precedence: --format flag → output extension → MP4 default.
+    let target_format = if let Some(s) = format.as_deref() {
+        OutputFormat::from_str(s).with_context(|| format!("parsing --format={s}"))?
+    } else if let Some(ext) = output.extension().and_then(|e| e.to_str()) {
+        OutputFormat::from_str(ext).unwrap_or(OutputFormat::Mp4)
+    } else {
+        OutputFormat::Mp4
+    };
+    let output = fmt_mod::coerce_extension(&output, target_format);
+
     let raw = std::fs::read_to_string(&input)?;
     let v: serde_json::Value = serde_json::from_str(&raw)?;
     let config = RenderConfig {
@@ -558,9 +584,17 @@ fn cmd_render(input: PathBuf, output: PathBuf) -> Result<()> {
         frame_rate: v["fr"].as_f64().unwrap_or(30.0),
         bitrate_kbps: 4000,
         codec: motion_forge_video_io::Codec::H264,
+        format: target_format,
     };
-    r.render(&input, &output, &config)?;
-    tracing::info!(out = %output.display(), "render complete");
+
+    let mut r = PythonLottieRenderer::default_in_workspace();
+    let bytes = render_to_format(&mut r, &input, &output, &config)?;
+    tracing::info!(
+        out = %output.display(),
+        format = target_format.slug(),
+        bytes,
+        "render complete"
+    );
     Ok(())
 }
 
@@ -688,6 +722,7 @@ fn cmd_panelize(args: PanelizeArgs) -> Result<()> {
             frame_rate: cfg.frame_rate as f64,
             bitrate_kbps: 6000,
             codec: Codec::H264,
+            format: motion_forge_render::OutputFormat::Mp4,
         };
         r.render(&args.out, video_out, &render_cfg)?;
         tracing::info!(out = %video_out.display(), "panelize: mp4 rendered");

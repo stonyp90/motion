@@ -9,15 +9,18 @@ rust-version.workspace = true
 [dependencies]
 motion-forge-pipeline.workspace = true
 motion-forge-prompt-orchestrator.workspace = true
+motion-forge-render.workspace = true
 motion-forge-style-extract.workspace = true
+motion-forge-video-io.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tempfile = "3"
 axum = { version = "0.7", features = ["multipart"] }
-tower-http = { version = "0.6", features = ["cors", "trace"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
 
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["json"] }
