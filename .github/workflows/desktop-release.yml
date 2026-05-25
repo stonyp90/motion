@@ -122,8 +122,8 @@ jobs:
       # picks up our tauri.conf.json, and uploads the produced installers
       # to the GitHub Release named by `releaseId`.
       # Pre-flight diagnostic — confirms the toolchain + Tauri CLI
-      # are reachable so a silent failure in tauri-action is easy to
-      # tell apart from a true build error in the logs.
+      # are reachable so silent failures are easy to tell apart from
+      # a true build error.
       - name: Tauri CLI version (pre-flight)
         working-directory: desktop
         shell: bash
@@ -134,26 +134,57 @@ jobs:
           echo "Targets installed:"
           rustup target list --installed
 
+      # Build directly via the Tauri CLI so the real cargo output
+      # reaches the GH log (the tauri-action wrapper was swallowing
+      # errors in 100ms with "No artifacts were found", giving us
+      # nothing to debug).
       - name: Build IMTN desktop (${{ matrix.target }})
-        uses: tauri-apps/tauri-action@v0
+        working-directory: desktop
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # macOS code-signing — skipped when the secret is empty.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # Tauri Updater signature — keypair generated via
-          # `tauri signer generate`; pubkey lives in tauri.conf.json.
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          npx tauri build \
+            --target ${{ matrix.target }} \
+            --bundles ${{ matrix.bundles }} \
+            --verbose
+
+      # ----- Smoke: list whatever did land ------------------------------------
+      - name: List build outputs
+        if: always()
+        shell: bash
+        run: |
+          BUNDLE_DIR="desktop/src-tauri/target/${{ matrix.target }}/release/bundle"
+          echo "----- $BUNDLE_DIR -----"
+          if [ -d "$BUNDLE_DIR" ]; then
+            find "$BUNDLE_DIR" -type f -name 'IMTN*' -o -name 'imtn*' | head -20
+            echo "----- total size -----"
+            du -sh "$BUNDLE_DIR" || true
+          else
+            echo "(no bundle directory)"
+          fi
+
+      # ----- Upload to GitHub Release -----------------------------------------
+      # Manual upload so the build + the upload are two distinct steps.
+      # Picks up dmg/msi/exe/AppImage/deb files only — skips the .app
+      # directory + intermediates.
+      - name: Upload installers to release
+        if: success()
+        uses: softprops/action-gh-release@v2
         with:
-          projectPath: desktop
-          tagName: ${{ steps.tag.outputs.value }}
-          releaseName: 'IMTN Desktop ${{ steps.tag.outputs.value }}'
-          releaseBody: |
+          tag_name: ${{ steps.tag.outputs.value }}
+          name: 'IMTN Desktop ${{ steps.tag.outputs.value }}'
+          draft: true
+          prerelease: false
+          generate_release_notes: false
+          body: |
             ## IMTN Desktop — ${{ steps.tag.outputs.value }}
 
             Cross-platform native shell for IMTN. Runs the engine + Ollama
@@ -161,26 +192,19 @@ jobs:
 
             ### Downloads
 
-            Pick the build for your platform below. macOS users should grab
+            Pick the build for your platform. macOS users grab
             **`*_aarch64.dmg`** for Apple silicon or **`*_x64.dmg`** for Intel.
 
             ### Local model requirement
 
             Ollama isn't bundled yet — install it once from
-            <https://ollama.com/download>, then run `ollama pull llava` so
-            the desktop can talk to a vision model on first launch.
+            <https://ollama.com/download>, then run `ollama pull llava`
+            so the desktop can talk to a vision model on first launch.
 
             See `desktop/README.md` for the full workflow.
-          releaseDraft: true       # cuts a draft so we can curate the body
-          prerelease: false
-          includeRelease: false    # only this run's assets, not prior
-          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
-
-      # ----- Smoke: verify a binary actually landed ---------------------------
-      - name: List build outputs
-        if: always()
-        shell: bash
-        run: |
-          echo "----- desktop/src-tauri/target/${{ matrix.target }}/release/bundle -----"
-          ls -la desktop/src-tauri/target/${{ matrix.target }}/release/bundle/ 2>/dev/null || \
-            echo "(no bundle directory — build likely failed; see job log above)"
+          files: |
+            desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
+            desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
+            desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.exe
+            desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage
+            desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
