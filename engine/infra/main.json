@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.43.8.12551",
-      "templateHash": "11338616254411577582"
+      "templateHash": "6657414012564930553"
     }
   },
   "parameters": {
@@ -72,6 +72,40 @@
       "defaultValue": true,
       "metadata": {
         "description": "Enable Azure OpenAI account + deployment. Requires Cognitive Services access (often gated on personal subs). When false, the API falls back to MOTION_FORGE_LLM_BACKEND env (anthropic, openai, ollama, mock)."
+      }
+    },
+    "enableCosmos": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Enable Cosmos DB serverless. When false the API runs without a project index — useful to skip past a failed Cosmos provisioning while you sort it out separately."
+      }
+    },
+    "enableNfsModelMount": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Mount the Azure Files NFS share into the API + segment containers. Requires the Container Apps Environment to be on a custom VNet (BYOVNet). Off by default since BYOVNet is a heavier setup."
+      }
+    },
+    "logRetentionDays": {
+      "type": "int",
+      "defaultValue": 90,
+      "minValue": 30,
+      "maxValue": 730,
+      "metadata": {
+        "description": "Log Analytics retention in days. SOC 2 CC4 requires 90 days minimum; bump to 180 for production."
+      }
+    },
+    "corsAllowedOrigins": {
+      "type": "array",
+      "defaultValue": [
+        "http://localhost:3001",
+        "http://localhost:3007",
+        "https://motion.ursly.io"
+      ],
+      "metadata": {
+        "description": "CORS allowed origins for the API container. Default locks to localhost + motion.ursly.io; set to [] to disable CORS entirely. Avoid ['*'] in production (SOC 2 CC6)."
       }
     },
     "openAiDeploymentName": {
@@ -142,7 +176,7 @@
       "identity": "[format('mid-mf-{0}-{1}', parameters('env'), variables('suffix'))]",
       "acr": "[format('crmf{0}{1}', parameters('env'), take(variables('suffix'), 8))]",
       "blob": "[format('stmf{0}{1}', parameters('env'), take(variables('suffix'), 8))]",
-      "files": "[format('stmfshare{0}{1}', parameters('env'), take(variables('suffix'), 8))]",
+      "files": "[format('stmffs{0}{1}', parameters('env'), take(variables('suffix'), 8))]",
       "cosmos": "[format('cosmos-mf-{0}-{1}', parameters('env'), variables('suffix'))]",
       "redis": "[format('redis-mf-{0}-{1}', parameters('env'), variables('suffix'))]",
       "keyVault": "[format('kv-mf-{0}-{1}', parameters('env'), take(variables('suffix'), 8))]",
@@ -178,7 +212,7 @@
         "sku": {
           "name": "PerGB2018"
         },
-        "retentionInDays": 30,
+        "retentionInDays": "[parameters('logRetentionDays')]",
         "features": {
           "enableLogAccessUsingOnlyResourcePermissions": true
         }
@@ -452,6 +486,7 @@
       ]
     },
     {
+      "condition": "[parameters('enableCosmos')]",
       "type": "Microsoft.DocumentDB/databaseAccounts",
       "apiVersion": "2024-11-15",
       "name": "[variables('names').cosmos]",
@@ -480,6 +515,7 @@
       }
     },
     {
+      "condition": "[parameters('enableCosmos')]",
       "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases",
       "apiVersion": "2024-11-15",
       "name": "[format('{0}/{1}', variables('names').cosmos, 'motion_forge')]",
@@ -493,6 +529,7 @@
       ]
     },
     {
+      "condition": "[parameters('enableCosmos')]",
       "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers",
       "apiVersion": "2024-11-15",
       "name": "[format('{0}/{1}/{2}', variables('names').cosmos, 'motion_forge', 'projects')]",
@@ -516,6 +553,7 @@
       ]
     },
     {
+      "condition": "[parameters('enableCosmos')]",
       "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers",
       "apiVersion": "2024-11-15",
       "name": "[format('{0}/{1}/{2}', variables('names').cosmos, 'motion_forge', 'jobs')]",
@@ -540,6 +578,7 @@
       ]
     },
     {
+      "condition": "[parameters('enableCosmos')]",
       "type": "Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments",
       "apiVersion": "2024-11-15",
       "name": "[format('{0}/{1}', variables('names').cosmos, guid(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity), 'data-contributor'))]",
@@ -686,6 +725,7 @@
       ]
     },
     {
+      "condition": "[parameters('enableNfsModelMount')]",
       "type": "Microsoft.App/managedEnvironments/storages",
       "apiVersion": "2025-01-01",
       "name": "[format('{0}/{1}', variables('names').acaEnv, 'models')]",
@@ -721,7 +761,7 @@
           "ingress": {
             "external": true,
             "targetPort": 7755,
-            "transport": "http2",
+            "transport": "auto",
             "allowInsecure": false,
             "traffic": [
               {
@@ -730,18 +770,20 @@
               }
             ],
             "corsPolicy": {
-              "allowedOrigins": [
-                "*"
-              ],
+              "allowedOrigins": "[parameters('corsAllowedOrigins')]",
               "allowedMethods": [
                 "GET",
                 "POST",
                 "OPTIONS"
               ],
               "allowedHeaders": [
-                "*"
+                "authorization",
+                "content-type",
+                "accept",
+                "origin"
               ],
-              "maxAge": 600
+              "maxAge": 600,
+              "allowCredentials": false
             }
           },
           "registries": [
@@ -802,7 +844,7 @@
                 },
                 {
                   "name": "MOTION_FORGE_COSMOS_ENDPOINT",
-                  "value": "[reference(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), '2024-11-15').documentEndpoint]"
+                  "value": "[if(parameters('enableCosmos'), reference(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), '2024-11-15').documentEndpoint, '')]"
                 },
                 {
                   "name": "MOTION_FORGE_REDIS_HOST",
@@ -813,12 +855,7 @@
                   "value": "[reference(resourceId('Microsoft.Insights/components', variables('names').appInsights), '2020-02-02').ConnectionString]"
                 }
               ],
-              "volumeMounts": [
-                {
-                  "volumeName": "models",
-                  "mountPath": "/models"
-                }
-              ],
+              "volumeMounts": "[if(parameters('enableNfsModelMount'), createArray(createObject('volumeName', 'models', 'mountPath', '/models')), createArray())]",
               "probes": [
                 {
                   "type": "Liveness",
@@ -864,13 +901,7 @@
               }
             ]
           },
-          "volumes": [
-            {
-              "name": "models",
-              "storageType": "NfsAzureFile",
-              "storageName": "models"
-            }
-          ]
+          "volumes": "[if(parameters('enableNfsModelMount'), createArray(createObject('name', 'models', 'storageType', 'NfsAzureFile', 'storageName', 'models')), createArray())]"
         }
       },
       "dependsOn": [
@@ -961,21 +992,10 @@
                   "value": "[reference(resourceId('Microsoft.Insights/components', variables('names').appInsights), '2020-02-02').ConnectionString]"
                 }
               ],
-              "volumeMounts": [
-                {
-                  "volumeName": "models",
-                  "mountPath": "/models"
-                }
-              ]
+              "volumeMounts": "[if(parameters('enableNfsModelMount'), createArray(createObject('volumeName', 'models', 'mountPath', '/models')), createArray())]"
             }
           ],
-          "volumes": [
-            {
-              "name": "models",
-              "storageType": "NfsAzureFile",
-              "storageName": "models"
-            }
-          ]
+          "volumes": "[if(parameters('enableNfsModelMount'), createArray(createObject('name', 'models', 'storageType', 'NfsAzureFile', 'storageName', 'models')), createArray())]"
         }
       },
       "dependsOn": [
@@ -1197,7 +1217,7 @@
     },
     "cosmosEndpoint": {
       "type": "string",
-      "value": "[reference(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), '2024-11-15').documentEndpoint]"
+      "value": "[if(parameters('enableCosmos'), reference(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), '2024-11-15').documentEndpoint, '')]"
     },
     "managedIdentityClientId": {
       "type": "string",

@@ -1,0 +1,34 @@
+# CODEOWNERS — required reviewers for sensitive paths
+#
+# GitHub enforces this in combination with branch protection on `main`.
+# A PR that touches any of these paths must be approved by the listed
+# owner before it can merge.
+#
+# Replace @stonyp90 with @stonyp90/security-team once a real team
+# exists in the org. For now everything is owned by the repo admin.
+
+# --- Catch-all ---
+*                                      @stonyp90
+
+# --- Security-sensitive: HTTP API + auth middleware ---
+/engine/crates/http/                   @stonyp90
+
+# --- Security-sensitive: Bicep IaC ---
+/engine/infra/                         @stonyp90
+/engine/infra/docker/                  @stonyp90
+/engine/infra/main.bicep               @stonyp90
+
+# --- CI/CD ---
+/.github/workflows/                    @stonyp90
+/.github/dependabot.yml                @stonyp90
+/.github/CODEOWNERS                    @stonyp90
+
+# --- Policy + governance ---
+/SECURITY.md                           @stonyp90
+/THREAT_MODEL.md                       @stonyp90
+/CODE_OF_CONDUCT.md                    @stonyp90
+/CONTRIBUTING.md                       @stonyp90
+/CHANGELOG.md                          @stonyp90
+
+# --- SDK publish surface ---
+/sdks/                                 @stonyp90

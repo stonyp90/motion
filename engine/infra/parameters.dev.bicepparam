@@ -23,3 +23,13 @@ param openAiModelName = 'gpt-4o-mini'
 param frontDoorSku = 'Standard_AzureFrontDoor'
 param apiMinReplicas = 1
 param apiMaxReplicas = 3
+
+// SOC 2 CC4: 90-day Log Analytics retention. Bump to 180 for prod.
+param logRetentionDays = 90
+
+// SOC 2 CC6: CORS allowlist (no wildcard).
+param corsAllowedOrigins = [
+  'http://localhost:3001'
+  'http://localhost:3007'
+  'https://motion.ursly.io'
+]

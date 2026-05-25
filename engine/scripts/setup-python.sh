@@ -21,14 +21,23 @@ fi
   opencv-python-headless \
   pillow \
   torch \
-  ultralytics
+  ultralytics \
+  scenedetect \
+  lottie \
+  cairosvg \
+  openai-whisper
 
 echo "python sidecar deps installed:"
 "$VENV/bin/python" - <<'PY'
 import sys
 import importlib
 
-for name in ("numpy", "cv2", "PIL", "torch", "ultralytics"):
-    m = importlib.import_module(name)
-    print(f"  {name:<14} {getattr(m, '__version__', '?')}")
+for name in ("numpy", "cv2", "PIL", "torch", "ultralytics",
+             "scenedetect", "lottie", "cairosvg", "whisper"):
+    try:
+        m = importlib.import_module(name)
+        print(f"  {name:<14} {getattr(m, '__version__', '?')}")
+    except ImportError as e:
+        print(f"  {name:<14} MISSING — {e}", file=sys.stderr)
+        sys.exit(1)
 PY

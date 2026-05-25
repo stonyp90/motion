@@ -51,6 +51,18 @@ param enableCosmos bool = true
 @description('Mount the Azure Files NFS share into the API + segment containers. Requires the Container Apps Environment to be on a custom VNet (BYOVNet). Off by default since BYOVNet is a heavier setup.')
 param enableNfsModelMount bool = false
 
+@description('Log Analytics retention in days. SOC 2 CC4 requires 90 days minimum; bump to 180 for production.')
+@minValue(30)
+@maxValue(730)
+param logRetentionDays int = 90
+
+@description('CORS allowed origins for the API container. Default locks to localhost + motion.ursly.io; set to [] to disable CORS entirely. Avoid [\'*\'] in production (SOC 2 CC6).')
+param corsAllowedOrigins array = [
+  'http://localhost:3001'
+  'http://localhost:3007'
+  'https://motion.ursly.io'
+]
+
 @description('Azure OpenAI model deployment name (e.g., gpt-5, gpt-4o, phi-4).')
 param openAiDeploymentName string = 'gpt-5'
 
@@ -124,7 +136,7 @@ resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   tags: tags
   properties: {
     sku: { name: 'PerGB2018' }
-    retentionInDays: 30
+    retentionInDays: logRetentionDays
     features: { enableLogAccessUsingOnlyResourcePermissions: true }
   }
 }
@@ -518,11 +530,14 @@ resource apiApp 'Microsoft.App/containerApps@2025-01-01' = {
         transport: 'auto'
         allowInsecure: false
         traffic: [ { latestRevision: true, weight: 100 } ]
+        // CORS allowlist comes from the `corsAllowedOrigins` param. Never
+        // ship `['*']` to production — SOC 2 CC6 considers it broken.
         corsPolicy: {
-          allowedOrigins: [ '*' ]
+          allowedOrigins: corsAllowedOrigins
           allowedMethods: [ 'GET', 'POST', 'OPTIONS' ]
-          allowedHeaders: [ '*' ]
+          allowedHeaders: [ 'authorization', 'content-type', 'accept', 'origin' ]
           maxAge: 600
+          allowCredentials: false
         }
       }
       registries: [
