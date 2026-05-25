@@ -1,0 +1,6 @@
+{
+  "tenant_id": "test-tenant-01",
+  "uploader": "api-contract-suite",
+  "tags": ["test", "fixture", "chrono"],
+  "description": "Synthetic logo mark for ingest contract tests; safe to delete after run."
+}

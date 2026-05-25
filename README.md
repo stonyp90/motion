@@ -1,175 +1,185 @@
-# motion
+# motion-forge
 
-Monorepo for **motion** — the motion-design engine and the marketing /
-in-browser studio that wraps it.
+A B2B explainer-video factory. Hand it a brief, a cast of characters, and a brand identity. Get back a broadcast-ready 60-second motion graphic as Lottie JSON, a render-grade MP4, and a per-scene asset pack. Iteration is sub-second once the first generation lands. Self-host the engine on Azure or run it on a laptop with `docker-compose up`.
 
-> License the engine instead of paying per video.
-> 90 seconds from brand pack to broadcast. Sub-second iteration thereafter.
+> Live demo: `https://motion-forge.io` *(placeholder — fill in once `motion.ursly.io` is fronting the production stack)*.
 
-```
-motion/
-├── engine/   Rust workspace + Python sidecars: the CLI, axum API, the
-│             Lottie writer, the FFmpeg / SAM 2 / YOLO sidecars, Bicep
-│             infra for Azure, and the docker images.
-└── web/      Next.js 15 marketing site + /studio in-browser editor.
-              Ships an interactive Lottie player that mutates JSON
-              client-side — zero server round-trip per edit.
-```
+---
 
-## Two pieces, one product
+## Why motion-forge
 
-```
-                  ┌──────────────────────────────────────┐
-                  │  web/  (Next.js 15 + Tailwind)       │
-                  │                                      │
-                  │  /              Marketing site       │
-                  │  /studio        Edge editor          │
-                  │  /pricing,/faq  one-page anchors     │
-                  │                                      │
-                  │  Self-contained Lottie demo files    │
-                  │  shipped from /public/lottie/        │
-                  └──────────────┬───────────────────────┘
-                                 │
-                                 │  POST /generate, /iterate
-                                 │  (only on real renders)
-                                 ▼
-                  ┌──────────────────────────────────────┐
-                  │  engine/  (Rust workspace + Python)  │
-                  │                                      │
-                  │  CLI: motion-forge {generate,        │
-                  │       iterate, panelize, render,     │
-                  │       serve, themes}                 │
-                  │                                      │
-                  │  HTTP: axum at /generate, /iterate,  │
-                  │        /themes, /healthz,            │
-                  │        /openapi.json,                │
-                  │        /v1/stt/stream (WebSocket)    │
-                  │                                      │
-                  │  Sidecars: ultralytics (SAM 2/YOLO), │
-                  │  PySceneDetect, lottie py            │
-                  │  In-process: whisper.cpp via         │
-                  │  whisper-rs (streaming voice STT)    │
-                  │                                      │
-                  │  Infra: Bicep for Azure              │
-                  │  (ACA Workload Profiles + Front      │
-                  │   Door + Cosmos + Blob + ACR)        │
-                  └──────────────────────────────────────┘
-```
+| You are evaluating | What that costs today | What motion-forge changes |
+| --- | --- | --- |
+| **An agency** | 4–8 weeks per 60-second deliverable; USD 8k–25k per video; rev-cycle is email + a deck. | First cut ships in under 90 seconds. Each iteration round-trips in under a second. You own the timeline JSON forever. |
+| **An in-house motion designer** | One person, one render queue, a backlog measured in months. Hiring a second takes a quarter. | The designer becomes the brief-author and the QA. The factory is the production line — they handle the volume the designer cannot. |
+| **A Lottie-only template store** | Pretty animations, generic characters, no brand fidelity, no voiceover wiring, no MP4 export. | Brand palette + font + logo are first-class. Voice dictation pipes through a streaming Whisper sidecar into a structured brief. Output ships as Lottie *and* MP4 *and* a per-scene web-export pack (SVG/CSS/GSAP/Motion/Theatre/Framer). |
+| **A bespoke generative-video stack** | Hours per render, opaque diffusion latents, no editability. | Deterministic shape-based timeline. Every layer is named, every keyframe is editable in any Lottie tool, and the JSON round-trips losslessly back into the engine for re-render. |
 
-## Quickstart
+motion-forge is **not** an LLM video generator. It is a deterministic motion-design pipeline whose orchestration step happens to be LLM-driven. That distinction is why iteration is fast and why your output is editable instead of regenerated.
 
-### Engine
+---
+
+## Quick start
+
+Three commands. No accounts, no API keys, no GPU required for the first run (it falls back to a CPU-only sidecar).
+
 ```bash
-cd engine
+# 1. Bring up Postgres, Redis, MinIO, Keycloak, Ollama
+docker compose up -d
 
-# build the Rust workspace
-cargo build --release
+# 2. Start the web app on http://localhost:3001
+cd web && npm install && npm run dev
 
-# Python sidecars (SAM 2, scene detection, Lottie rasterizer)
-./scripts/setup-python.sh
-
-# Voice STT — download the whisper.cpp GGUF model (~574 MB) and export the path.
-# Only required if you want /v1/stt/stream to accept browser microphones.
-./scripts/fetch-whisper-model.sh
-export MOTION_FORGE_STT_MODEL_PATH=$(pwd)/models/whisper/ggml-large-v3-turbo-q5_0.bin
-
-# end-to-end on the bundled fixture (~90s on a 2s reference clip)
-./target/release/motion-forge generate \
-    --reference fixtures/sample.mp4 \
-    --prompt "Pulsing brand intro with HELLO outro" \
-    --theme corporate --duration 12 \
-    --work-dir /tmp/mf-work \
-    --out /tmp/mf-out.lottie.json \
-    --out-video /tmp/mf-out.mp4
-
-# panelize a directory of illustrations into a Lottie + MP4
-./target/release/motion-forge panelize \
-    --dir illustrations/ \
-    --theme corporate --headline "My Brand" \
-    --out /tmp/brand.lottie.json --out-video /tmp/brand.mp4
-
-# fast iteration against the cached work-dir (~150 ms when fallback fires)
-./target/release/motion-forge iterate \
-    --work-dir /tmp/mf-work --prompt "Bouncier, playful version" \
-    --theme playful --duration 6 --out /tmp/mf-v2.lottie.json
-
-# HTTP server with OpenAPI 3.1
-./target/release/motion-forge serve --bind 127.0.0.1:7755
+# 3. Open the browser
+open http://localhost:3001
 ```
 
-### Web
-```bash
-cd web
-npm install
-npm run dev          # http://localhost:3001
-npm run build && npm run start
-```
+The first visit redirects you through Keycloak (`http://localhost:8080`, realm `motion-forge`, seeded user `demo / demo`). You land on the single-screen studio: prompt on the left, cast picker in the middle, live preview on the right. Type a brief, pick three characters, hit **Generate**. First render takes ~90 s on a laptop; each subsequent iterate is sub-second.
 
-The marketing site embeds a demo MP4 from `web/public/demos/chrono.mp4`
-which is **gitignored** because of size — regenerate locally with:
+For the Rust engine standalone (no web):
 
 ```bash
 cd engine
-./target/release/motion-forge panelize \
-    --dir <illustrations_dir> --theme corporate \
-    --headline "Chrono Innovation" \
-    --out /tmp/chrono.lottie.json --out-video ../web/public/demos/chrono.mp4
+./scripts/setup-python.sh             # Whisper + lottie sidecars in .venv
+./scripts/fetch-whisper-model.sh tiny # ~75 MB
+cargo run --release --bin motion-forge -- serve --bind 127.0.0.1:7755
 ```
 
-## What's deployed today
+`http://127.0.0.1:7755/openapi.json` is the live OpenAPI 3.1 surface. `http://127.0.0.1:7755/healthz` is the liveness probe.
 
-`engine/infra/` is single-file Bicep that brings up a complete
-production stack on Azure with one command:
+---
 
-```bash
-cd engine/infra
-./deploy.sh --env dev --location eastus
+## Architecture in one picture
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                                                                      │
+│   Browser  ──▶  Next.js 15 (App Router)  ──▶  Keycloak (OIDC)        │
+│                          │                                           │
+│                          │  POST /generate, /iterate, /transcribe    │
+│                          │  Bearer <JWT issued by Keycloak>          │
+│                          ▼                                           │
+│              ┌─────────────────────────────────┐                     │
+│              │  engine/crates/http  (axum)     │                     │
+│              │  JWT verify (JWKS-cached)       │                     │
+│              │  Per-tenant rate limit (Redis)  │                     │
+│              └────────────────┬────────────────┘                     │
+│                               │                                      │
+│             ┌─────────────────┼────────────────┐                     │
+│             ▼                 ▼                ▼                     │
+│      pipeline DAG       prompt-orchestrator   stt                    │
+│      (run_full /        (Ollama / Azure       (streaming Whisper)    │
+│       run_iterate)       OpenAI / Anthropic)                         │
+│             │                                                        │
+│             ▼                                                        │
+│      ┌──────────────────────────────────────────────┐                │
+│      │  Renderers and exporters                     │                │
+│      │  lottie-gen  ──▶  render  ──▶  out.mp4       │                │
+│      │  ingest     ◀──  user uploads (.lottie,      │                │
+│      │                  .json, .riv, .skel, .mogrt) │                │
+│      │  characters  ──▶ cast library + brand recolour│               │
+│      │  figma       ──▶ frame pull / push           │                │
+│      │  web-export  ──▶ SVG / CSS / GSAP / Motion / │                │
+│      │                  Theatre.js / Framer         │                │
+│      └──────────────────────────────────────────────┘                │
+│             │                                                        │
+│             ▼                                                        │
+│      Blob (workdirs, outputs)  +  Cosmos (project metadata)  +       │
+│      Redis (queues, idempotency, rate limit)                         │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
-Cost-effective, performance-effective, no-cold-start architecture:
-Front Door at the edge, Container Apps with min_replicas=1 for the API
-(no cold start on iterate), KEDA-triggered ACA Jobs for the heavy
-SAM 2 / render workloads (scale to zero), Cosmos serverless, Redis
-basic, Azure OpenAI for the LLM. All service-to-service auth via
-User-Assigned Managed Identity.
+For the long-form version, see [`ARCHITECTURE.md`](./ARCHITECTURE.md). Mermaid renderings live under [`docs/architecture/`](./docs/architecture/).
 
-Three `enable*` Bicep params (`enableOpenAi`, `enableGpuProfile`,
-`enableCosmos`, `enableNfsModelMount`) make the same template deployable
-on a personal sub without those Azure quotas approved.
+---
 
-## CI/CD
+## Feature matrix
 
-Three workflows under `.github/workflows/`:
+### Inputs
 
-| Workflow | Trigger | What it does |
-|---|---|---|
-| `engine-ci.yml` | push to main, PR | `cargo fmt --check` + `cargo clippy -D warnings` + `cargo test` + release build |
-| `web-ci.yml` | push to main, PR | `npm install` + `npm run lint` + `npm run type-check` + `npm run build` |
-| `azure-deploy.yml` | manual + push to main (engine paths) | OIDC-federated `az` login, `az acr build` + `az deployment group create` against `engine/infra/main.bicep`, prints Front Door URL |
+| Format | Source | Status |
+| --- | --- | --- |
+| Free-form text brief | textarea | shipping |
+| Structured script (scene / line / SFX) | paste or upload `.json` | shipping |
+| Voice dictation | browser mic → streaming Whisper | shipping (English; multilingual on roadmap) |
+| Reference video | `.mp4` / `.mov` | shipping (frame-segment + style-extract) |
+| Lottie / Bodymovin / DotLottie | upload | shipping via `ingest` crate |
+| Rive | `.riv` upload | shipping (state-machine flattened to Lottie) |
+| DragonBones | `.skel + .png` | beta |
+| MoGRT (Premiere graphics templates) | upload | beta |
+| Figma frame | OAuth + frame URL | shipping via `figma` crate |
 
-OIDC: no client secrets in the repo. Set three secrets on the repo:
-`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` — bound
-to a federated credential on the user-assigned Managed Identity in your
-target subscription. See [Azure docs](https://learn.microsoft.com/en-us/azure/developer/github/connect-from-azure-openid-connect).
+### Outputs
 
-## Status
+| Format | Channel | Status |
+| --- | --- | --- |
+| Lottie JSON (Bodymovin v5.12) | download / API | shipping |
+| MP4 (H.264, configurable bitrate) | download / Blob | shipping |
+| Per-scene PNG sequence | download | shipping |
+| SVG + CSS animations | `web-export` | shipping |
+| GSAP timeline | `web-export` | shipping |
+| Motion (`motion.dev`) timeline | `web-export` | shipping |
+| Theatre.js project | `web-export` | beta |
+| Framer Motion component | `web-export` | beta |
+| WebM (VP9) | `render` | roadmap |
+| ProRes (broadcast) | `render` | roadmap |
 
-| Piece | Status |
-|---|---|
-| Rust engine (Phases 0–7) | ✅ shipping |
-| Themes (corporate / playful / tech-reveal / minimalist / explainer) | ✅ |
-| Iteration controls (--theme / --duration / --width / --height / --fps) | ✅ |
-| `iterate` fast path with composition precedence | ✅ |
-| `panelize` illustration sequencer | ✅ |
-| `transcribe` Whisper sidecar | ✅ |
-| HTTP server + OpenAPI 3.1 spec | ✅ |
-| Marketing site | ✅ |
-| `/studio` edge editor | ✅ |
-| Azure Bicep (personal-sub deployable) | ✅ |
-| Live deploy on Azure | in progress |
-| AzureOpenAi `LlmBackend` adapter | next |
-| Blob-backed work-dir adapter | next |
+### Characters
 
-## License
+| Source | Volume | Notes |
+| --- | --- | --- |
+| Built-in cast library | ~120 characters across 8 art styles | every character is rigged in Lottie; brand-recolour is one HSL pass |
+| User uploads | unlimited | accepts the same set of formats as the inputs table; auto-trims, auto-rigs simple shapes, falls back to static cutouts for complex art |
+| Brand logos | unlimited | SVG preferred; raster auto-vectorised through `style-extract` when needed |
 
-Apache-2.0. Use it, vendor it, ship it.
+### Brand identity
+
+| Token | Where it ships | Editable in studio |
+| --- | --- | --- |
+| Palette (primary / secondary / accent / neutral 1–5) | every layer fill, character recolour, background | yes |
+| Font (Google Fonts + self-host) | every text layer | yes |
+| Logo (with safe-zone) | bumper, lower-third, end card | yes |
+| Voice style (LLM tone) | every generated copy line | yes |
+
+### SSO
+
+| Provider | Status |
+| --- | --- |
+| Keycloak (self-hosted realm `motion-forge`) | shipping; roles `owner` / `member` / `viewer` |
+| Microsoft Entra (federated through Keycloak) | shipping |
+| Google Workspace (federated through Keycloak) | shipping |
+| Okta / OneLogin (SAML through Keycloak) | shipping |
+
+---
+
+## Roadmap
+
+### Now (v0.1.x)
+
+- ACA + Front Door deploy stabilised on `motion.ursly.io`
+- Streaming Whisper sidecar GA across all browser languages
+- Cast library v1 (120 characters, 8 styles)
+- Figma frame round-trip GA
+
+### Next (v0.2)
+
+- Multi-tenant: project + workspace + per-tenant rate limiting
+- Render-farm autoscaling: KEDA-triggered ACA Jobs for MP4 jobs over 60 s
+- WebM + ProRes output formats
+- Per-scene voiceover with ElevenLabs (BYO key) and Azure Neural TTS
+
+### Later (v0.3+)
+
+- Frame-by-frame timeline editor (parity with After Effects basics)
+- "Brand snapshot": one-click brand extraction from a marketing site
+- Plugin SDK (TypeScript) so customers can ship their own exporters
+- Per-customer fine-tuned orchestrator (LoRA over the prompt → Lottie schema)
+
+---
+
+## License and contributing
+
+Apache-2.0. Vendor it, ship it, fork it.
+
+Read [`CONTRIBUTING.md`](./CONTRIBUTING.md) before you open a PR. Security disclosures: [`SECURITY.md`](./SECURITY.md). Architecture deep-dive: [`ARCHITECTURE.md`](./ARCHITECTURE.md). Threat model: [`THREAT_MODEL.md`](./THREAT_MODEL.md).

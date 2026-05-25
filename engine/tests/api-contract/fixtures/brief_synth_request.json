@@ -1,0 +1,30 @@
+{
+  "brief": {
+    "title": "Chrono — launch film",
+    "summary": "Calm 90-second reveal of a circadian wearable for design-literate knowledge workers.",
+    "objectives": [
+      "Position Chrono as the calm alternative to Oura/Whoop",
+      "Drive pre-orders at chrono.co",
+      "Establish the warm-Nordic visual identity"
+    ],
+    "audience": "Design-literate knowledge workers, 28-42",
+    "tone": "Quiet, technical, generous",
+    "key_messages": [
+      "Reads your circadian rhythm",
+      "Adjusts your environment, not your behavior",
+      "Stillness as a feature"
+    ],
+    "constraints": {
+      "no_actor_voiceover": true,
+      "palette": ["bone", "oat", "deep-teal", "brass"],
+      "avoid": ["drone shots", "blue tints", "hard-sell language"],
+      "must_include": ["legal mark in final scene", "captions instead of VO"]
+    },
+    "cta": {
+      "label": "Pre-order at chrono.co",
+      "url": "https://chrono.co/pre-order"
+    }
+  },
+  "duration": 90,
+  "scene_count": 21
+}

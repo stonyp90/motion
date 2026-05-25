@@ -280,3 +280,181 @@
     radial-gradient(at 25% 0%, rgba(16, 185, 129, 0.08) 0%, transparent 50%),
     radial-gradient(at 75% 100%, rgba(245, 158, 11, 0.05) 0%, transparent 50%);
 }
+/* ─────────────────────────────────────────────────────────────────────────────
+ * motion-forge — motion principles
+ *
+ * Calm authority. Linear-style restraint. Tablix-clean. Never bouncy.
+ * Motion always communicates state. It never decorates.
+ *
+ * To consume: paste this block at the top of `globals.css`, right under the
+ * existing :root color tokens. All component-level transitions should
+ * reference these named tokens — never inline raw cubic-bezier values.
+ *
+ * Allocation rule (60/30/10):
+ *   60% of transitions use --ease-out-quart  (the workhorse)
+ *   30% of transitions use --ease-snap        (snappy micro-interactions)
+ *   10% of transitions use --ease-in-quart    (exits, dismissals)
+ *
+ * Never use `transition: all`. Always list the properties you intend.
+ * Animate only `transform` and `opacity` for GPU-cheap motion. Avoid
+ * `width`, `height`, `top`, `left` — they trigger reflow.
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+@layer base {
+  :root {
+    /* ── Easing tokens ───────────────────────────────────────────────────── */
+
+    /* Workhorse — fast start, gentle landing. Used for hover, focus, reveal,
+       enter, anything responding to user input. */
+    --ease-out-quart: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+    /* Snap — near-instant with a hairline tail. Toggles, checkboxes, tab
+       switches, anything that should feel decisive. */
+    --ease-snap: cubic-bezier(0.12, 0, 0.08, 1);
+
+    /* Exit — slow start, fast finish. Drawer close, toast dismiss. Conveys
+       departure. */
+    --ease-in-quart: cubic-bezier(0.55, 0, 0.85, 0.3);
+
+    /* Spring — overshoots and settles. Reserved for the generate-success
+       moment and nothing else (we use it like punctuation, once per session). */
+    --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+    /* Linear — only for indeterminate progress (skeleton shimmer, spinner).
+       Never for state-change transitions, which always need easing. */
+    --ease-linear: linear;
+
+    /* ── Duration tokens ─────────────────────────────────────────────────── */
+
+    /* Instant — pressed states, color shifts. Imperceptible duration so the
+       interface feels touch-coupled, not late. */
+    --dur-instant: 90ms;
+
+    /* Fast — hover, focus ring, chip toggle. */
+    --dur-fast: 180ms;
+
+    /* Base — drawer slide, list reorder, panel reveal. The default. */
+    --dur-base: 240ms;
+
+    /* Slow — preview reveal, large surface entry. */
+    --dur-slow: 320ms;
+
+    /* Stagger — gap between sibling animations in a sequence. Multiply by
+       the index to get each child's delay. */
+    --dur-stagger: 30ms;
+
+    /* ── Compound transition utilities ───────────────────────────────────── */
+
+    /* Generic transform/opacity transition — the only kind you should reach
+       for by default. Never animate layout properties. */
+    --transition-motion: transform var(--dur-base) var(--ease-out-quart),
+                         opacity   var(--dur-base) var(--ease-out-quart);
+
+    /* Hover transition — limited to color, background, border, box-shadow.
+       Faster than motion. */
+    --transition-hover: background-color var(--dur-fast) var(--ease-out-quart),
+                        border-color     var(--dur-fast) var(--ease-out-quart),
+                        color            var(--dur-fast) var(--ease-out-quart),
+                        box-shadow       var(--dur-fast) var(--ease-out-quart);
+
+    /* Press transition — instant down, normal release. */
+    --transition-press: transform var(--dur-instant) var(--ease-snap);
+
+    /* ── Show-delay & min-visible (Vercel-pattern flicker prevention) ────── */
+
+    /* Wait this long before showing a spinner/skeleton — fast responses
+       won't flash a loader. */
+    --delay-loader-show: 200ms;
+
+    /* Once a loader is visible, keep it for at least this long — prevents
+       jittery flash if the response races in. */
+    --delay-loader-min:  400ms;
+  }
+
+  /* ── Reduced-motion override ────────────────────────────────────────────
+   * Honors prefers-reduced-motion. Durations collapse but transitions are
+   * preserved (still typed, just imperceptible) so component code stays
+   * unchanged. Two animations we ALSO turn off entirely: panel-drift and
+   * skeleton-shimmer — both decorative. */
+
+  @media (prefers-reduced-motion: reduce) {
+    :root {
+      --dur-instant: 0.01ms;
+      --dur-fast:    0.01ms;
+      --dur-base:    0.01ms;
+      --dur-slow:    0.01ms;
+      --dur-stagger: 0ms;
+      --ease-spring: var(--ease-out-quart); /* drop the overshoot */
+    }
+    .animate-panel-drift,
+    .animate-skeleton-shimmer,
+    .animate-pulse-accent { animation: none !important; }
+  }
+}
+
+@layer utilities {
+  /* ── Motion utility classes ──────────────────────────────────────────────
+   * Apply these instead of writing `transition-` Tailwind classes. They
+   * lock you to the design system's named easings and durations. */
+
+  .motion-hover   { transition: var(--transition-hover); }
+  .motion-press   { transition: var(--transition-press); }
+  .motion-reveal  { transition: var(--transition-motion); }
+  .motion-snap    { transition: transform var(--dur-fast) var(--ease-snap),
+                                opacity   var(--dur-fast) var(--ease-snap); }
+  .motion-drawer  { transition: transform var(--dur-base) var(--ease-out-quart); }
+  .motion-exit    { transition: transform var(--dur-base) var(--ease-in-quart),
+                                opacity   var(--dur-base) var(--ease-in-quart); }
+
+  /* Stagger helper — applies a delay based on a CSS custom property so the
+   * caller can set `style={{ '--i': index }}` on each child. */
+  .stagger-child  { animation-delay: calc(var(--i, 0) * var(--dur-stagger)); }
+}
+
+/* ── Skeleton shimmer ─────────────────────────────────────────────────────
+ * The only background animation we ship. Linear-easing on purpose — shimmer
+ * is indeterminate progress, not a state change. */
+
+@keyframes skeleton-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+.animate-skeleton-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    var(--color-bg-tertiary) 0%,
+    var(--color-bg-secondary) 50%,
+    var(--color-bg-tertiary) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1600ms var(--ease-linear) infinite;
+}
+
+/* ── Mic-listening pulse ──────────────────────────────────────────────────
+ * Only used by the voice-input button. Subtle expansion of an accent ring,
+ * never a color flash. */
+
+@keyframes pulse-accent {
+  0%, 100% { box-shadow: 0 0 0 0   color-mix(in srgb, var(--color-accent-500) 35%, transparent); }
+  50%      { box-shadow: 0 0 0 10px color-mix(in srgb, var(--color-accent-500) 0%,  transparent); }
+}
+
+.animate-pulse-accent {
+  animation: pulse-accent 1800ms var(--ease-out-quart) infinite;
+}
+
+/* ── Toast slide-in / slide-out ─────────────────────────────────────────── */
+
+@keyframes toast-in {
+  from { transform: translateY(8px) scale(0.98); opacity: 0; }
+  to   { transform: translateY(0)   scale(1);    opacity: 1; }
+}
+
+@keyframes toast-out {
+  from { transform: translateY(0)  scale(1);    opacity: 1; }
+  to   { transform: translateY(4px) scale(0.98); opacity: 0; }
+}
+
+.animate-toast-in  { animation: toast-in  var(--dur-base) var(--ease-out-quart) both; }
+.animate-toast-out { animation: toast-out var(--dur-fast) var(--ease-in-quart)  both; }

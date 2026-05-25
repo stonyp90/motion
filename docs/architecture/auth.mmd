@@ -1,0 +1,63 @@
+%%{init: { "theme": "default", "sequence": { "showSequenceNumbers": true } } }%%
+sequenceDiagram
+    autonumber
+    participant U as User
+    participant B as Browser<br/>(next-auth, @keycloak/js)
+    participant N as Next.js server<br/>(/api/auth/*)
+    participant KC as Keycloak realm<br/>'motion-forge'
+    participant IDP as External IdP<br/>(Entra / Google / Okta / OneLogin)
+    participant API as engine/crates/http<br/>(axum, JWT verify)
+    participant R as Redis<br/>(JWKS cache, 12 h)
+    participant KV as Azure Key Vault<br/>(client secret)
+
+    U->>B: Visit https://motion.ursly.io
+    B->>N: GET /
+    N-->>B: 302 to Keycloak /auth?<br/>client_id=motion-forge-web&<br/>response_type=code&<br/>code_challenge=S256(verifier)
+    B->>KC: GET /realms/motion-forge/protocol/<br/>openid-connect/auth (PKCE)
+
+    alt User is federated
+        KC-->>B: 302 to external IdP
+        B->>IDP: SAML/OIDC handshake
+        IDP-->>B: assertion / id_token
+        B->>KC: POST back to Keycloak broker
+    else Local Keycloak user
+        KC-->>B: Login form
+        B->>KC: POST credentials
+    end
+
+    KC-->>B: 302 with authorization_code
+    B->>N: GET /api/auth/callback/keycloak?code=...
+    N->>KV: Fetch Keycloak client_secret
+    N->>KC: POST /token<br/>(code + verifier + client_secret)
+    KC-->>N: access_token (JWT, RS256) +<br/>id_token + refresh_token
+    N-->>B: Set-Cookie: __Secure-next-auth.session-token<br/>(HTTP-only, SameSite=Lax, encrypted)
+
+    Note over B,API: Subsequent API call
+
+    B->>N: POST /api/proxy/generate<br/>(cookie)
+    N->>N: Decrypt cookie, extract access_token
+    N->>API: POST /generate<br/>Authorization: Bearer <access_token>
+
+    API->>R: GET jwks:keycloak
+    alt JWKS cache miss
+        R-->>API: nil
+        API->>KC: GET /realms/motion-forge/<br/>protocol/openid-connect/certs
+        KC-->>API: JWKS
+        API->>R: SET jwks:keycloak (TTL 12 h)
+    else JWKS cache hit
+        R-->>API: JWKS
+    end
+
+    API->>API: Verify signature (RS256)<br/>+ iss + aud + exp +<br/>extract tenantId + roles
+    API->>API: Check Redis leaky bucket<br/>rl:tenant:<tenantId>
+    API->>API: Dispatch to route handler
+
+    API-->>N: 202 Accepted + run_id
+    N-->>B: 202 + run_id
+
+    Note over B,N: Refresh-token rotation
+
+    B->>N: GET /api/auth/session<br/>(cookie close to expiry)
+    N->>KC: POST /token<br/>grant_type=refresh_token
+    KC-->>N: new access_token + new refresh_token
+    N-->>B: Set-Cookie (rotated)

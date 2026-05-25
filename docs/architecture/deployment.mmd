@@ -1,0 +1,88 @@
+%%{init: { "theme": "default", "flowchart": { "curve": "basis" } } }%%
+flowchart TB
+    Internet((Internet))
+
+    subgraph Edge["Azure edge"]
+        FD["Azure Front Door Premium<br/>global anycast + WAF + CDN"]
+    end
+
+    subgraph RG["Resource group: rg-motion-forge-prod (eastus)"]
+        subgraph ACAEnv["Container Apps Environment<br/>(Workload Profiles)"]
+            Web["mf-web<br/>Consumption, min=1<br/>Next.js 15 studio"]
+            API["mf-api<br/>Consumption, min=1<br/>axum, always-warm"]
+            KC["mf-keycloak<br/>Dedicated D4, min=1<br/>Keycloak 26"]
+            RenderJob["mf-render-job<br/>Job, D4 CPU<br/>KEDA: Storage Queue trigger"]
+            SegJob["mf-segment-job<br/>Job, NC8as-T4-v3 GPU<br/>KEDA: Storage Queue trigger<br/>(only with enableGpuProfile)"]
+            IngestJob["mf-ingest-job<br/>Job, D2 CPU<br/>KEDA: Storage Queue trigger"]
+        end
+
+        subgraph Data["Azure data plane"]
+            Blob["Azure Blob (StorageV2)<br/>workdirs (Hot 7d -> Cool 30d -> Arch 90d)<br/>outputs (Hot 30d -> Cool 90d -> Arch 1y)<br/>uploads, cast, brands"]
+            Cosmos["Azure Cosmos DB<br/>Serverless, NoSQL<br/>workspaces, projects, runs,<br/>assets, audits (7 y TTL)"]
+            Redis["Azure Cache for Redis<br/>Basic C1<br/>queues, pubsub, JWKS,<br/>rate limit, idempotency"]
+            KCDB["Azure Database for PostgreSQL<br/>Flexible, Burstable B1ms<br/>Keycloak metadata"]
+            Files["Azure Files NFSv4.1<br/>Premium 100 GiB<br/>Whisper + theme weights"]
+            Queue["Azure Storage Queue<br/>render-q, segment-q, ingest-q"]
+        end
+
+        subgraph PaaS["Azure PaaS"]
+            AOAI["Azure OpenAI Service<br/>gpt-5 Standard / PTU<br/>disableLocalAuth = true"]
+            KV["Azure Key Vault<br/>third-party API keys only"]
+            ACR["Azure Container Registry<br/>Premium, geo-replicated"]
+            AI["App Insights + Log Analytics<br/>OpenTelemetry collector sidecar"]
+        end
+
+        subgraph Identity
+            MI["User-Assigned<br/>Managed Identity<br/>mid-mf-prod"]
+        end
+    end
+
+    Internet -- "HTTPS" --> FD
+    FD -- "HTTPS, FD-origin mTLS" --> Web
+    FD -- "HTTPS, FD-origin mTLS" --> API
+    FD -- "HTTPS" --> KC
+
+    API -- "MI" --> Blob
+    API -- "MI" --> Cosmos
+    API -- "MI" --> Redis
+    API -- "MI" --> KV
+    API -- "MI" --> AOAI
+    API -- "enqueue (MI)" --> Queue
+
+    Queue -- "KEDA" --> RenderJob
+    Queue -- "KEDA" --> SegJob
+    Queue -- "KEDA" --> IngestJob
+
+    RenderJob -- "MI" --> Blob
+    SegJob -- "MI" --> Blob
+    IngestJob -- "MI" --> Blob
+    RenderJob -- "Files mount" --> Files
+    SegJob -- "Files mount" --> Files
+
+    Web -- "MI" --> KV
+    KC --> KCDB
+
+    Web -. "image pull" .-> ACR
+    API -. "image pull" .-> ACR
+    KC -. "image pull" .-> ACR
+    RenderJob -. "image pull" .-> ACR
+    SegJob -. "image pull" .-> ACR
+    IngestJob -. "image pull" .-> ACR
+
+    Web --> AI
+    API --> AI
+    RenderJob --> AI
+    SegJob --> AI
+
+    MI --- API
+    MI --- Web
+    MI --- RenderJob
+    MI --- SegJob
+    MI --- IngestJob
+
+    subgraph CICD["GitHub Actions (OIDC federated)"]
+        GH["github.com/stonyp90/motion<br/>main branch"]
+    end
+
+    GH -- "azure-deploy.yml<br/>(OIDC, no secrets)" --> ACR
+    GH -- "az deployment group create" --> ACAEnv

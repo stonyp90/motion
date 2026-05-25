@@ -1,145 +1,130 @@
 # Contributing to motion-forge
 
-Thanks for considering a contribution. This document covers the
-workflow, the local-dev setup, the code-quality bars CI enforces,
-and how to navigate the monorepo.
+Thanks for opening a PR. This document is the operational contract: prerequisites, bootstrap, conventions, the PR checklist CI enforces. Read it once, then keep it open the first time you push.
 
-## Repository layout
+## Prerequisites
 
-```
-motion/
-├── engine/   Rust workspace (10 crates) + Python sidecars + Bicep IaC
-├── web/      Next.js 15 marketing site + /studio in-browser editor
-├── sdks/     Generated language SDKs (JS, Python, Rust client)
-├── .github/  Workflows, CODEOWNERS, Dependabot
-├── SECURITY.md         Vuln disclosure policy
-├── THREAT_MODEL.md     Attack surface + mitigations
-└── CODE_OF_CONDUCT.md  Contributor Covenant 2.1
-```
+| Tool | Version | Why |
+| --- | --- | --- |
+| Rust | 1.85 or newer (stable) | Workspace edition is 2024; let-chains and 2024 let-else patterns are in use |
+| Node.js | 20.x LTS or newer | Next.js 15 requires 18.18+ but we floor at 20 for `node --watch` parity in scripts |
+| npm | bundled with Node 20 | The `web/` workspace uses npm; do not `pnpm install` here |
+| Docker | 24 or newer | `docker compose` (V2) syntax; the V1 `docker-compose` binary will not work |
+| Python | 3.11 or 3.12 | Whisper + lottie sidecars; matched by `engine/scripts/setup-python.sh` |
+| `az` CLI | 2.65 or newer | Only required if you deploy to Azure |
+| `gh` CLI | 2.40 or newer | Only required if you push branches that touch `.github/workflows/**` (needs the `workflow` scope) |
 
-## Quickstart
+macOS-specific: install `ffmpeg` and `cmake` through Homebrew. `whisper-rs` needs `cmake` to build the bundled whisper.cpp; the build will fail without it.
 
-### Engine
+Linux: install `ffmpeg`, `cmake`, `pkg-config`, `libssl-dev`. The CI image is `ubuntu-24.04`.
+
+## Bootstrap
+
+From a fresh clone, in this order:
 
 ```bash
+# 1. Engine: build the Rust workspace and the Python sidecar venv.
 cd engine
 cargo build --release
-./scripts/setup-python.sh   # SAM 2 / scenedetect / lottie / Whisper
-cargo fmt --all --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace --all-features
+./scripts/setup-python.sh
+./scripts/fetch-whisper-model.sh tiny   # ~75 MB; bumps to `base` or `small` on demand
+cd ..
+
+# 2. Web: install JS deps.
+cd web && npm ci && cd ..
+
+# 3. Infra: bring up the local services.
+docker compose up -d
+
+# 4. Wait for Keycloak to import the realm (about 30 s on a cold image).
+#    `docker logs -f motion-forge-keycloak` exits when the import is done.
+
+# 5. Run the web app.
+cd web && npm run dev
 ```
 
-### Web
+The studio is now live at `http://localhost:3001`. Sign in as `demo / demo`. Hit **Generate** with the seeded sample brief; first render takes ~90 s.
+
+For the runbook (common failure modes, what to grep for in the logs), see [`docs/runbooks/local-dev.md`](./docs/runbooks/local-dev.md).
+
+## Commit conventions
+
+We use Conventional Commits. The format is enforced by `commitlint` in CI and gates PR titles too.
+
+| Prefix | When to use |
+| --- | --- |
+| `feat:` | A user-facing feature lands or grows. |
+| `fix:` | A bug is fixed. Mention the GitHub issue in the body. |
+| `docs:` | Documentation only. |
+| `refactor:` | Internal change with no user-facing behaviour change. |
+| `perf:` | Measurable performance improvement; include the before/after number in the body. |
+| `test:` | Tests added or restructured; no production code change. |
+| `ci:` | Workflow file changes. |
+| `chore:` | Dependency bumps, lockfile rotations, formatting drift. |
+| `revert:` | Reverts a previous commit; reference the SHA. |
+
+Subject ≤ 72 chars. Body explains the **why**, not the **what** (the diff already tells you the what). Footer with `Refs:` / `Closes:` / `Breaks:` as appropriate.
+
+Sign every commit. We require both DCO and a real signature:
 
 ```bash
-cd web
-npm ci
-npm run dev              # http://localhost:3001
-npm run type-check
-npm run build
-```
-
-## CI quality gates
-
-Every PR runs:
-
-| Workflow | Gate |
-|---|---|
-| `engine · CI` | `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, `cargo build --release` |
-| `web · CI` | `npm ci`, `npm run type-check`, `npm run build` (Next's internal ESLint runs here) |
-| `security` | `cargo audit --deny warnings`, `npm audit --audit-level=moderate`, Trivy on the API container image, CodeQL on Rust + TypeScript |
-| `engine · Azure deploy` | (only on push to `main` touching `engine/**`) OIDC login → ACR image build → Bicep apply → live `/healthz` probe |
-
-Branch protection on `main`:
-
-- At least 1 PR review required
-- All workflow status checks must pass
-- Signed commits required (`git commit -S`)
-- No force pushes
-- No direct pushes to `main` — go through a PR
-
-## Signing commits
-
-You'll need a GPG or SSH signing key set up:
-
-```bash
-# GPG
-gpg --full-generate-key
-git config --global user.signingkey <KEY-ID>
-git config --global commit.gpgsign true
-
-# OR SSH (simpler in 2026)
+# Set up an SSH signing key (simpler than GPG in 2026):
 git config --global gpg.format ssh
 git config --global user.signingkey ~/.ssh/id_ed25519.pub
 git config --global commit.gpgsign true
+
+# DCO is `-s` on commit:
+git commit -s -m "feat(web): add cast-picker keyboard nav"
+
+# Verify:
+git log --show-signature -1
 ```
 
-Verify with `git log --show-signature`.
+CI rejects unsigned commits on `main` and on any branch protected by the workflow.
 
-## CODEOWNERS
+## Branch protection rules
 
-The `.github/CODEOWNERS` file requires review from the security team
-for changes to:
+Enforced on `main` via the GitHub repo settings, mirrored in `.github/CODEOWNERS`:
 
-- `engine/infra/**` (Bicep IaC)
-- `engine/crates/http/**` (HTTP API + auth middleware)
-- `engine/infra/docker/**` (container images)
-- `.github/workflows/**` (CI/CD)
+- ≥ 1 PR review from a maintainer required before merge.
+- All status checks must be green: `engine · CI`, `web · CI`, `security`, plus the file-touched-specific `azure-deploy · plan`.
+- Signed commits required (`require_signed_commits = true`).
+- Force-push disabled. Linear history required (squash or rebase merge only; no merge commits).
+- Direct push to `main` blocked for everyone including maintainers.
+- "Dismiss stale approvals when new commits are pushed" is on.
 
-This is a SOC 2 CC5 control — sensitive changes are never merged on
-the sole authority of the author.
+CODEOWNERS routes review for the sensitive surface:
 
-## Coding conventions
-
-### Rust
-
-- `rustfmt` is enforced (see `rustfmt.toml` if it exists; otherwise defaults)
-- `cargo clippy --all-targets --all-features -- -D warnings` — no
-  warnings tolerated on `main`
-- Hexagonal architecture: each crate exposes a **port** (trait) and
-  one or more **adapters**. New external integrations go behind a
-  new port; don't add raw I/O calls in the orchestration crate.
-- Error handling: `anyhow::Result` at command boundaries,
-  `thiserror` for library error types. Always `with_context` on
-  failable I/O.
-
-### TypeScript / Next.js
-
-- No hardcoded hex colors anywhere in `web/src/components/**` — use
-  the Tailwind utility classes that resolve to CSS variables. The
-  exception is `web/src/lib/studio/palette.ts` which curates the
-  user-facing colour-picker presets and is explicitly documented as
-  not-a-brand-token.
-- No `style={{ color: 'var(--...)' }}` inline — use Tailwind utilities.
-- No arbitrary Tailwind values like `bg-[#abc]` or `text-[10px]` —
-  extend `tailwind.config.ts` with a named utility instead.
-- Components default to server components; add `'use client'` only
-  when you need stateful interactivity.
-- Dark theme is on for `/studio`, light on the marketing surfaces.
-  All colour decisions ride the `data-theme` attribute on `<html>`.
-
-### Commits
-
-- Conventional Commits style: `feat:`, `fix:`, `docs:`, `ci:`,
-  `refactor:`, `chore:`, `test:`
-- Subject ≤ 72 chars; body explains *why* not *what*
-
-## Releasing
-
-```bash
-# Tag a new release; cargo-dist + sdk-publish workflows do the rest.
-git tag v0.X.Y
-git push --tags
+```
+engine/crates/http/**           @stonyp90/security
+engine/infra/**                 @stonyp90/security
+.github/workflows/**            @stonyp90/security
+keycloak/realm/**               @stonyp90/security
+SECURITY.md THREAT_MODEL.md     @stonyp90/security
 ```
 
-The `release.yml` workflow builds 5-platform binaries, signs them
-with GitHub Artifact Attestations (SLSA 3+), publishes the SDKs to
-npm + PyPI + crates.io, and creates a GitHub Release with the
-generated CHANGELOG entry.
+This is a SOC 2 CC5 control; do not bypass it.
+
+## PR checklist
+
+A PR is ready to merge when every box is ticked:
+
+- [ ] Conventional Commits on every commit; subject ≤ 72 chars.
+- [ ] `cargo fmt --all --check` clean.
+- [ ] `cargo clippy --workspace --all-targets --all-features -- -D warnings` clean.
+- [ ] `cargo test --workspace --all-features` green; new tests for new behaviour.
+- [ ] `npm run type-check` and `npm run build` green in `web/`.
+- [ ] No new `unsafe` block without a `// SAFETY:` comment that names the invariant.
+- [ ] No hardcoded colours, fonts, or LLM prompts in `web/src/components/**` — extract to design tokens or `web/src/lib/prompts/`.
+- [ ] If you touched the HTTP surface: the OpenAPI 3.1 schema in `engine/crates/http/src/openapi.rs` updates accordingly and the snapshot test passes.
+- [ ] If you touched auth or infra: a [`THREAT_MODEL.md`](./THREAT_MODEL.md) entry exists for the change, and CODEOWNERS review is requested.
+- [ ] If you touched anything user-visible: docs in [`README.md`](./README.md) or [`ARCHITECTURE.md`](./ARCHITECTURE.md) update accordingly.
+- [ ] PR description explains the **why**, calls out the architectural shape (which port/adapter changed), and references the linked issue.
+
+The CI workflow `pr-checklist.yml` parses these and posts a sticky comment listing the items that are unchecked. The merge button stays grey until every required check is green.
 
 ## Getting help
 
-- File an issue at <https://github.com/stonyp90/motion/issues>
-- For security issues: see [`SECURITY.md`](./SECURITY.md)
-- Code of Conduct: [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md)
+- Issues: `https://github.com/stonyp90/motion/issues`. Tag with `area:web`, `area:engine`, `area:infra`, or `area:docs`.
+- Security disclosures: see [`SECURITY.md`](./SECURITY.md). Do **not** open public issues for vulnerabilities.
+- Code of conduct: [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md). Enforcement contact is the maintainers group at the email in that file.

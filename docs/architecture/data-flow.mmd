@@ -1,0 +1,68 @@
+%%{init: { "theme": "default", "flowchart": { "htmlLabels": true, "curve": "basis" } } }%%
+flowchart TD
+    subgraph Browser
+        UI["Single-screen studio<br/>(Next.js 15, App Router)"]
+        Mic["WebRTC mic capture<br/>16 kHz mono PCM frames"]
+        Preview["lottie-react<br/>live preview"]
+    end
+
+    subgraph EdgeAuth["Edge + Auth"]
+        FD["Azure Front Door Premium<br/>WAF, anycast, mTLS to origin"]
+        KC["Keycloak realm 'motion-forge'<br/>OIDC authorization_code + PKCE"]
+    end
+
+    subgraph EngineHTTP["engine/crates/http (axum)"]
+        JWT["JWT verify<br/>(JWKS cached 12 h in Redis)"]
+        RL["Per-tenant rate limit<br/>(Redis leaky bucket)"]
+        Routes{"Route dispatch"}
+    end
+
+    subgraph EnginePipeline["engine pipeline"]
+        Orch["prompt-orchestrator<br/>Ollama / Azure OpenAI /<br/>Anthropic / OpenAI / Mock"]
+        Chars["characters<br/>cast instance + brand recolour"]
+        LottieGen["lottie-gen<br/>Bodymovin v5.12 writer"]
+        Render["render<br/>Python lottie sidecar"]
+        Ingest["ingest<br/>Lottie / Rive / DotLottie /<br/>DragonBones / MoGRT"]
+        STT["stt<br/>streaming whisper-rs"]
+        WebExport["web-export<br/>SVG / CSS / GSAP / Motion /<br/>Theatre / Framer"]
+        Figma["figma<br/>OAuth + frame round-trip"]
+    end
+
+    subgraph Storage
+        Blob["Azure Blob<br/>workdirs / outputs / uploads /<br/>cast / brands"]
+        Cosmos["Azure Cosmos DB<br/>workspaces / projects / runs /<br/>assets / audits"]
+        Redis["Azure Cache for Redis<br/>queues, pubsub, JWKS,<br/>rate limit, idempotency"]
+    end
+
+    subgraph LLMSaaS["LLM (SaaS)"]
+        AOAI["Azure OpenAI Service<br/>gpt-5 Standard / PTU"]
+    end
+
+    UI -- "1. OIDC<br/>authorization_code + PKCE" --> KC
+    KC -- "2. JWT" --> UI
+    UI -- "3. POST /generate, /iterate,<br/>/ingest, /export<br/>Bearer JWT" --> FD
+    Mic -- "WS /transcribe" --> FD
+    FD --> JWT
+    JWT --> RL
+    RL --> Routes
+
+    Routes -- "/generate, /iterate" --> Orch
+    Routes -- "/transcribe" --> STT
+    Routes -- "/ingest" --> Ingest
+    Routes -- "/export/*" --> WebExport
+    Routes -- "/figma/*" --> Figma
+
+    Orch --> AOAI
+    Orch --> Chars
+    Chars --> LottieGen
+    LottieGen --> Render
+    LottieGen -- "lottie.json" --> Blob
+    Render -- "out.mp4" --> Blob
+    Ingest --> Blob
+    Figma --> Blob
+
+    Routes -- "run record" --> Cosmos
+    Routes -- "audit row" --> Cosmos
+    Render -- "progress events" --> Redis
+    Redis -- "SSE /runs/:id/events" --> UI
+    Blob -- "lottie.json + scene IR" --> Preview

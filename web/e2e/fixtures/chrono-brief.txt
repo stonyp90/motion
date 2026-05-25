@@ -1,0 +1,68 @@
+CHRONO — 21-SCENE BRIEF
+Title: Chrono — A Visual History of Timekeeping
+Duration: 90 seconds
+Aspect: 16:9
+Style: Editorial, kinetic typography, warm palette
+
+SCENE 1 — Cold open. Black to a single ticking second hand against parchment.
+Caption: "Time was once a question."
+
+SCENE 2 — Sundial in a Roman forum, shadow sweeping across stone hours.
+Caption: "Rome measured it with light."
+
+SCENE 3 — Egyptian water clock dripping into a basin, ripples expanding.
+Caption: "Egypt measured it with water."
+
+SCENE 4 — A monk in a candlelit scriptorium marks tallies on vellum.
+Caption: "Monasteries measured it with prayer."
+
+SCENE 5 — Cut to a medieval church tower. The first mechanical clock strikes.
+Caption: "1283 — Dunstable Priory. The mechanical age begins."
+
+SCENE 6 — Iron escapement clicking, gears engaging in extreme close-up.
+Caption: "Verge and foliot. Accuracy: ± 15 minutes a day."
+
+SCENE 7 — Renaissance workshop, brass clockwork on a wooden bench, candles flicker.
+Caption: "Galileo dreams of pendulums."
+
+SCENE 8 — Huygens 1656 — first pendulum clock. Wide pendulum sweeps.
+Caption: "Pendulum: ± 10 seconds a day. A hundredfold leap."
+
+SCENE 9 — Stormy Atlantic. A wooden ship pitches. Voiceover: "Longitude is killing sailors."
+Caption: "1714 — The Longitude Act."
+
+SCENE 10 — John Harrison's workshop. Hands assemble the H4 marine chronometer.
+Caption: "Harrison H4: 5 seconds across an ocean."
+
+SCENE 11 — Industrial revolution. Pocket watches roll off assembly lines.
+Caption: "Time becomes mass-produced."
+
+SCENE 12 — Train station platform, station clocks synchronized, schedules posted.
+Caption: "1883 — Standard Time Zones."
+
+SCENE 13 — Wristwatch on a pilot's wrist, biplane in WWI dogfight.
+Caption: "War puts time on every wrist."
+
+SCENE 14 — Bulova workshop, first quartz wristwatch — Accutron 1960.
+Caption: "Quartz: ± 1 minute a year."
+
+SCENE 15 — Seiko Astron 1969 — the quartz revolution begins in Tokyo.
+Caption: "The watch becomes a microchip."
+
+SCENE 16 — Cesium atomic clock at NIST. Blue glow, oscillating cloud.
+Caption: "1967 — The second is redefined: 9,192,631,770 oscillations of cesium."
+
+SCENE 17 — GPS satellite array against starfield. Lines of timing data orbit Earth.
+Caption: "GPS is a clock that flies."
+
+SCENE 18 — Optical lattice clock, strontium atoms suspended in laser light.
+Caption: "Optical clocks: 1 second in 15 billion years."
+
+SCENE 19 — Smartphone notifications cascade — meetings, alarms, reminders.
+Caption: "Time is now everywhere."
+
+SCENE 20 — A child watches a sundial in a museum, exhibit lights warm.
+Caption: "And still — we ask the same question."
+
+SCENE 21 — Black. A single ticking second hand. Logo fades in.
+Caption: "Chrono. Time, told."

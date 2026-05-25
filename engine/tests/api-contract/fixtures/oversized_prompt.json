@@ -1,0 +1,7 @@
+{
+  "prompt": "THIS_PROMPT_IS_INTENTIONALLY_TOO_LONG_FOR_THE_4096_CHAR_LIMIT_SO_THE_API_MUST_RETURN_A_422. The actual oversized payload is generated at runtime by run.sh (see generate_oversized_prompt) because committing 4 KB of filler to the fixture dir bloats the diff. This file is the schema-correct shell that run.sh overwrites in /tmp before the test executes.",
+  "cast": [],
+  "brand": { "id": "test-tenant-brand-01" },
+  "duration_seconds": 30,
+  "aspect_ratio": "16:9"
+}
