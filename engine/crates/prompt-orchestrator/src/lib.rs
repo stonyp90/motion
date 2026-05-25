@@ -156,16 +156,79 @@ impl PromptOrchestrator {
         self
     }
 
-    /// Run the prompt → timeline call.
+    /// Run the prompt → timeline call. No extra context.
     pub async fn orchestrate(
         &self,
         user_prompt: &str,
         style: &StyleCard,
     ) -> Result<LottieTimeline> {
+        self.orchestrate_with_context(user_prompt, style, &[], &[])
+            .await
+    }
+
+    /// Run the prompt → timeline call with extra multimodal context.
+    ///
+    /// `reference_images` are read from disk, base64-encoded, and
+    /// attached to the LLM call so a vision-capable backend (llava-class)
+    /// can ground its output on brand frames, storyboard sketches, or
+    /// any image the user dropped into the upload zone.
+    ///
+    /// `reference_documents` are PDF / text files. Each is converted to
+    /// plain text (via `pdftotext` when the file is a PDF and the
+    /// binary is on PATH, else best-effort UTF-8 read) and prepended to
+    /// the user prompt under a `[REFERENCE DOCUMENT]` section. Each
+    /// document is truncated to ~6 kB so a 100-page PDF doesn't blow
+    /// the context window.
+    pub async fn orchestrate_with_context(
+        &self,
+        user_prompt: &str,
+        style: &StyleCard,
+        reference_images: &[std::path::PathBuf],
+        reference_documents: &[std::path::PathBuf],
+    ) -> Result<LottieTimeline> {
         let style_summary = summarize_style(style);
         let cast_summary = characters::summarize_cast(&self.cast_registry, &self.cast);
+
+        // PDFs / text docs first — they become a prelude to the user
+        // prompt so the LLM reads the brief before the formal request.
+        let mut doc_prelude = String::new();
+        let mut docs_included = 0usize;
+        for (i, path) in reference_documents.iter().enumerate() {
+            match extract_document_text(path) {
+                Ok(text) if !text.trim().is_empty() => {
+                    doc_prelude.push_str(&format!(
+                        "[REFERENCE DOCUMENT {n} — {name}]\n{text}\n[/REFERENCE DOCUMENT {n}]\n\n",
+                        n = i + 1,
+                        name = path
+                            .file_name()
+                            .map(|s| s.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| format!("doc-{i}")),
+                    ));
+                    docs_included += 1;
+                    tracing::info!(
+                        path = %path.display(),
+                        bytes = text.len(),
+                        "attached reference document"
+                    );
+                }
+                Ok(_) => tracing::debug!(path = %path.display(), "empty document, skipped"),
+                Err(e) => tracing::warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "failed to extract reference document text; skipped"
+                ),
+            }
+        }
+        if !reference_documents.is_empty() {
+            tracing::info!(
+                requested = reference_documents.len(),
+                included = docs_included,
+                "reference documents prepended to prompt"
+            );
+        }
+
         let user = format!(
-            "Generate a motion-design animation timeline for: \"{user_prompt}\"\n\n\
+            "{doc_prelude}Generate a motion-design animation timeline for: \"{user_prompt}\"\n\n\
              Reference style:\n{style_summary}\n\n\
              Cast:\n{cast_summary}\n\n\
              Constraints:\n\
@@ -187,6 +250,31 @@ impl PromptOrchestrator {
             system.push_str("\n\nAdditional theme guidance: ");
             system.push_str(addendum);
         }
+        if !reference_images.is_empty() {
+            system.push_str(
+                "\n\nThe user attached reference images. Use them to inform palette, \
+                 layout, and overall feel of the animation.",
+            );
+        }
+
+        // Read + base64-encode reference images. Failure on any single
+        // image is non-fatal — log + skip — so one corrupt drop doesn't
+        // sink the whole call.
+        let mut images_b64: Vec<String> = Vec::with_capacity(reference_images.len());
+        for path in reference_images {
+            match std::fs::read(path) {
+                Ok(bytes) => {
+                    use base64::Engine;
+                    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                    images_b64.push(b64);
+                }
+                Err(e) => tracing::warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "failed to read reference image; skipped"
+                ),
+            }
+        }
 
         let schema = timeline_schema(
             self.composition_width,
@@ -194,11 +282,68 @@ impl PromptOrchestrator {
             self.frame_rate,
             self.duration_seconds,
         );
-        let req = llm::LlmRequest::new(system, user).with_schema(schema);
+        let req = llm::LlmRequest::new(system, user)
+            .with_schema(schema)
+            .with_images(images_b64);
         let timeline: LottieTimeline =
             llm::LlmBackendExt::complete_into(&*self.backend, &req).await?;
         Ok(timeline)
     }
+}
+
+/// Extract plain text from a reference document. PDFs go through
+/// `pdftotext` (poppler) when it's available; everything else is
+/// read as UTF-8 with a 6 kB cap so a runaway transcript doesn't
+/// blow the prompt budget.
+fn extract_document_text(path: &std::path::Path) -> Result<String> {
+    const MAX_BYTES: usize = 6 * 1024;
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|s| s.to_ascii_lowercase())
+        .unwrap_or_default();
+    let raw = if ext == "pdf" {
+        // Try pdftotext first.
+        match std::process::Command::new("pdftotext")
+            .arg("-q")
+            .arg("-layout")
+            .arg(path)
+            .arg("-")
+            .output()
+        {
+            Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).into_owned(),
+            Ok(out) => {
+                tracing::warn!(
+                    path = %path.display(),
+                    status = ?out.status,
+                    stderr = %String::from_utf8_lossy(&out.stderr),
+                    "pdftotext returned non-zero; falling back to raw read"
+                );
+                String::from_utf8_lossy(&std::fs::read(path)?).into_owned()
+            }
+            Err(e) => {
+                tracing::warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "pdftotext not on PATH; falling back to raw read (install `brew install poppler` for clean extraction)"
+                );
+                String::from_utf8_lossy(&std::fs::read(path)?).into_owned()
+            }
+        }
+    } else {
+        String::from_utf8_lossy(&std::fs::read(path)?).into_owned()
+    };
+    if raw.len() > MAX_BYTES {
+        // Truncate on a char boundary so we don't slice through a UTF-8 codepoint.
+        let mut cut = MAX_BYTES;
+        while cut > 0 && !raw.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        let mut s = raw[..cut].to_string();
+        s.push_str("\n\n[…truncated to 6KB…]");
+        return Ok(s);
+    }
+    Ok(raw)
 }
 
 const SYSTEM_PROMPT: &str = "You are a motion-design director. Given a prompt and a reference \

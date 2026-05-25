@@ -21,6 +21,12 @@ pub struct LlmRequest {
     pub schema: Option<serde_json::Value>,
     pub max_tokens: u32,
     pub temperature: f32,
+    /// Base64-encoded images attached to the request. The Ollama
+    /// backend forwards these as `images: [...]` to /api/generate
+    /// when the model is vision-capable (llava-class). Other backends
+    /// drop them with a debug log until their multimodal pathway lands.
+    #[serde(default)]
+    pub images: Vec<String>,
 }
 
 impl LlmRequest {
@@ -31,6 +37,7 @@ impl LlmRequest {
             schema: None,
             max_tokens: 4096,
             temperature: 0.4,
+            images: Vec::new(),
         }
     }
 
@@ -41,6 +48,13 @@ impl LlmRequest {
 
     pub fn with_temperature(mut self, t: f32) -> Self {
         self.temperature = t;
+        self
+    }
+
+    /// Attach base64-encoded image bytes. The orchestrator does the
+    /// encoding so callers pass `String`s, not raw bytes.
+    pub fn with_images(mut self, images: Vec<String>) -> Self {
+        self.images = images;
         self
     }
 }
@@ -185,6 +199,10 @@ struct OllamaReq<'a> {
     stream: bool,
     options: OllamaOpts,
     system: &'a str,
+    /// Only emitted when non-empty so non-vision models don't see an
+    /// unexpected field. Ollama accepts base64 image strings directly.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    images: Vec<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -226,7 +244,15 @@ impl LlmBackend for OllamaBackend {
                 num_predict: req.max_tokens,
             },
             system: &req.system,
+            images: req.images.iter().map(String::as_str).collect(),
         };
+        if !req.images.is_empty() {
+            tracing::debug!(
+                model = %self.model,
+                images = req.images.len(),
+                "ollama: attaching images (vision)"
+            );
+        }
         let resp: OllamaResp = self
             .client
             .post(&url)

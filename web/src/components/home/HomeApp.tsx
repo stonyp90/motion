@@ -186,6 +186,18 @@ export function HomeApp({ isAuthenticated: _ssrAuth = false }: HomeAppProps = {}
         if (!a.serverPath) continue;
         if (a.kind === 'video' && !referenceVideo) referenceVideo = a.serverPath;
       }
+      // Bundle the rest of the attachments by kind so the engine can
+      // attach images to the vision LLM call + extract text from PDFs.
+      // Every image/pdf attachment with a serverPath gets forwarded —
+      // a fresh upload (above) just set serverPath in setAttachments(),
+      // so it lands here too.
+      const referenceImages: string[] = [];
+      const referenceDocuments: string[] = [];
+      for (const a of attachments) {
+        if (!a.serverPath) continue;
+        if (a.kind === 'image') referenceImages.push(a.serverPath);
+        else if (a.kind === 'pdf') referenceDocuments.push(a.serverPath);
+      }
 
       // 2. Pick the right engine endpoint per the schema in
       //    engine/crates/http/src/lib.rs:
@@ -202,6 +214,8 @@ export function HomeApp({ isAuthenticated: _ssrAuth = false }: HomeAppProps = {}
           body: JSON.stringify({
             work_dir: nextWorkDir ?? undefined,
             reference_video: referenceVideo,
+            reference_images: referenceImages,
+            reference_documents: referenceDocuments,
             prompt,
             theme: controls.preset,
             duration_seconds: controls.duration,
@@ -214,6 +228,8 @@ export function HomeApp({ isAuthenticated: _ssrAuth = false }: HomeAppProps = {}
           body: JSON.stringify({
             work_dir: nextWorkDir,
             prompt,
+            reference_images: referenceImages,
+            reference_documents: referenceDocuments,
             theme: controls.preset,
             duration_seconds: controls.duration,
           }),

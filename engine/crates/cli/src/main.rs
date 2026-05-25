@@ -534,6 +534,7 @@ async fn cmd_generate(args: GenerateArgs) -> Result<()> {
         work_dir,
         output_lottie: args.out,
         output_video: args.out_video,
+        ..Default::default()
     };
     let result = Pipeline::new().run_full(config).await?;
     tracing::info!(
@@ -589,6 +590,7 @@ async fn cmd_iterate(args: IterateArgs) -> Result<()> {
         duration_seconds: args.duration,
         output_lottie: args.out,
         output_video: args.out_video,
+        ..Default::default()
     };
     let started = std::time::Instant::now();
     let result = Pipeline::new().run_iterate(config).await?;

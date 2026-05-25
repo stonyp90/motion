@@ -184,6 +184,15 @@ fn is_loopback_bind(bind: &str) -> bool {
 /// caller's user, so an attacker who can post to `/generate` could already
 /// touch the same files — this guard exists to defend against accidental
 /// traversal patterns in front-end inputs, not against malicious local users.
+/// Validate a list of paths — applies the same rules as `validate_path`
+/// to each entry. Empty input → empty output (no error).
+fn validate_path_list(items: &[String], label: &str) -> Result<Vec<PathBuf>, ApiError> {
+    items
+        .iter()
+        .map(|s| validate_path(s, label))
+        .collect()
+}
+
 fn validate_path(s: &str, label: &str) -> Result<PathBuf, ApiError> {
     if s.is_empty() {
         return Err(ApiError::bad_request(format!("{label} is empty")));
@@ -276,6 +285,9 @@ async fn generate(
         Some(s) => Some(validate_path(s, "out_video")?),
         None => None,
     };
+    let reference_images = validate_path_list(&req.reference_images, "reference_images")?;
+    let reference_documents =
+        validate_path_list(&req.reference_documents, "reference_documents")?;
     let config = GenerateConfig {
         reference_video,
         prompt: req.prompt,
@@ -289,6 +301,8 @@ async fn generate(
         work_dir,
         output_lottie: out_lottie,
         output_video: out_video,
+        reference_images,
+        reference_documents,
     };
     let result = state
         .pipeline
@@ -340,6 +354,9 @@ async fn iterate(
         Some(s) => Some(validate_path(s, "out_video")?),
         None => None,
     };
+    let reference_images = validate_path_list(&req.reference_images, "reference_images")?;
+    let reference_documents =
+        validate_path_list(&req.reference_documents, "reference_documents")?;
     let config = IterateConfig {
         work_dir,
         prompt: req.prompt,
@@ -348,6 +365,8 @@ async fn iterate(
         duration_seconds: req.duration_seconds,
         output_lottie: out_lottie,
         output_video: out_video,
+        reference_images,
+        reference_documents,
     };
     let result = state
         .pipeline
@@ -983,8 +1002,13 @@ pub struct GenerateRequest {
     pub model: Option<String>,
     /// Optional list of per-server-path image references to ground
     /// the orchestration on (e.g. brand frames, storyboard sketches).
+    /// Base64-encoded and attached to the vision LLM call.
     #[serde(default)]
     pub reference_images: Vec<String>,
+    /// PDF / text briefs to extract context from. pdftotext-extracted
+    /// content is prepended to the user prompt.
+    #[serde(default)]
+    pub reference_documents: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1011,6 +1035,8 @@ pub struct IterateRequest {
     pub model: Option<String>,
     #[serde(default)]
     pub reference_images: Vec<String>,
+    #[serde(default)]
+    pub reference_documents: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

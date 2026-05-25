@@ -1330,6 +1330,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "async-trait",
+ "base64",
  "motion-forge-decompose",
  "motion-forge-style-extract",
  "reqwest",

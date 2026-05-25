@@ -44,7 +44,7 @@ impl Default for Composition {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct GenerateConfig {
     pub reference_video: PathBuf,
     pub prompt: String,
@@ -54,9 +54,19 @@ pub struct GenerateConfig {
     pub work_dir: PathBuf,
     pub output_lottie: PathBuf,
     pub output_video: Option<PathBuf>,
+    /// Extra image references the LLM should see as visual context.
+    /// Read at orchestration time, base64-encoded, attached to the
+    /// vision model's request (llava-class models). Empty = no extra
+    /// images beyond whatever the segmentation pass extracts from the
+    /// reference video.
+    pub reference_images: Vec<PathBuf>,
+    /// PDF / text briefs whose extracted text is prepended to the
+    /// prompt before the LLM sees it. Heaviest documents truncated to
+    /// keep the prompt under the model's context window.
+    pub reference_documents: Vec<PathBuf>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct IterateConfig {
     pub work_dir: PathBuf,
     pub prompt: String,
@@ -65,6 +75,10 @@ pub struct IterateConfig {
     pub duration_seconds: Option<f32>,
     pub output_lottie: PathBuf,
     pub output_video: Option<PathBuf>,
+    /// Same semantics as GenerateConfig — extra context the user
+    /// attached for this iteration.
+    pub reference_images: Vec<PathBuf>,
+    pub reference_documents: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -174,7 +188,7 @@ impl Pipeline {
             "phase 4 (style card) ok"
         );
 
-        // Phase 5: prompt → timeline
+        // Phase 5: prompt → timeline (with multimodal context if attached)
         let (timeline, backend_name) = orchestrate(
             &config.prompt,
             &card,
@@ -185,6 +199,8 @@ impl Pipeline {
                     .theme
                     .as_ref()
                     .map(|t| t.system_prompt_addendum.clone()),
+                reference_images: config.reference_images.clone(),
+                reference_documents: config.reference_documents.clone(),
             },
         )
         .await?;
@@ -294,6 +310,8 @@ impl Pipeline {
                 theme_addendum: effective_theme
                     .as_ref()
                     .map(|t| t.system_prompt_addendum.clone()),
+                reference_images: config.reference_images.clone(),
+                reference_documents: config.reference_documents.clone(),
             },
         )
         .await?;
@@ -365,6 +383,10 @@ struct PromptParams {
     composition: Composition,
     duration_seconds: f32,
     theme_addendum: Option<String>,
+    /// Image paths to attach as visual context for the vision LLM.
+    reference_images: Vec<PathBuf>,
+    /// PDF / text doc paths to prepend to the prompt as context.
+    reference_documents: Vec<PathBuf>,
 }
 
 async fn orchestrate(
@@ -395,15 +417,38 @@ async fn orchestrate(
     }
 
     // Cap the LLM call so a slow/broken model can't hold iterate hostage.
-    // Default 90s — generous for a quality model, snappy for "Ollama is
-    // running but the loaded model produces garbage" failure modes.
-    let timeout_secs: u64 = std::env::var("MOTION_FORGE_LLM_TIMEOUT_SEC")
+    // Default 90s for text-only — but vision calls (when reference_images
+    // are attached) routinely run 2-3× longer because llava has to
+    // process the image first, so bump the budget proportionally.
+    let base_timeout: u64 = std::env::var("MOTION_FORGE_LLM_TIMEOUT_SEC")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(90);
+    let timeout_secs = if p.reference_images.is_empty() {
+        base_timeout
+    } else {
+        // 3× scale on vision calls — empirical floor; bumps to 270s with
+        // the 90s default so a fresh llava cold-load + a 320×180 image
+        // attach completes inside the budget.
+        base_timeout.saturating_mul(3)
+    };
     let timeout = std::time::Duration::from_secs(timeout_secs);
+    if !p.reference_images.is_empty() || !p.reference_documents.is_empty() {
+        tracing::info!(
+            backend = %backend_name,
+            images = p.reference_images.len(),
+            documents = p.reference_documents.len(),
+            timeout_s = timeout_secs,
+            "phase 5: orchestration with multimodal context"
+        );
+    }
 
-    let timeline = match tokio::time::timeout(timeout, orch.orchestrate(prompt, card)).await {
+    let timeline = match tokio::time::timeout(
+        timeout,
+        orch.orchestrate_with_context(prompt, card, &p.reference_images, &p.reference_documents),
+    )
+    .await
+    {
         Ok(Ok(t)) => t,
         Ok(Err(e)) => {
             tracing::warn!(
