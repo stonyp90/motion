@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Linear">
+  <title>Linear</title>
+  <!-- Linear's stacked-line mark. -->
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="#5e6ad2"/>
+  <path d="M14 30 L34 50" stroke="#ffffff" stroke-width="3" stroke-linecap="round"/>
+  <path d="M14 22 L42 50" stroke="#ffffff" stroke-width="3" stroke-linecap="round"/>
+  <path d="M14 14 L50 50" stroke="#ffffff" stroke-width="3" stroke-linecap="round"/>
+  <path d="M22 14 L50 42" stroke="#ffffff" stroke-width="3" stroke-linecap="round"/>
+  <path d="M30 14 L50 34" stroke="#ffffff" stroke-width="3" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="GitHub">
+  <title>GitHub</title>
+  <!-- Octocat-derived silhouette: round body, two ears, simple tail. -->
+  <circle cx="32" cy="30" r="22" fill="#0b1437"/>
+  <circle cx="22" cy="30" r="3" fill="#10b981"/>
+  <circle cx="42" cy="30" r="3" fill="#10b981"/>
+  <path d="M22 50 L26 60 L30 50 Z" fill="#0b1437"/>
+  <path d="M34 50 L38 60 L42 50 Z" fill="#0b1437"/>
+</svg>

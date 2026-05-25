@@ -1,0 +1,124 @@
+{
+  "characters": [
+    {
+      "id": "alex",
+      "name": "Alex",
+      "archetype": "Person",
+      "file": "alex.json",
+      "format": "lottie",
+      "accent_hex": "#10b981",
+      "defaults": { "enter_from": "left", "scale": 0.35, "speaks": true },
+      "tags": ["person", "presenter", "neutral"]
+    },
+    {
+      "id": "sam",
+      "name": "Sam",
+      "archetype": "Person",
+      "file": "sam.json",
+      "format": "lottie",
+      "accent_hex": "#f59e0b",
+      "defaults": { "enter_from": "right", "scale": 0.35, "speaks": true },
+      "tags": ["person", "presenter", "energetic"]
+    },
+    {
+      "id": "lucius-bot",
+      "name": "Lucius",
+      "archetype": "Mascot",
+      "file": "lucius-bot.json",
+      "format": "lottie",
+      "accent_hex": "#10b981",
+      "defaults": { "enter_from": "center", "scale": 0.3, "speaks": true },
+      "tags": ["mascot", "bot", "ai", "guide"]
+    },
+    {
+      "id": "office-worker",
+      "name": "Office Worker",
+      "archetype": "Person",
+      "file": "office-worker.json",
+      "format": "lottie",
+      "accent_hex": "#0b1437",
+      "defaults": { "enter_from": "left", "scale": 0.32, "speaks": false },
+      "tags": ["person", "sitting", "desk", "before"]
+    },
+    {
+      "id": "generic-product",
+      "name": "Generic Product",
+      "archetype": "ProductIcon",
+      "file": "generic-product.json",
+      "format": "lottie",
+      "accent_hex": "#10b981",
+      "defaults": { "enter_from": "center", "scale": 0.4 },
+      "tags": ["product", "card", "placeholder"]
+    },
+    {
+      "id": "arrow",
+      "name": "Arrow",
+      "archetype": "Icon",
+      "file": "arrow.json",
+      "format": "lottie",
+      "accent_hex": "#10b981",
+      "defaults": { "enter_from": "left", "scale": 0.18 },
+      "tags": ["icon", "direction", "transition"]
+    },
+    {
+      "id": "timesheet",
+      "name": "Timesheet",
+      "archetype": "Icon",
+      "file": "timesheet.json",
+      "format": "lottie",
+      "accent_hex": "#0b1437",
+      "defaults": { "enter_from": "center", "scale": 0.25 },
+      "tags": ["icon", "document", "time"]
+    },
+    {
+      "id": "calendar",
+      "name": "Calendar",
+      "archetype": "Icon",
+      "file": "calendar.json",
+      "format": "lottie",
+      "accent_hex": "#0b1437",
+      "defaults": { "enter_from": "center", "scale": 0.25 },
+      "tags": ["icon", "calendar", "schedule"]
+    },
+    {
+      "id": "dollar",
+      "name": "Dollar",
+      "archetype": "Icon",
+      "file": "dollar.json",
+      "format": "lottie",
+      "accent_hex": "#10b981",
+      "defaults": { "enter_from": "center", "scale": 0.2 },
+      "tags": ["icon", "money", "value"]
+    },
+    {
+      "id": "clock",
+      "name": "Clock",
+      "archetype": "Icon",
+      "file": "clock.json",
+      "format": "lottie",
+      "accent_hex": "#0b1437",
+      "defaults": { "enter_from": "center", "scale": 0.22 },
+      "tags": ["icon", "time", "deadline"]
+    },
+    {
+      "id": "magnifier",
+      "name": "Magnifier",
+      "archetype": "Icon",
+      "file": "magnifier.json",
+      "format": "lottie",
+      "accent_hex": "#0b1437",
+      "defaults": { "enter_from": "center", "scale": 0.22 },
+      "tags": ["icon", "search", "audit"]
+    },
+    {
+      "id": "checkmark",
+      "name": "Checkmark",
+      "archetype": "Icon",
+      "file": "checkmark.json",
+      "format": "lottie",
+      "accent_hex": "#10b981",
+      "defaults": { "enter_from": "center", "scale": 0.22 },
+      "tags": ["icon", "success", "complete"]
+    }
+  ]
+}

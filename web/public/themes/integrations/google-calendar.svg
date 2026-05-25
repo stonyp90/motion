@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Google Calendar">
+  <title>Google Calendar</title>
+  <!-- Calendar tile with a coloured corner — Google brand-recall. -->
+  <rect x="6" y="6" width="52" height="52" rx="6" fill="#ffffff" stroke="#dadce0" stroke-width="1"/>
+  <rect x="6" y="6" width="52" height="14" rx="6" fill="#4285f4"/>
+  <rect x="6" y="14" width="52" height="6" fill="#4285f4"/>
+  <text x="32" y="44" font-family="system-ui, -apple-system, sans-serif" font-size="22" font-weight="700" text-anchor="middle" fill="#4285f4">31</text>
+  <rect x="44" y="44" width="14" height="14" fill="#34a853"/>
+</svg>

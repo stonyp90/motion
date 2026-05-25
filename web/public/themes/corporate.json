@@ -1,0 +1,16 @@
+{
+  "slug": "corporate",
+  "name": "Corporate Explainer",
+  "description": "Calm, decelerated motion. Restrained navy + neutral palette with one accent.",
+  "composition": { "width": 1920, "height": 1080, "frame_rate": 30 },
+  "default_duration_seconds": 30.0,
+  "palette_bias": [
+    { "hex": [10, 28, 64], "weight": 0.45 },
+    { "hex": [240, 244, 250], "weight": 0.30 },
+    { "hex": [56, 132, 255], "weight": 0.20 },
+    { "hex": [200, 210, 224], "weight": 0.05 }
+  ],
+  "easing_bias": "Decelerate",
+  "shot_rhythm_target": { "mean_seconds": 3.5, "stddev_seconds": 0.7 },
+  "system_prompt_addendum": "Calm pacing. Generous whitespace. At most 3 layers per shot. Lead with typography."
+}
