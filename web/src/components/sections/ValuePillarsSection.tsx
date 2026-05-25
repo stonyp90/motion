@@ -38,19 +38,19 @@ export function ValuePillarsSection() {
     <section className="section">
       <div className="container">
         <div className="mx-auto max-w-2xl text-center">
-          <p className="eyebrow">Why operators pick this over an agency</p>
-          <h2 className="h-section mt-3">
+          <p className="label">Why operators pick this over an agency</p>
+          <h2 className="heading-lg mt-3">
             Engineered for shipping motion, not for charging by the hour.
           </h2>
-          <p className="mt-5 text-lg text-text-secondary">
+          <p className="mt-5 body-lg">
             The agency model wasn&apos;t built for teams that ship weekly. This was.
           </p>
         </div>
 
         <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {pillars.map((p) => (
-            <article key={p.title} className="card">
-              <span className="grid h-10 w-10 place-items-center rounded-xl bg-accent-50 text-accent-600">
+            <article key={p.title} className="card-motion">
+              <span className="grid h-10 w-10 place-items-center rounded-xl bg-motion-50 text-motion">
                 <p.icon className="h-5 w-5" />
               </span>
               <h3 className="mt-4 text-base font-semibold text-text-primary">{p.title}</h3>
