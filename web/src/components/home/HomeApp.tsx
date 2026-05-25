@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useState } from 'react';
+import { signIn } from 'next-auth/react';
 import {
   clone,
   downloadJson,
@@ -13,7 +14,6 @@ import { ExamplePromptChips } from './ExamplePromptChips';
 import CastRow from './CastRow';
 import VoiceButton from './VoiceButton';
 import { KPIStrip } from './KPIStrip';
-import { SignInGate } from './SignInGate';
 import { ProcessDemo } from './ProcessDemo';
 
 interface HomeAppProps {
@@ -81,11 +81,12 @@ export function HomeApp({ isAuthenticated = false }: HomeAppProps = {}) {
 
   const handleGenerate = useCallback(async () => {
     if (!prompt.trim() || isGenerating) return;
-    // Defense in depth: even though the server-side gate hides this
-    // button for anonymous users, refuse to fire the request if the
-    // gate was somehow bypassed (e.g. devtools-injected click).
+    // Anonymous users tapping Generate hand off to the Keycloak flow
+    // with their draft prompt preserved as a callbackUrl param so the
+    // page re-opens with the same draft after sign-in.
     if (!isAuthenticated) {
-      setError('Sign in to generate.');
+      const callbackUrl = `/?prompt=${encodeURIComponent(prompt)}`;
+      signIn('keycloak', { callbackUrl });
       return;
     }
     setIsGenerating(true);
@@ -147,30 +148,22 @@ export function HomeApp({ isAuthenticated = false }: HomeAppProps = {}) {
           What motion graphic do you want to make?
         </h1>
 
-        {isAuthenticated ? (
-          <>
-            <PromptInput
-              value={prompt}
-              onChange={setPrompt}
-              onGenerate={handleGenerate}
-              isGenerating={isGenerating}
-              castSlot={<CastRow />}
-              voiceSlot={<VoiceButton />}
-              controlsSlot={<ControlsDrawer value={controls} onChange={setControls} />}
-            />
+        <PromptInput
+          value={prompt}
+          onChange={setPrompt}
+          onGenerate={handleGenerate}
+          isGenerating={isGenerating}
+          castSlot={<CastRow />}
+          voiceSlot={<VoiceButton />}
+          controlsSlot={<ControlsDrawer value={controls} onChange={setControls} />}
+        />
 
-            {!prompt && <ExamplePromptChips onPick={setPrompt} />}
-          </>
-        ) : (
-          <>
-            <SignInGate />
-            <div className="flex flex-col items-center gap-2 pt-4">
-              <p className="font-mono text-2xs uppercase tracking-wider text-text-tertiary">
-                How it works · 16 second loop
-              </p>
-            </div>
-            <ProcessDemo />
-          </>
+        {!prompt && <ExamplePromptChips onPick={setPrompt} />}
+
+        {!isAuthenticated && (
+          <p className="text-center text-xs text-text-tertiary">
+            Free to try · sign-in only when you hit Generate
+          </p>
         )}
 
         {error && (
@@ -182,14 +175,14 @@ export function HomeApp({ isAuthenticated = false }: HomeAppProps = {}) {
           </p>
         )}
 
-        {isAuthenticated && (
-          <PreviewFrame
-            animation={animation}
-            onExport={handleExport}
-            onRegenerate={handleGenerate}
-          />
-        )}
+        <PreviewFrame
+          animation={animation}
+          onExport={handleExport}
+          onRegenerate={handleGenerate}
+        />
       </div>
+
+      {!isAuthenticated && <ProcessDemo />}
 
       <KPIStrip />
     </div>
