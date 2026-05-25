@@ -21,7 +21,7 @@
 //! rotation on the Keycloak side is picked up on the next cache miss.
 
 use axum::body::Body;
-use axum::http::{HeaderValue, Request, Response, StatusCode, header};
+use axum::http::{HeaderName, HeaderValue, Request, Response, StatusCode, header};
 use axum::response::IntoResponse;
 use jsonwebtoken::jwk::{AlgorithmParameters, JwkSet};
 use jsonwebtoken::{Algorithm, DecodingKey, TokenData, Validation, decode, decode_header};
@@ -35,6 +35,11 @@ use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tower::{Layer, Service};
+
+use crate::api_keys::{ApiKeyStore, KEY_PREFIX};
+
+/// The custom header SDK / curl callers use for API-key auth.
+pub static X_API_KEY: HeaderName = HeaderName::from_static("x-api-key");
 
 /// Default cache TTL for the JWKS document.
 const JWKS_CACHE_TTL: Duration = Duration::from_secs(60 * 60);
@@ -113,17 +118,52 @@ impl JwksCache {
     }
 }
 
+/// A request's authenticated identity, attached to request extensions
+/// once auth succeeds. Downstream layers (rate limit, audit log,
+/// handlers) read this rather than re-parsing the credential.
+#[derive(Debug, Clone)]
+pub struct Principal {
+    /// Stable id used for rate-limit bucketing.
+    /// For JWT principals → `sub`. For API key principals → key id.
+    pub id: String,
+    pub kind: PrincipalKind,
+    /// Tier name for error messages (`"free"`, `"pro"`, `"enterprise"`,
+    /// `"jwt"`). Free-form so we don't couple this module to api_keys.
+    pub tier_label: String,
+    /// Sliding-window budget per minute.
+    pub rpm: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PrincipalKind {
+    /// Validated Keycloak access token.
+    User,
+    /// Validated `X-API-Key` against the on-disk store.
+    ApiKey,
+    /// `MOTION_FORGE_AUTH_FALLBACK_KEY` matched — dev / desktop / CI.
+    Fallback,
+}
+
 /// The tower::Layer.
 #[derive(Clone)]
 pub struct KeycloakAuthLayer {
     inner: Arc<KeycloakValidator>,
+    api_keys: Option<ApiKeyStore>,
 }
 
 impl KeycloakAuthLayer {
     pub fn new(config: KeycloakConfig) -> Self {
         Self {
             inner: Arc::new(KeycloakValidator::new(config)),
+            api_keys: None,
         }
+    }
+
+    /// Attach an API-key store. When set, requests with `X-API-Key` or
+    /// a bearer beginning with `mf_live_` are validated against it.
+    pub fn with_api_keys(mut self, store: ApiKeyStore) -> Self {
+        self.api_keys = Some(store);
+        self
     }
 }
 
@@ -133,6 +173,7 @@ impl<S> Layer<S> for KeycloakAuthLayer {
         KeycloakAuthMiddleware {
             inner,
             validator: Arc::clone(&self.inner),
+            api_keys: self.api_keys.clone(),
         }
     }
 }
@@ -331,6 +372,7 @@ impl IntoResponse for AuthError {
 pub struct KeycloakAuthMiddleware<S> {
     inner: S,
     validator: Arc<KeycloakValidator>,
+    api_keys: Option<ApiKeyStore>,
 }
 
 impl<S> Service<Request<Body>> for KeycloakAuthMiddleware<S>
@@ -349,6 +391,7 @@ where
 
     fn call(&mut self, req: Request<Body>) -> Self::Future {
         let validator = Arc::clone(&self.validator);
+        let api_keys = self.api_keys.clone();
         // Clone the inner *ready* service; this is the standard
         // tower idiom because `call` takes &mut self but the future
         // outlives the borrow.
@@ -361,38 +404,79 @@ where
                 return inner.call(req).await;
             }
 
-            let bearer = match extract_bearer(&req) {
-                Ok(t) => t,
+            let cred = match extract_credential(&req) {
+                Ok(c) => c,
                 Err(e) => return Ok(e.into_response()),
             };
 
-            // Fallback static key path.
+            // Path A: API key — either header X-API-Key or a bearer
+            // whose value happens to start with `mf_live_` (so curl
+            // -H "Authorization: Bearer mf_live_..." also works).
+            if let Some(store) = api_keys.as_ref() {
+                if cred.is_api_key() {
+                    if let Some(row) = store.validate(cred.value()).await {
+                        let principal = Principal {
+                            id: format!("apikey:{}", row.id),
+                            kind: PrincipalKind::ApiKey,
+                            tier_label: format!("{:?}", row.tier).to_lowercase(),
+                            rpm: row.tier.rpm(),
+                        };
+                        tracing::debug!(path = %path, key_id = %row.id, "auth ok (api key)");
+                        let mut req = req;
+                        req.extensions_mut().insert(principal);
+                        return inner.call(req).await;
+                    }
+                    return Ok(AuthError::Decode("invalid or revoked API key".into())
+                        .into_response());
+                }
+            }
+
+            let token = cred.value().to_string();
+
+            // Path B: fallback static key — desktop / dev / CI.
             if let Some(fallback) = validator.config.fallback_key.as_deref() {
-                if fallback == bearer {
+                if fallback == token {
                     tracing::warn!(
                         path = %path,
                         "auth bypass via MOTION_FORGE_AUTH_FALLBACK_KEY — DO NOT USE IN PRODUCTION"
                     );
+                    let principal = Principal {
+                        id: "fallback".into(),
+                        kind: PrincipalKind::Fallback,
+                        tier_label: "fallback".into(),
+                        // Generous rpm so the local-mode desktop never
+                        // hits the limiter under normal iteration.
+                        rpm: u32::MAX,
+                    };
+                    let mut req = req;
+                    req.extensions_mut().insert(principal);
                     return inner.call(req).await;
                 }
             }
 
-            // Real path: require an issuer configured.
+            // Path C: JWT. Require an issuer configured.
             if !validator.config.has_issuer() {
                 tracing::warn!(
                     path = %path,
-                    "rejecting request: KEYCLOAK_ISSUER not set and bearer did not match fallback"
+                    "rejecting request: KEYCLOAK_ISSUER not set and credential did not match fallback or any API key"
                 );
                 return Ok(AuthError::Disabled.into_response());
             }
-
-            match validator.validate_token(&bearer).await {
-                Ok(token) => {
-                    tracing::debug!(
-                        path = %path,
-                        sub = %token.claims.sub,
-                        "auth ok"
-                    );
+            match validator.validate_token(&token).await {
+                Ok(tok) => {
+                    tracing::debug!(path = %path, sub = %tok.claims.sub, "auth ok (jwt)");
+                    let principal = Principal {
+                        id: format!("user:{}", tok.claims.sub),
+                        kind: PrincipalKind::User,
+                        tier_label: "jwt".into(),
+                        // JWT users are the web app; effectively
+                        // unlimited because the web app already
+                        // gates them behind the rendered UI.
+                        rpm: u32::MAX,
+                    };
+                    let mut req = req;
+                    req.extensions_mut().insert(principal);
+                    req.extensions_mut().insert(tok.claims);
                     inner.call(req).await
                 }
                 Err(e) => Ok(e.into_response()),
@@ -401,7 +485,43 @@ where
     }
 }
 
-fn extract_bearer(req: &Request<Body>) -> Result<String, AuthError> {
+/// Credential as presented on the wire — discriminates between a
+/// bearer JWT and an API key (the latter is grep-able by its prefix).
+#[derive(Debug, Clone)]
+pub enum Credential {
+    /// Authorization: Bearer <jwt> OR Authorization: Bearer mf_live_...
+    Bearer(String),
+    /// X-API-Key: mf_live_<id>_<secret>
+    ApiKey(String),
+}
+
+impl Credential {
+    pub fn value(&self) -> &str {
+        match self {
+            Credential::Bearer(s) | Credential::ApiKey(s) => s,
+        }
+    }
+    pub fn is_api_key(&self) -> bool {
+        matches!(self, Credential::ApiKey(_))
+            || matches!(self, Credential::Bearer(s) if s.starts_with(KEY_PREFIX))
+    }
+}
+
+/// Extract either an `Authorization: Bearer ...` or an `X-API-Key`
+/// header. The `X-API-Key` header is tried first so a request with
+/// both presents the API key — which is what an SDK shipping with
+/// both env vars set should do.
+fn extract_credential(req: &Request<Body>) -> Result<Credential, AuthError> {
+    if let Some(h) = req.headers().get(&X_API_KEY) {
+        let s = h
+            .to_str()
+            .map_err(|e| AuthError::Malformed(e.to_string()))?
+            .trim();
+        if s.is_empty() {
+            return Err(AuthError::Malformed("X-API-Key is empty".into()));
+        }
+        return Ok(Credential::ApiKey(s.to_string()));
+    }
     let header_val = req
         .headers()
         .get(header::AUTHORIZATION)
@@ -412,8 +532,19 @@ fn extract_bearer(req: &Request<Body>) -> Result<String, AuthError> {
     let token = s
         .strip_prefix("Bearer ")
         .or_else(|| s.strip_prefix("bearer "))
-        .ok_or_else(|| AuthError::Malformed("expected \"Bearer <token>\"".into()))?;
-    Ok(token.trim().to_string())
+        .ok_or_else(|| AuthError::Malformed("expected \"Bearer <token>\"".into()))?
+        .trim()
+        .to_string();
+    Ok(Credential::Bearer(token))
+}
+
+/// Back-compat wrapper used by tests that predate `extract_credential`.
+#[cfg(test)]
+fn extract_bearer(req: &Request<Body>) -> Result<String, AuthError> {
+    match extract_credential(req)? {
+        Credential::Bearer(s) => Ok(s),
+        Credential::ApiKey(_) => Err(AuthError::Malformed("expected Authorization: Bearer".into())),
+    }
 }
 
 #[cfg(test)]

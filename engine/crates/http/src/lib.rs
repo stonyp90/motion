@@ -13,7 +13,9 @@
 //! sit behind a desktop UI that lets users iterate verbally or by prompt
 //! without re-running the slow segmentation phases.
 
+pub mod api_keys;
 pub mod auth;
+pub mod rate_limit;
 pub mod stt_route;
 
 use anyhow::Result;
@@ -41,17 +43,27 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use crate::auth::{KeycloakAuthLayer, KeycloakConfig};
+use crate::api_keys::{ApiKeyStore, IssuedApiKey, Tier};
+use crate::auth::{Claims, KeycloakAuthLayer, KeycloakConfig, PrincipalKind};
+use crate::rate_limit::RateLimitLayer;
+use axum::Extension;
 use stt_route::{SttRouteConfig, stt_stream_handler};
 
 #[derive(Clone)]
 struct AppState {
     pipeline: Arc<Pipeline>,
+    api_keys: ApiKeyStore,
 }
 
 pub async fn serve(bind: &str) -> Result<()> {
+    // API key store — file-backed, loaded once at boot. Failing to
+    // open is fatal because it's the source of truth for non-JWT auth.
+    let api_keys = ApiKeyStore::from_env()
+        .map_err(|e| anyhow::anyhow!("failed to open API key store: {e}"))?;
+
     let state = AppState {
         pipeline: Arc::new(Pipeline::new()),
+        api_keys: api_keys.clone(),
     };
     let stt_state = Arc::new(SttRouteConfig::from_env());
     if stt_state.model_path.is_none() {
@@ -66,12 +78,13 @@ pub async fn serve(bind: &str) -> Result<()> {
         .route("/v1/stt/stream", get(stt_stream_handler))
         .with_state(stt_state);
 
-    // Keycloak auth layer for protected routes.
+    // Keycloak auth layer for protected routes — both JWT *and* API
+    // key paths share this Layer; the credential type discriminates.
     let auth_cfg = KeycloakConfig::from_env();
-    let auth_layer = KeycloakAuthLayer::new(auth_cfg.clone());
+    let auth_layer = KeycloakAuthLayer::new(auth_cfg.clone()).with_api_keys(api_keys.clone());
     if auth_cfg.issuer.is_empty() {
         tracing::warn!(
-            "KEYCLOAK_ISSUER not set — only MOTION_FORGE_AUTH_FALLBACK_KEY tokens will be accepted"
+            "KEYCLOAK_ISSUER not set — only MOTION_FORGE_AUTH_FALLBACK_KEY tokens and X-API-Key headers will be accepted"
         );
     } else {
         tracing::info!(issuer = %auth_cfg.issuer, "Keycloak JWT validation enabled");
@@ -94,12 +107,17 @@ pub async fn serve(bind: &str) -> Result<()> {
         .route("/v1/export/:format", post(binary_export_handler))
         .route("/v1/uploads", post(upload_handler))
         .route("/v1/metrics", get(metrics_handler))
+        .route("/v1/api-keys", post(api_keys_issue).get(api_keys_list))
+        .route("/v1/api-keys/:id", axum::routing::delete(api_keys_revoke))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(
             // 256 MiB — large enough for a typical reference video
             // (a 60-second 4K H.264 clip lands ~80 MB) without
             // letting a runaway upload chew all process RAM.
             256 * 1024 * 1024,
         ))
+        // Order matters: layers wrap from bottom up, so rate_limit
+        // runs INSIDE auth (sees the Principal that auth attached).
+        .layer(RateLimitLayer::new())
         .layer(auth_layer)
         .layer(tower_http::cors::CorsLayer::permissive())
         .layer(tower_http::trace::TraceLayer::new_for_http())
@@ -569,6 +587,83 @@ fn empty_metrics() -> MetricsSnapshot {
     }
 }
 
+// ---- api keys ----
+
+#[derive(Deserialize)]
+struct IssueApiKeyRequest {
+    name: String,
+    #[serde(default)]
+    tier: Option<Tier>,
+}
+
+/// Only JWT-authenticated users may manage API keys — an API key
+/// must not be able to mint more API keys (privilege escalation).
+fn require_jwt(claims: Option<&Claims>, principal_kind: Option<&PrincipalKind>) -> Result<String, ApiError> {
+    match (claims, principal_kind) {
+        (Some(c), Some(PrincipalKind::User)) => Ok(c.sub.clone()),
+        _ => Err(ApiError::forbidden(
+            "API key management requires a logged-in user; bearer JWT only",
+        )),
+    }
+}
+
+async fn api_keys_issue(
+    State(state): State<AppState>,
+    claims: Option<Extension<Claims>>,
+    principal: Option<Extension<crate::auth::Principal>>,
+    Json(req): Json<IssueApiKeyRequest>,
+) -> Result<Json<IssuedApiKey>, ApiError> {
+    let claims = claims.map(|e| e.0);
+    let kind = principal.as_ref().map(|p| &p.0.kind);
+    let owner_sub = require_jwt(claims.as_ref(), kind)?;
+    let name = req.name.trim();
+    if name.is_empty() {
+        return Err(ApiError::bad_request("name is required"));
+    }
+    if name.len() > 100 {
+        return Err(ApiError::bad_request("name max length is 100 chars"));
+    }
+    let tier = req.tier.unwrap_or_default();
+    let issued = state
+        .api_keys
+        .issue(name, owner_sub, tier)
+        .await
+        .map_err(ApiError::internal)?;
+    Ok(Json(issued))
+}
+
+async fn api_keys_list(
+    State(state): State<AppState>,
+    claims: Option<Extension<Claims>>,
+    principal: Option<Extension<crate::auth::Principal>>,
+) -> Result<Json<Vec<crate::api_keys::ApiKeyPublic>>, ApiError> {
+    let claims = claims.map(|e| e.0);
+    let kind = principal.as_ref().map(|p| &p.0.kind);
+    let owner_sub = require_jwt(claims.as_ref(), kind)?;
+    let keys = state.api_keys.list_for_owner(&owner_sub).await;
+    Ok(Json(keys))
+}
+
+async fn api_keys_revoke(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    claims: Option<Extension<Claims>>,
+    principal: Option<Extension<crate::auth::Principal>>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let claims = claims.map(|e| e.0);
+    let kind = principal.as_ref().map(|p| &p.0.kind);
+    let owner_sub = require_jwt(claims.as_ref(), kind)?;
+    let revoked = state
+        .api_keys
+        .revoke(&id, &owner_sub)
+        .await
+        .map_err(ApiError::internal)?;
+    if !revoked {
+        return Err(ApiError::not_found("key not found or already revoked"));
+    }
+    Ok(Json(serde_json::json!({ "revoked": id })))
+}
+
 // ---- uploads ----
 
 /// Accepts a multipart upload of one or more reference assets (video,
@@ -856,6 +951,12 @@ impl ApiError {
             message: e.to_string(),
         }
     }
+    fn forbidden<E: std::fmt::Display>(e: E) -> Self {
+        Self {
+            status: StatusCode::FORBIDDEN,
+            message: e.to_string(),
+        }
+    }
     fn internal<E: std::fmt::Display>(e: E) -> Self {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
@@ -887,9 +988,13 @@ const OPENAPI_JSON: &str = r##"{
   "openapi": "3.1.0",
   "info": {
     "title": "motion-forge",
-    "version": "0.0.1",
-    "description": "Local-first motion-design re-animation pipeline. Generate a Lottie animation from a reference video + text prompt, then iterate quickly by re-prompting against the cached work directory."
+    "version": "0.1.0",
+    "description": "Public API for motion-forge.\n\nAuth: every endpoint except `/healthz` and `/openapi.json` requires one of:\n  - `Authorization: Bearer <Keycloak JWT>` (interactive users + the web app)\n  - `X-API-Key: mf_live_<id>_<secret>` (SDK / server callers)\n  - `Authorization: Bearer mf_live_<...>` (equivalent shape; SDKs that only know about Bearer headers can use this)\n\nRate limits: per-key sliding window. The free tier admits 60 rpm, pro 600 rpm, enterprise 6000 rpm. Every response carries `X-RateLimit-Limit` and `X-RateLimit-Remaining`; 429s additionally carry `Retry-After`."
   },
+  "security": [
+    { "bearerAuth": [] },
+    { "apiKeyAuth": [] }
+  ],
   "paths": {
     "/healthz": {
       "get": {
@@ -1034,10 +1139,111 @@ const OPENAPI_JSON: &str = r##"{
           "400": { "description": "Unknown format slug or invalid Lottie body." }
         }
       }
+    },
+    "/v1/api-keys": {
+      "post": {
+        "summary": "Issue a new API key. JWT-only (an API key cannot mint more API keys).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/IssueApiKeyRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The new key — the `secret` field is returned exactly once.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/IssuedApiKey" }
+              }
+            }
+          },
+          "403": { "description": "Caller is authenticated via API key, not JWT." }
+        }
+      },
+      "get": {
+        "summary": "List the calling user's API keys (no secrets).",
+        "responses": {
+          "200": {
+            "description": "Array of public key views.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/ApiKeyPublic" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/api-keys/{id}": {
+      "delete": {
+        "summary": "Revoke an API key. JWT-only.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Revoked." },
+          "404": { "description": "Key not found or already revoked." }
+        }
+      }
     }
   },
   "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT or mf_live_..."
+      },
+      "apiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
+      }
+    },
     "schemas": {
+      "IssueApiKeyRequest": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "description": "Human-readable label, max 100 chars.", "maxLength": 100 },
+          "tier": { "type": "string", "enum": ["free", "pro", "enterprise"], "default": "free" }
+        }
+      },
+      "IssuedApiKey": {
+        "type": "object",
+        "required": ["id", "name", "tier", "created_at", "secret"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "tier": { "type": "string", "enum": ["free", "pro", "enterprise"] },
+          "created_at": { "type": "string", "format": "date-time" },
+          "secret": { "type": "string", "description": "The mf_live_<id>_<secret> string. Returned once — never retrievable again." }
+        }
+      },
+      "ApiKeyPublic": {
+        "type": "object",
+        "required": ["id", "name", "owner_sub", "tier", "created_at"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "owner_sub": { "type": "string" },
+          "tier": { "type": "string", "enum": ["free", "pro", "enterprise"] },
+          "created_at": { "type": "string", "format": "date-time" },
+          "last_used_at": { "type": ["string", "null"], "format": "date-time" },
+          "revoked_at": { "type": ["string", "null"], "format": "date-time" }
+        }
+      },
       "GenerateRequest": {
         "type": "object",
         "required": ["reference_video", "prompt"],
@@ -1234,8 +1440,10 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
 
+        let tmp = tempfile::tempdir().unwrap();
         let state = AppState {
             pipeline: Arc::new(Pipeline::new()),
+            api_keys: ApiKeyStore::open(tmp.path().join("k.json")).unwrap(),
         };
         let app = Router::new()
             .route("/healthz", get(healthz))
