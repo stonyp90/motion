@@ -145,7 +145,7 @@ pub async fn serve(bind: &str) -> Result<()> {
         // runs INSIDE auth (sees the Principal that auth attached).
         .layer(RateLimitLayer::new())
         .layer(auth_layer)
-        .layer(tower_http::cors::CorsLayer::permissive())
+        .layer(build_cors())
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state);
 
@@ -155,7 +155,7 @@ pub async fn serve(bind: &str) -> Result<()> {
         .route("/openapi.json", get(openapi))
         .merge(protected)
         .merge(stt_router)
-        .layer(tower_http::cors::CorsLayer::permissive())
+        .layer(build_cors())
         .layer(tower_http::trace::TraceLayer::new_for_http());
 
     let listener = tokio::net::TcpListener::bind(bind)
@@ -173,6 +173,87 @@ pub async fn serve(bind: &str) -> Result<()> {
     tracing::info!(addr = bind, "motion-forge http listening");
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+/// Build the CORS layer. By default the engine accepts only
+/// loopback origins (so a misconfigured prod box can't be hammered
+/// from any browser tab). Operators opt in to additional origins via
+/// `MOTION_FORGE_ALLOWED_ORIGINS` (comma-separated, e.g.
+/// `https://imtn.io,https://app.imtn.io`). The special value `*`
+/// reverts to a permissive layer — useful for local CI, never for prod.
+///
+/// Methods + headers are scoped explicitly (GET/POST/PUT/DELETE +
+/// Authorization, X-API-Key, Content-Type) so a future allowlist
+/// origin can't browser-call a method we never anticipated.
+fn build_cors() -> tower_http::cors::CorsLayer {
+    use axum::http::{HeaderValue, Method, header};
+    use tower_http::cors::{AllowOrigin, CorsLayer};
+
+    let raw = std::env::var("MOTION_FORGE_ALLOWED_ORIGINS").unwrap_or_default();
+    let origins: Vec<String> = raw
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    // Escape hatch — `MOTION_FORGE_ALLOWED_ORIGINS=*` reverts to the
+    // wide-open layer for local CI scripts. Loud warning so an
+    // operator who set it on a prod box notices in the log.
+    if origins.iter().any(|o| o == "*") {
+        tracing::warn!(
+            "CORS: MOTION_FORGE_ALLOWED_ORIGINS contains '*' — using permissive layer. \
+             DO NOT use this in production."
+        );
+        return CorsLayer::permissive();
+    }
+
+    // Default — accept only loopback origins (web dev on :3010, the
+    // Tauri shell at any localhost port). Bake them in so a fresh
+    // clone works without env config.
+    let mut allow: Vec<HeaderValue> = vec![
+        HeaderValue::from_static("http://localhost:3010"),
+        HeaderValue::from_static("http://127.0.0.1:3010"),
+        // Tauri desktop opens at tauri://localhost on packaged builds.
+        HeaderValue::from_static("tauri://localhost"),
+        HeaderValue::from_static("http://tauri.localhost"),
+    ];
+
+    for o in origins {
+        match HeaderValue::from_str(&o) {
+            Ok(h) => allow.push(h),
+            Err(e) => tracing::warn!(origin = %o, error = %e, "CORS: dropping invalid origin"),
+        }
+    }
+
+    let origin_count = allow.len();
+    tracing::info!(
+        origins = origin_count,
+        "CORS: allowlist active (set MOTION_FORGE_ALLOWED_ORIGINS to add prod hosts)"
+    );
+
+    CorsLayer::new()
+        .allow_origin(AllowOrigin::list(allow))
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([
+            header::AUTHORIZATION,
+            header::CONTENT_TYPE,
+            header::ACCEPT,
+            // Custom auth header — our API-key alternative to Bearer.
+            HeaderValue::from_static("x-api-key").as_bytes().try_into().unwrap(),
+        ])
+        .expose_headers([
+            // Surface rate-limit budget to SDK callers so they can
+            // back off without parsing the body.
+            HeaderValue::from_static("x-ratelimit-limit").as_bytes().try_into().unwrap(),
+            HeaderValue::from_static("x-ratelimit-remaining").as_bytes().try_into().unwrap(),
+        ])
+        .max_age(std::time::Duration::from_secs(3600))
 }
 
 fn is_loopback_bind(bind: &str) -> bool {
