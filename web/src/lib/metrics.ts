@@ -23,17 +23,14 @@ export interface EngineMetrics {
   timestamp: number;
 }
 
-const ENGINE_BASE =
-  (typeof process !== 'undefined' &&
-    process.env?.NEXT_PUBLIC_ENGINE_BASE_URL) ||
-  '';
+import { getEngineBase } from './runtime-config';
 
 export async function fetchEngineMetrics(
   bearer?: string | null,
   signal?: AbortSignal,
 ): Promise<EngineMetrics | null> {
   try {
-    const r = await fetch(`${ENGINE_BASE}/v1/metrics`, {
+    const r = await fetch(`${getEngineBase()}/v1/metrics`, {
       cache: 'no-store',
       signal,
       headers: bearer ? { Authorization: `Bearer ${bearer}` } : undefined,

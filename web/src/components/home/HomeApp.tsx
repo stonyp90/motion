@@ -41,15 +41,14 @@ interface HomeAppProps {
 }
 
 /**
- * Endpoints on the engine. NEXT_PUBLIC_ENGINE_BASE_URL points the
- * client at the right origin (e.g. http://127.0.0.1:7700 for local
- * dev, or motion-forge-api.azurewebsites.net in prod). Same-origin
- * is the fallback so a Vercel rewrite still works.
+ * Engine endpoints — resolved via runtime-config so the desktop
+ * shell's per-launch `?engine=…` override wins over the build-time
+ * `NEXT_PUBLIC_ENGINE_BASE_URL`. See `lib/runtime-config.ts`.
  */
-const ENGINE_BASE =
-  process.env.NEXT_PUBLIC_ENGINE_BASE_URL ?? '';
-const GENERATE_ENDPOINT = `${ENGINE_BASE}/v1/generate`;
-const ITERATE_ENDPOINT = `${ENGINE_BASE}/v1/iterate`;
+import { getEngineBase } from '@/lib/runtime-config';
+
+const generateEndpoint = () => `${getEngineBase()}/v1/generate`;
+const iterateEndpoint = () => `${getEngineBase()}/v1/iterate`;
 
 /**
  * If `/v1/iterate` fails (no backend, network error, schema mismatch)
@@ -196,7 +195,7 @@ export function HomeApp({ isAuthenticated: _ssrAuth = false }: HomeAppProps = {}
       //    to land — surface that explicitly rather than 500'ing.
       let response: Response;
       if (referenceVideo) {
-        response = await fetch(GENERATE_ENDPOINT, {
+        response = await fetch(generateEndpoint(), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...(auth ?? {}) },
           body: JSON.stringify({
@@ -208,7 +207,7 @@ export function HomeApp({ isAuthenticated: _ssrAuth = false }: HomeAppProps = {}
           }),
         });
       } else if (nextWorkDir) {
-        response = await fetch(ITERATE_ENDPOINT, {
+        response = await fetch(iterateEndpoint(), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...(auth ?? {}) },
           body: JSON.stringify({
@@ -292,7 +291,7 @@ export function HomeApp({ isAuthenticated: _ssrAuth = false }: HomeAppProps = {}
       // export endpoint which runs the python lottie sidecar + ffmpeg.
       const format = kind === 'mp4' ? 'mp4' : 'dotlottie';
       const ext = kind === 'mp4' ? 'mp4' : 'lottie';
-      const url = `${ENGINE_BASE}/v1/export/${format}`;
+      const url = `${getEngineBase()}/v1/export/${format}`;
       setIsExporting(kind);
       setError(null);
       try {

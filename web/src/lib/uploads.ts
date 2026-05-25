@@ -47,15 +47,17 @@ export function humanBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
-const UPLOAD_ENDPOINT =
-  (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_ENGINE_BASE_URL
-    ? `${process.env.NEXT_PUBLIC_ENGINE_BASE_URL}/v1/uploads`
-    : '/v1/uploads');
+import { getEngineBase } from './runtime-config';
+
+function uploadEndpoint(): string {
+  const base = getEngineBase();
+  return base ? `${base}/v1/uploads` : '/v1/uploads';
+}
 
 /**
  * POST a list of browser Files as multipart/form-data to the engine.
- * `bearerToken` is the access_token from the NextAuth Keycloak
- * session (the engine validates it via JWKS).
+ * `bearerToken` is the access_token from the auth-store (Keycloak JWT
+ * for hosted-web users, per-install secret for the desktop shell).
  */
 export async function uploadFiles(
   files: File[],
@@ -69,7 +71,7 @@ export async function uploadFiles(
     // is purely cosmetic in the request log.
     fd.append(f.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 64), f, f.name);
   }
-  const r = await fetch(UPLOAD_ENDPOINT, {
+  const r = await fetch(uploadEndpoint(), {
     method: 'POST',
     headers: bearerToken ? { Authorization: `Bearer ${bearerToken}` } : undefined,
     body: fd,
