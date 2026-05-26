@@ -107,12 +107,12 @@ const KPIS: ReadonlyArray<Kpi> = [
   {
     value: '1 day',
     label: 'Pilot to first launch',
-    detail: 'Onboarding, brand setup, first three videos shipped in 24 hours.',
+    detail: 'Onboarding, brand setup, first three motion graphics shipped in 24 hours.',
   },
   {
     value: '90 %',
     label: 'Lower production cost',
-    detail: 'Per-video spend in dollars, not the four-figure agency invoice.',
+    detail: 'Per-spot spend in dollars, not the four-figure agency invoice.',
   },
   {
     value: '∞',
@@ -122,7 +122,7 @@ const KPIS: ReadonlyArray<Kpi> = [
 ] as const;
 
 const OKRS: ReadonlyArray<string> = [
-  'Turn campaign briefs into shippable video the same day.',
+  'Turn campaign briefs into shippable motion design the same day.',
   'Let marketing and brand teams own the production loop.',
   'Keep every asset and prompt on enterprise-grade infrastructure.',
 ] as const;

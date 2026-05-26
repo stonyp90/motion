@@ -84,7 +84,7 @@ export function DownloadHero() {
         <p className="max-w-[34rem] text-lg leading-[1.55] text-text-secondary sm:text-xl">
           The same product as the web, packaged with a local engine and
           local-model support. Generate offline, keep every brief on your
-          laptop, ship videos without the cloud bill.
+          laptop, ship motion graphics without the cloud bill.
         </p>
 
         <PrimaryCTA

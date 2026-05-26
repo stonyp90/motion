@@ -1,21 +1,19 @@
 /**
- * TrustStrip — non-technical compliance + trust band aimed at MRC,
- * partnership conversations, and enterprise procurement.
+ * TrustStrip — non-technical enterprise band aimed at procurement,
+ * partnership conversations, and brand-team buyers.
  *
- * Renders four certification / trust pills with short plain-English
- * explanations so a non-technical reader (creative director, brand
- * manager, VC analyst) understands what each badge means without
- * having to Google it. The strip sits just below the hero and above
- * the KPI numbers so the certifications anchor the page before the
- * reader gets to "what does it cost".
+ * Three pills with plain-English explanations of the controls a brand
+ * or creative team needs to feel safe handing their reference assets
+ * and prompts to the product. Was four — TPN Gold was dropped because
+ * the product is a motion-design tool, not a film-pipeline tool, so
+ * the MPA's studio-content-security framework isn't the right register.
  *
- * Why no clickable badge logos: a real SVG badge for SOC 2 / TPN
- * Gold would imply we've passed and been listed by AICPA / MPA.
- * Until the audit completes, we use plain typography + a one-liner
- * — accurate, defensible, and trivially upgraded to a real badge
- * once the certification PDFs land.
+ * Why no clickable badge logos: a real SVG badge for SOC 2 would imply
+ * we've passed and been listed by AICPA. Until the audit completes,
+ * we use plain typography + a one-liner — accurate, defensible, and
+ * trivially upgraded to a real badge once the attestation PDF lands.
  */
-import { ShieldCheck, Lock, Building2, Globe2 } from 'lucide-react';
+import { ShieldCheck, Building2, Globe2 } from 'lucide-react';
 
 interface Cert {
   icon: React.ReactNode;
@@ -31,13 +29,6 @@ const CERTS: ReadonlyArray<Cert> = [
     subtitle: 'Independent security audit',
     detail:
       'Annual third-party attestation of how we handle your data, access, and uptime.',
-  },
-  {
-    icon: <Lock className="h-5 w-5" aria-hidden />,
-    title: 'TPN Gold',
-    subtitle: 'Studio-grade content security',
-    detail:
-      'Trusted Partner Network Gold — the standard your studio and brand partners already require.',
   },
   {
     icon: <Building2 className="h-5 w-5" aria-hidden />,
@@ -72,7 +63,7 @@ export function TrustStrip() {
           </h2>
         </div>
 
-        <ul className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6">
+        <ul className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-3 lg:gap-6">
           {CERTS.map((cert) => (
             <li
               key={cert.title}
