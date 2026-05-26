@@ -146,7 +146,10 @@ var names = {
   apiApp:      'ca-mf-api-${env}'
   webApp:      'ca-controlcraft-web-${env}'
   keycloakApp: 'ca-controlcraft-keycloak-${env}'
-  postgres:    'pg-controlcraft-${env}-${take(suffix, 8)}'
+  // `-eus2` differentiator so the name doesn't collide with a stale
+  // reservation in eastus from a prior failed deploy. PG-FS keeps a
+  // hidden name lock for ~hours after a failed provision.
+  postgres:    'pg-controlcraft-${env}-eus2-${take(suffix, 8)}'
   postgresDb:  'keycloak'
   segmentJob:  'caj-mf-segment-${env}'
   renderJob:   'caj-mf-render-${env}'
