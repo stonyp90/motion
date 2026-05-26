@@ -38,8 +38,13 @@ ENV KC_HEALTH_ENABLED=true \
     KC_DB=dev-file \
     KC_HTTP_ENABLED=true \
     KC_HOSTNAME_STRICT=false \
-    KC_PROXY_HEADERS=xforwarded \
-    KC_HTTP_RELATIVE_PATH=/
+    KC_PROXY_HEADERS=xforwarded
+# NOTE: KC_HTTP_RELATIVE_PATH defaults to `/` — DON'T set it at
+# runtime. Keycloak's startup check refuses to boot if a build-time
+# option (HTTP relative path is one) differs from the pre-built
+# artifact's persisted value. Setting it in this ENV block (post
+# `kc.sh build`) caused: "F The following build time options have
+# values that differ from what is persisted: kc.http-relative-path".
 
 ENTRYPOINT ["/opt/keycloak/bin/kc.sh"]
 # `--optimized` tells start to skip the build step (we did it in the
