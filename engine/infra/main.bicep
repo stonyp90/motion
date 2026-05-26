@@ -376,8 +376,12 @@ resource keycloakDataShare 'Microsoft.Storage/storageAccounts/fileServices/share
   parent: fileService
   name: 'keycloakdata'
   properties: {
-    shareQuota: 16
+    // Premium_LRS FileStorage requires shareQuota >= 100 GB. Keycloak's
+    // H2 file will use << 1 GB; the 100 GB minimum is just the floor.
+    // Cost ~$18/month at Premium pricing.
+    shareQuota: 100
     enabledProtocols: 'SMB'
+    accessTier: 'Premium'
   }
 }
 
