@@ -1,0 +1,45 @@
+# syntax=docker/dockerfile:1.7-labs
+#
+# Custom Keycloak image for IMTN — bakes in the motion-forge realm
+# export so the realm exists on first boot without runtime mounts.
+#
+# Two-stage build follows the official "build then run" pattern that
+# Keycloak's docs recommend for production:
+#   `kc.sh build`  pre-compiles features (db driver, theme, providers).
+#   `kc.sh start`  runs with --optimized to skip the build step.
+# The pre-build cuts startup time from ~60s to ~10s.
+
+FROM quay.io/keycloak/keycloak:26.1 AS builder
+USER root
+
+ENV KC_HEALTH_ENABLED=true \
+    KC_METRICS_ENABLED=true \
+    KC_DB=postgres
+
+# Pre-build with the db driver baked in. This is the step that's slow
+# at startup if you skip it (Keycloak builds at first boot otherwise).
+RUN /opt/keycloak/bin/kc.sh build
+
+# Bake the realm export into the image so the first boot's
+# `--import-realm` finds it without any volume mount.
+# Realm contents (clients motion-forge-web + motion-forge-engine,
+# seed users owner/member/viewer@motion-forge.io) are versioned in git.
+COPY infra/keycloak/realm-export.json /opt/keycloak/data/import/motion-forge-realm.json
+
+FROM quay.io/keycloak/keycloak:26.1
+COPY --from=builder /opt/keycloak/ /opt/keycloak/
+
+# Runtime env. ACA injects DB password + admin password via secrets
+# referenced in main.bicep — never bake them into the image.
+ENV KC_HEALTH_ENABLED=true \
+    KC_METRICS_ENABLED=true \
+    KC_DB=postgres \
+    KC_HTTP_ENABLED=true \
+    KC_HOSTNAME_STRICT=false \
+    KC_PROXY_HEADERS=xforwarded \
+    KC_HTTP_RELATIVE_PATH=/
+
+ENTRYPOINT ["/opt/keycloak/bin/kc.sh"]
+# `--optimized` tells start to skip the build step (we did it in the
+# builder stage). `--import-realm` consumes the JSON we baked in.
+CMD ["start", "--optimized", "--import-realm"]

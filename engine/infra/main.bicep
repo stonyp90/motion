@@ -30,11 +30,25 @@ param apiImageTag string = 'latest'
 @description('Image tag for the IMTN web frontend (Next.js standalone). The CI pipeline bumps this on every web push.')
 param webImageTag string = 'latest'
 
+@description('Image tag for the Keycloak identity provider (custom build with the motion-forge realm baked in).')
+param keycloakImageTag string = 'latest'
+
 @description('Image tag for the segment job.')
 param segmentImageTag string = 'latest'
 
 @description('Image tag for the render job.')
 param renderImageTag string = 'latest'
+
+@description('Postgres Flexible Server admin login (used by Keycloak to write to the realm DB).')
+param postgresAdminLogin string = 'pgadmin'
+
+@secure()
+@description('Postgres Flexible Server admin password. Stored in Key Vault on first deploy; downstream resources reference the secret.')
+param postgresAdminPassword string = newGuid()
+
+@secure()
+@description('Keycloak bootstrap admin password. Stored in Key Vault on first deploy; the Keycloak container reads it from the env via a Container Apps secret.')
+param keycloakAdminPassword string = newGuid()
 
 @description('GPU workload-profile SKU for the segment job. Default NC8as-T4 (~$1.20/hr). Requires GPU quota.')
 param gpuProfileType string = 'Consumption-GPU-NC8as-T4'
@@ -125,6 +139,9 @@ var names = {
   acaEnv:      'cae-mf-${env}-${suffix}'
   apiApp:      'ca-mf-api-${env}'
   webApp:      'ca-imtn-web-${env}'
+  keycloakApp: 'ca-imtn-keycloak-${env}'
+  postgres:    'pg-imtn-${env}-${take(suffix, 8)}'
+  postgresDb:  'keycloak'
   segmentJob:  'caj-mf-segment-${env}'
   renderJob:   'caj-mf-render-${env}'
   jobQueue:    'jobs'
@@ -404,6 +421,50 @@ resource cosmosDataContributor 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAss
   }
 }
 
+// ---- Postgres Flexible Server (Keycloak backing store) ---------------
+//
+// Burstable B1ms is the cheapest tier (~$15/month at 0% util, ~$30 at
+// sustained load). Keycloak with a few thousand users uses well under
+// 1 GB / 1 CPU. Single-zone HA is overkill for dev; flip
+// availabilityZone + zoneRedundant for prod when there are real users.
+//
+// FirewallRules: AllowAllAzureServices (0.0.0.0/0.0.0.0) opens the
+// server to all Azure IPs — Keycloak's ACA container app connects from
+// within Azure but doesn't have a static egress IP under Consumption.
+// For prod we should switch to Private Endpoint + VNet integration.
+
+resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2024-11-01-preview' = {
+  name: names.postgres
+  location: location
+  tags: tags
+  sku: {
+    name: 'Standard_B1ms'
+    tier: 'Burstable'
+  }
+  properties: {
+    version: '16'
+    administratorLogin: postgresAdminLogin
+    administratorLoginPassword: postgresAdminPassword
+    storage: { storageSizeGB: 32, autoGrow: 'Enabled' }
+    backup: { backupRetentionDays: 7, geoRedundantBackup: 'Disabled' }
+    highAvailability: { mode: 'Disabled' }
+    network: { publicNetworkAccess: 'Enabled' }
+    authConfig: { activeDirectoryAuth: 'Disabled', passwordAuth: 'Enabled' }
+  }
+}
+
+resource postgresAllowAzure 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2024-11-01-preview' = {
+  parent: postgres
+  name: 'AllowAllAzureServices'
+  properties: { startIpAddress: '0.0.0.0', endIpAddress: '0.0.0.0' }
+}
+
+resource postgresKcDb 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2024-11-01-preview' = {
+  parent: postgres
+  name: names.postgresDb
+  properties: { charset: 'UTF8', collation: 'en_US.utf8' }
+}
+
 // ---- Redis ----
 
 resource redis 'Microsoft.Cache/redis@2024-11-01' = {
@@ -593,6 +654,11 @@ resource apiApp 'Microsoft.App/containerApps@2025-01-01' = {
             { name: 'MOTION_FORGE_QUEUE_NAME', value: names.jobQueue }
             { name: 'MOTION_FORGE_COSMOS_ENDPOINT', value: enableCosmos ? cosmos.properties.documentEndpoint : '' }
             { name: 'MOTION_FORGE_REDIS_HOST', value: '${redis.name}.redis.cache.windows.net' }
+            // Keycloak issuer for JWT validation in `crates/http/auth.rs`.
+            // The realm-scoped URL matches the audience claim that the
+            // web frontend's `/api/auth/*` routes mint.
+            { name: 'KEYCLOAK_ISSUER',   value: 'https://${names.keycloakApp}.${acaEnv.properties.defaultDomain}/realms/motion-forge' }
+            { name: 'KEYCLOAK_AUDIENCE', value: 'motion-forge-web,motion-forge-engine' }
             { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
           ]
           volumeMounts: enableNfsModelMount ? [ { volumeName: 'models', mountPath: '/models' } ] : []
@@ -664,7 +730,15 @@ resource webApp 'Microsoft.App/containerApps@2025-01-01' = {
       registries: [
         { server: acr.properties.loginServer, identity: managedIdentity.id }
       ]
-      secrets: []
+      secrets: [
+        // motion-forge-web client secret from the realm export. The
+        // value lives in engine/infra/keycloak/realm-export.json
+        // (`secret` field on the `motion-forge-web` client). Mirror it
+        // here so the web container can talk to /token without the
+        // value showing up in the env directly.
+        { name: 'kc-client-secret',  value: 'motion-forge-web-dev-secret' }
+        { name: 'kc-admin-password', value: keycloakAdminPassword }
+      ]
       maxInactiveRevisions: 2
     }
     template: {
@@ -680,6 +754,14 @@ resource webApp 'Microsoft.App/containerApps@2025-01-01' = {
             { name: 'NODE_ENV', value: 'production' }
             { name: 'PORT', value: '3000' }
             { name: 'HOSTNAME', value: '0.0.0.0' }
+            // Keycloak wiring — the realm-scoped issuer is what the
+            // `/api/auth/{register,login,refresh}` route handlers
+            // hit via `lib/server/keycloak.ts`.
+            { name: 'KEYCLOAK_ISSUER',         value: 'https://${names.keycloakApp}.${acaEnv.properties.defaultDomain}/realms/motion-forge' }
+            { name: 'KEYCLOAK_CLIENT_ID',      value: 'motion-forge-web' }
+            { name: 'KEYCLOAK_CLIENT_SECRET',  secretRef: 'kc-client-secret' }
+            { name: 'KEYCLOAK_ADMIN_USER',     value: 'admin' }
+            { name: 'KEYCLOAK_ADMIN_PASSWORD', secretRef: 'kc-admin-password' }
             // Server-side proxy in `app/api/engine/file/route.ts` calls
             // the engine via internal-ACA hostname. Using FQDN keeps
             // CORS off the critical path (same Front Door domain).
@@ -721,6 +803,115 @@ resource webApp 'Microsoft.App/containerApps@2025-01-01' = {
     }
   }
   dependsOn: [ acrPullRoleAssignment ]
+}
+
+// ---- imtn-keycloak: identity provider, public ingress ----------------
+//
+// Custom image (built from engine/infra/docker/Dockerfile.keycloak)
+// with the motion-forge realm export baked in — first boot runs
+// `kc.sh start --optimized --import-realm` which creates the realm,
+// clients, and seed users.
+//
+// Hostname: KC_HOSTNAME must match the public URL the web frontend
+// uses to talk to Keycloak. We construct it from `names.keycloakApp`
+// + the ACA env's `defaultDomain` so the value is right on first deploy
+// without an extra "stamp the hostname after deploy" step.
+
+resource keycloakApp 'Microsoft.App/containerApps@2025-01-01' = {
+  name: names.keycloakApp
+  location: location
+  tags: tags
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: { '${managedIdentity.id}': {} }
+  }
+  properties: {
+    managedEnvironmentId: acaEnv.id
+    workloadProfileName: 'Consumption'
+    configuration: {
+      activeRevisionsMode: 'Single'
+      ingress: {
+        external: true
+        targetPort: 8080
+        transport: 'auto'
+        allowInsecure: false
+        traffic: [ { latestRevision: true, weight: 100 } ]
+      }
+      registries: [
+        { server: acr.properties.loginServer, identity: managedIdentity.id }
+      ]
+      secrets: [
+        { name: 'kc-admin-pw', value: keycloakAdminPassword }
+        { name: 'pg-pw',       value: postgresAdminPassword }
+      ]
+      maxInactiveRevisions: 2
+    }
+    template: {
+      revisionSuffix: substring(uniqueString(keycloakImageTag), 0, 6)
+      containers: [
+        {
+          name: 'keycloak'
+          image: '${acr.properties.loginServer}/imtn-keycloak:${keycloakImageTag}'
+          // Keycloak idles ~250 MB; 0.5 vCPU / 1 GiB handles ~50 logins/s.
+          resources: { cpu: json('0.5'), memory: '1Gi' }
+          env: [
+            // DB connection — pgBouncer-style URL pointing at the
+            // Flexible Server with the keycloak database.
+            { name: 'KC_DB',          value: 'postgres' }
+            { name: 'KC_DB_URL',      value: 'jdbc:postgresql://${postgres.properties.fullyQualifiedDomainName}:5432/${names.postgresDb}?sslmode=require' }
+            { name: 'KC_DB_USERNAME', value: postgresAdminLogin }
+            { name: 'KC_DB_PASSWORD', secretRef: 'pg-pw' }
+            // Bootstrap admin — used only for the first login to the
+            // master realm. Rotate via Keycloak's own UI post-deploy.
+            { name: 'KC_BOOTSTRAP_ADMIN_USERNAME', value: 'admin' }
+            { name: 'KC_BOOTSTRAP_ADMIN_PASSWORD', secretRef: 'kc-admin-pw' }
+            // Public hostname (no scheme, no port). Keycloak needs
+            // this to issue valid OIDC URLs.
+            { name: 'KC_HOSTNAME',         value: '${names.keycloakApp}.${acaEnv.properties.defaultDomain}' }
+            { name: 'KC_HOSTNAME_STRICT',  value: 'false' }
+            { name: 'KC_PROXY_HEADERS',    value: 'xforwarded' }
+            { name: 'KC_HTTP_ENABLED',     value: 'true' }
+            { name: 'KC_HEALTH_ENABLED',   value: 'true' }
+            { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
+          ]
+          probes: [
+            // Keycloak's /health endpoints live under /health/{live,ready,started}
+            // when KC_HEALTH_ENABLED=true. Use the management port-less
+            // path (KC_HEALTH_ENABLED exposes it on the same 8080).
+            {
+              type: 'Liveness'
+              httpGet: { path: '/health/live', port: 9000 }
+              periodSeconds: 30
+              failureThreshold: 3
+            }
+            {
+              type: 'Readiness'
+              httpGet: { path: '/health/ready', port: 9000 }
+              periodSeconds: 10
+              failureThreshold: 3
+            }
+            {
+              type: 'Startup'
+              httpGet: { path: '/health/started', port: 9000 }
+              periodSeconds: 10
+              failureThreshold: 30   // Realm import on first boot can take ~2 min
+            }
+          ]
+        }
+      ]
+      scale: {
+        // Single replica: Keycloak supports clustering but it's
+        // overkill for dev. Postgres handles all shared state already.
+        minReplicas: 1
+        maxReplicas: 1
+      }
+    }
+  }
+  dependsOn: [
+    acrPullRoleAssignment
+    postgresKcDb
+    postgresAllowAzure
+  ]
 }
 
 // ---- mf-segment-job: GPU-backed SAM 2 job (optional) ----
@@ -926,6 +1117,9 @@ resource fdRoute 'Microsoft.Cdn/profiles/afdEndpoints/routes@2024-09-01' = {
 output frontDoorEndpoint string = 'https://${fdEndpoint.properties.hostName}'
 output apiIngressFqdn string = apiApp.properties.configuration.ingress.fqdn
 output webIngressFqdn string = webApp.properties.configuration.ingress.fqdn
+output keycloakIngressFqdn string = keycloakApp.properties.configuration.ingress.fqdn
+output keycloakIssuer string = 'https://${keycloakApp.properties.configuration.ingress.fqdn}/realms/motion-forge'
+output postgresFqdn string = postgres.properties.fullyQualifiedDomainName
 // After DNS is added (`CNAME motion → ca-imtn-web-{env}.<env-suffix>.azurecontainerapps.io`)
 // run:  az containerapp hostname add … --hostname motion.ursly.io --validation-method CNAME
 // then: az containerapp hostname bind … (provisions managed cert).

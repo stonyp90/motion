@@ -145,6 +145,15 @@ jobs:
             --file engine/infra/docker/Dockerfile.render \
             --platform linux/amd64 \
             engine
+          # Keycloak with realm export baked in. Two-stage `kc.sh build`
+          # pre-compiles the Postgres driver so first-boot startup
+          # drops from ~60s to ~10s.
+          az acr build --registry ${{ steps.discover.outputs.acr }} \
+            --image "imtn-keycloak:${IMAGE_TAG}" \
+            --image "imtn-keycloak:latest" \
+            --file engine/infra/docker/Dockerfile.keycloak \
+            --platform linux/amd64 \
+            engine
 
   # --------------------------------------------------------------------------
   # Dev — auto on main, no manual approval. The `dev` GitHub Environment
@@ -177,7 +186,8 @@ jobs:
             --resource-group "rg-motion-forge-dev" \
             --template-file engine/infra/main.bicep \
             --parameters "engine/infra/parameters.dev.bicepparam" \
-            --parameters "apiImageTag=${IMAGE_TAG}" "renderImageTag=${IMAGE_TAG}" \
+            --parameters "apiImageTag=${IMAGE_TAG}" "renderImageTag=${IMAGE_TAG}" "keycloakImageTag=${IMAGE_TAG}" \
+            --parameters "keycloakAdminPassword=${{ secrets.KEYCLOAK_ADMIN_PASSWORD }}" "postgresAdminPassword=${{ secrets.POSTGRES_ADMIN_PASSWORD }}" \
             --query "properties.provisioningState" -o tsv
 
       - name: Print Front Door endpoint
@@ -247,7 +257,8 @@ jobs:
             --resource-group "rg-motion-forge-prod" \
             --template-file engine/infra/main.bicep \
             --parameters "engine/infra/parameters.prod.bicepparam" \
-            --parameters "apiImageTag=${IMAGE_TAG}" "renderImageTag=${IMAGE_TAG}" \
+            --parameters "apiImageTag=${IMAGE_TAG}" "renderImageTag=${IMAGE_TAG}" "keycloakImageTag=${IMAGE_TAG}" \
+            --parameters "keycloakAdminPassword=${{ secrets.KEYCLOAK_ADMIN_PASSWORD }}" "postgresAdminPassword=${{ secrets.POSTGRES_ADMIN_PASSWORD }}" \
             --query "properties.provisioningState" -o tsv
 
       - name: Resolve prod Front Door endpoint
