@@ -4,9 +4,9 @@ import { Footer } from '@/components/Footer';
 import { DownloadHero } from '@/components/download/DownloadHero';
 
 export const metadata: Metadata = {
-  title: 'Download IMTN · Desktop',
+  title: 'Download ControlCraft · Desktop',
   description:
-    'IMTN Desktop runs the prompt-to-motion-graphic pipeline locally. No cloud round-trip, no rate limits. macOS, Windows, Linux.',
+    'ControlCraft Desktop runs the prompt-to-motion-graphic pipeline locally. No cloud round-trip, no rate limits. macOS, Windows, Linux.',
 };
 
 /**

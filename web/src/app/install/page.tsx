@@ -12,9 +12,9 @@ import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
 
 export const metadata: Metadata = {
-  title: 'Install IMTN Desktop · Setup guide',
+  title: 'Install ControlCraft Desktop · Setup guide',
   description:
-    'Install IMTN Desktop on macOS, Windows, or Linux. Includes the one-time Ollama install for local vision-model inference.',
+    'Install ControlCraft Desktop on macOS, Windows, or Linux. Includes the one-time Ollama install for local vision-model inference.',
 };
 
 /**
@@ -44,7 +44,7 @@ export default function InstallPage() {
             Desktop · Setup
           </p>
           <h1 className="mt-2 text-[36px] font-bold leading-[1.1] tracking-tight text-text-primary sm:text-[44px]">
-            Install IMTN Desktop
+            Install ControlCraft Desktop
           </h1>
           <p className="mt-3 text-base leading-[1.6] text-text-secondary sm:text-lg">
             Three steps. About five minutes. After this, generation runs
@@ -52,7 +52,7 @@ export default function InstallPage() {
           </p>
 
           <ol className="mt-12 flex flex-col gap-12">
-            <Step number={1} icon={<DownloadIcon className="h-4 w-4" />} title="Install the IMTN app">
+            <Step number={1} icon={<DownloadIcon className="h-4 w-4" />} title="Install the ControlCraft app">
               <p>
                 Grab the installer for your OS from{' '}
                 <Link
@@ -62,14 +62,14 @@ export default function InstallPage() {
                   the downloads page
                 </Link>
                 . Open the installer and complete the OS prompts. macOS
-                users: drag <code className="rounded bg-bg-tertiary px-1 font-mono text-xs">IMTN.app</code>{' '}
+                users: drag <code className="rounded bg-bg-tertiary px-1 font-mono text-xs">ControlCraft.app</code>{' '}
                 into Applications.
               </p>
             </Step>
 
             <Step number={2} icon={<Terminal className="h-4 w-4" />} title="Install Ollama">
               <p>
-                IMTN talks to a local LLM through Ollama. The desktop
+                ControlCraft talks to a local LLM through Ollama. The desktop
                 shell auto-detects it on first launch but doesn&apos;t
                 bundle it — install once, used forever.
               </p>
@@ -84,7 +84,7 @@ export default function InstallPage() {
 
             <Step number={3} icon={<Zap className="h-4 w-4" />} title="Pull a vision model">
               <p>
-                IMTN uses a vision-capable model so reference images
+                ControlCraft uses a vision-capable model so reference images
                 actually inform the output. <code className="rounded bg-bg-tertiary px-1 font-mono text-xs">llava</code>{' '}
                 is the proven default (~4 GB download).
               </p>
@@ -117,7 +117,7 @@ export default function InstallPage() {
               You&apos;re ready.
             </h2>
             <p className="mt-2 text-sm leading-relaxed text-text-secondary">
-              Launch IMTN. The first window opens to a prompt and a
+              Launch ControlCraft. The first window opens to a prompt and a
               live model chip in the top-right showing{' '}
               <code className="rounded bg-bg-primary px-1 font-mono text-xs">
                 llava · loaded · X GB
@@ -154,22 +154,22 @@ export default function InstallPage() {
 
               <Detail title="Pin a different frontend URL">
                 <p>
-                  By default the desktop shell loads <code className="rounded bg-bg-tertiary px-1 font-mono text-xs">https://imtn.io</code>.
+                  By default the desktop shell loads <code className="rounded bg-bg-tertiary px-1 font-mono text-xs">https://controlcraft.io</code>.
                   To point at a staging build:
                 </p>
-                <CodeBlock>{`MOTION_FORGE_FRONTEND_URL=https://staging.imtn.io open -a IMTN`}</CodeBlock>
+                <CodeBlock>{`MOTION_FORGE_FRONTEND_URL=https://staging.controlcraft.io open -a ControlCraft`}</CodeBlock>
               </Detail>
 
               <Detail title="Where data lives">
                 <ul className="ml-5 list-disc [&_code]:rounded [&_code]:bg-bg-tertiary [&_code]:px-1 [&_code]:font-mono [&_code]:text-xs">
                   <li>
-                    macOS · <code>~/Library/Application Support/IMTN/</code>
+                    macOS · <code>~/Library/Application Support/ControlCraft/</code>
                   </li>
                   <li>
-                    Linux · <code>~/.local/share/IMTN/</code>
+                    Linux · <code>~/.local/share/ControlCraft/</code>
                   </li>
                   <li>
-                    Windows · <code>%APPDATA%\IMTN\</code>
+                    Windows · <code>%APPDATA%\ControlCraft\</code>
                   </li>
                 </ul>
                 <p className="mt-2">

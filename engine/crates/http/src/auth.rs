@@ -63,7 +63,7 @@ pub fn default_skip_paths() -> Vec<&'static str> {
 
 #[derive(Clone)]
 pub struct KeycloakConfig {
-    /// e.g. `http://localhost:8080/realms/motion-forge`.
+    /// e.g. `http://localhost:8080/realms/controlcraft`.
     pub issuer: String,
     /// Audiences to accept. Token's `aud` must contain at least one.
     pub audiences: Vec<String>,
@@ -577,7 +577,7 @@ mod tests {
     #[tokio::test]
     async fn missing_token_returns_401_with_www_authenticate() {
         let cfg = KeycloakConfig {
-            issuer: "http://localhost:8080/realms/motion-forge".into(),
+            issuer: "http://localhost:8080/realms/controlcraft".into(),
             audiences: vec!["motion-forge-web".into()],
             fallback_key: None,
             skip_paths: default_skip_paths().into_iter().map(String::from).collect(),
@@ -624,7 +624,7 @@ mod tests {
     #[tokio::test]
     async fn bogus_token_returns_401() {
         let cfg = KeycloakConfig {
-            issuer: "http://127.0.0.1:1/realms/motion-forge".into(),
+            issuer: "http://127.0.0.1:1/realms/controlcraft".into(),
             audiences: vec!["motion-forge-web".into()],
             fallback_key: None,
             skip_paths: default_skip_paths().into_iter().map(String::from).collect(),

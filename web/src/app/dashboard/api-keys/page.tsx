@@ -4,8 +4,8 @@ import { Footer } from '@/components/Footer';
 import { ApiKeysDashboard } from '@/components/dashboard/ApiKeysDashboard';
 
 export const metadata: Metadata = {
-  title: 'API keys · IMTN',
-  description: 'Issue and revoke IMTN API keys.',
+  title: 'API keys · ControlCraft',
+  description: 'Issue and revoke ControlCraft API keys.',
 };
 
 export default function ApiKeysPage() {

@@ -91,5 +91,5 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: `🚀 **IMTN preview**: ${{ steps.deploy.outputs.url }}`,
+              body: `🚀 **ControlCraft preview**: ${{ steps.deploy.outputs.url }}`,
             });

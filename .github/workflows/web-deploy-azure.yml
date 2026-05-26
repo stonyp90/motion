@@ -1,7 +1,7 @@
 name: web · Azure deploy
 
-# Builds the IMTN web image via ACR Build, then deploys it to the
-# `imtn-web` ACA container app by bumping `webImageTag` in main.bicep.
+# Builds the ControlCraft web image via ACR Build, then deploys it to the
+# `controlcraft-web` ACA container app by bumping `webImageTag` in main.bicep.
 # Replaces the previous Vercel deploy — see ARCHITECTURE.md for the
 # rationale (single-vendor SOC 2 narrative + VNet co-locate).
 #
@@ -41,7 +41,7 @@ jobs:
   # Build + push the web image into the same ACR as the engine images.
   # --------------------------------------------------------------------------
   build:
-    name: build · ACR (imtn-web)
+    name: build · ACR (controlcraft-web)
     runs-on: ubuntu-latest
     environment: dev # ACR lives in the dev RG; prod ACA pulls from the same registry
     timeout-minutes: 20
@@ -109,8 +109,8 @@ jobs:
           fi
           echo "Building with NEXT_PUBLIC_ENGINE_BASE_URL=${ENGINE_URL}"
           az acr build --registry ${{ steps.discover.outputs.acr }} \
-            --image "imtn-web:${IMAGE_TAG}" \
-            --image "imtn-web:latest" \
+            --image "controlcraft-web:${IMAGE_TAG}" \
+            --image "controlcraft-web:latest" \
             --file web/Dockerfile \
             --build-arg "NEXT_PUBLIC_ENGINE_BASE_URL=${ENGINE_URL}" \
             --platform linux/amd64 \
@@ -157,11 +157,11 @@ jobs:
           # ACA provides automatic TLS for the *.azurecontainerapps.io
           # cert. Custom domains (e.g. motion.ursly.io) bind via
           # `az containerapp hostname add` after DNS is in place.
-          ACA=$(az containerapp show -g "rg-motion-forge-dev" -n ca-imtn-web-dev \
+          ACA=$(az containerapp show -g "rg-motion-forge-dev" -n ca-controlcraft-web-dev \
             --query 'properties.configuration.ingress.fqdn' -o tsv)
           echo "url=https://${ACA}" >> "$GITHUB_OUTPUT"
           {
-            echo "## imtn web · dev deploy"
+            echo "## ControlCraft web · dev deploy"
             echo "* Image tag: \`${IMAGE_TAG}\`"
             echo "* ACA ingress: https://${ACA}"
             echo ""
@@ -171,7 +171,7 @@ jobs:
 
       - name: Post-deploy smoke (dev)
         run: |
-          ACA=$(az containerapp show -g "rg-motion-forge-dev" -n ca-imtn-web-dev \
+          ACA=$(az containerapp show -g "rg-motion-forge-dev" -n ca-controlcraft-web-dev \
             --query 'properties.configuration.ingress.fqdn' -o tsv)
           for _i in $(seq 1 30); do
             CODE=$(curl -sf -o /dev/null -w '%{http_code}' "https://${ACA}/" 2>/dev/null || echo "000")
@@ -222,11 +222,11 @@ jobs:
       - name: Resolve prod web ACA endpoint
         id: summary
         run: |
-          ACA=$(az containerapp show -g "rg-motion-forge-prod" -n ca-imtn-web-prod \
+          ACA=$(az containerapp show -g "rg-motion-forge-prod" -n ca-controlcraft-web-prod \
             --query 'properties.configuration.ingress.fqdn' -o tsv)
           echo "url=https://${ACA}" >> "$GITHUB_OUTPUT"
           {
-            echo "## imtn web · prod deploy"
+            echo "## ControlCraft web · prod deploy"
             echo "* Image tag: \`${IMAGE_TAG}\`"
             echo "* ACA ingress: https://${ACA}"
           } >> "$GITHUB_STEP_SUMMARY"

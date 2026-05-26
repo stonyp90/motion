@@ -149,8 +149,8 @@ jobs:
           # pre-compiles the Postgres driver so first-boot startup
           # drops from ~60s to ~10s.
           az acr build --registry ${{ steps.discover.outputs.acr }} \
-            --image "imtn-keycloak:${IMAGE_TAG}" \
-            --image "imtn-keycloak:latest" \
+            --image "controlcraft-keycloak:${IMAGE_TAG}" \
+            --image "controlcraft-keycloak:latest" \
             --file engine/infra/docker/Dockerfile.keycloak \
             --platform linux/amd64 \
             engine

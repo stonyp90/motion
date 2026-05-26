@@ -61,7 +61,7 @@ function BrandHeader() {
   return (
     <header className="sticky top-0 z-40 border-b border-border-light bg-bg-primary/85 backdrop-blur-md">
       <div className="container flex h-14 items-center justify-between">
-        <Link href="/" className="flex items-center gap-2.5 group" aria-label="IMTN home">
+        <Link href="/" className="flex items-center gap-2.5 group" aria-label="ControlCraft home">
           <span
             aria-hidden
             className="grid h-7 w-7 place-items-center rounded-lg bg-primary-900 text-text-inverse motion-hover group-hover:bg-accent-500"
@@ -70,7 +70,7 @@ function BrandHeader() {
           </span>
           <span className="flex flex-col leading-tight">
             <span className="text-sm font-semibold tracking-tight text-text-primary">
-              IMTN
+              ControlCraft
             </span>
             <span className="text-2xs text-text-tertiary">brand kit · resolved: {resolved}</span>
           </span>
@@ -90,7 +90,7 @@ function LogoSection() {
   return (
     <BrandSection
       eyebrow="Logo"
-      title="IMTN mark"
+      title="ControlCraft mark"
       lead="The wordmark is the primary brand surface. Use the icon-only variant when space is tight; the horizontal lockup everywhere else."
     >
       <div className="flex flex-wrap items-center gap-10">

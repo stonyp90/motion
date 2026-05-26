@@ -4,7 +4,7 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 
 /**
- * IMTN brand lockup.
+ * ControlCraft brand lockup.
  *
  * Mark — the 3-rounded-rect cascade we've shipped since v0: pale →
  * brand → deep emerald, overlapping by ~half their width to read as
@@ -12,7 +12,7 @@ import type { ReactNode } from 'react';
  * favicon, every marketing surface, AND the leading element of the
  * wordmark lockup.
  *
- * Wordmark — IMTN, set in Space Grotesk Bold, all-caps, with 0.08em
+ * Wordmark — ControlCraft, set in Space Grotesk Bold, all-caps, with 0.08em
  * letter-spacing. Three deliberate typographic choices:
  *
  *   1. The terminal `T` gets its crossbar tinted in the brand emerald
@@ -38,7 +38,7 @@ interface MotionLogoProps {
   size?: Size;
   showLink?: boolean;
   href?: string;
-  /** Override the wordmark — defaults to 'IMTN'. Pass '' for icon-only. */
+  /** Override the wordmark — defaults to 'ControlCraft'. Pass '' for icon-only. */
   wordmark?: string;
   className?: string;
 }
@@ -54,7 +54,7 @@ export function MotionLogo({
   size = 'md',
   showLink = true,
   href = '/',
-  wordmark = 'IMTN',
+  wordmark = 'ControlCraft',
   className,
 }: MotionLogoProps) {
   const s = SIZES[size];
@@ -76,7 +76,7 @@ export function MotionLogo({
   return (
     <Link
       href={href as never}
-      aria-label="IMTN home"
+      aria-label="ControlCraft home"
       className="group inline-flex items-center"
     >
       {content}
@@ -113,13 +113,13 @@ function CascadeMark({ size }: { size: number }) {
 /* ------------------------------------------------------------- wordmark */
 
 /**
- * The wordmark renderer. If the text is exactly `IMTN` we apply the
+ * The wordmark renderer. If the text is exactly `ControlCraft` we apply the
  * brand-specific accent treatment (tinted terminal). Any other string
  * (e.g. callers passing a custom label) renders plain — graceful
  * fallback so `<MotionLogo wordmark="Studio"/>` still works.
  */
 function Wordmark({ text }: { text: string }): ReactNode {
-  if (text === 'IMTN') {
+  if (text === 'ControlCraft') {
     return (
       <>
         IMT

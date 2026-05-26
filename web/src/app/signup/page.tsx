@@ -5,7 +5,7 @@ import { SignupForm } from '@/components/auth/SignupForm';
 
 export const metadata: Metadata = {
   title: 'Create account',
-  description: 'Create your IMTN account.',
+  description: 'Create your ControlCraft account.',
 };
 
 export default function SignupPage({

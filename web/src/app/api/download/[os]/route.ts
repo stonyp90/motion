@@ -5,7 +5,7 @@ import { findAsset, VERSION, type DownloadOs } from '@/lib/download-manifest';
  * GET /api/download/:os → 302 to the actual installer.
  *
  * Why a server route and not a direct link from the page:
- *   - The download origin is a server-only env var (`IMTN_DOWNLOAD_BASE`),
+ *   - The download origin is a server-only env var (`ControlCraft_DOWNLOAD_BASE`),
  *     so the URL is never exposed in the page HTML. Rotating the
  *     origin doesn't require a redeploy of the marketing site.
  *   - We can log + rate-limit the download event in one place if we
@@ -41,13 +41,13 @@ export async function GET(
   if (!asset) {
     return NextResponse.json({ error: 'asset not in manifest' }, { status: 404 });
   }
-  const base = process.env.IMTN_DOWNLOAD_BASE;
+  const base = process.env.ControlCraft_DOWNLOAD_BASE;
   if (!base) {
     return NextResponse.json(
       {
         error: 'build_pending',
         detail:
-          'Desktop installer not yet uploaded. Set IMTN_DOWNLOAD_BASE on the deploy environment once the release CI finishes producing assets.',
+          'Desktop installer not yet uploaded. Set ControlCraft_DOWNLOAD_BASE on the deploy environment once the release CI finishes producing assets.',
         version: VERSION,
         asset: asset.filename,
       },

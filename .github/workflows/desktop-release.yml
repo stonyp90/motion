@@ -1,6 +1,6 @@
 name: desktop · release
 
-# IMTN desktop release pipeline — cross-platform Tauri 2 builds.
+# ControlCraft desktop release pipeline — cross-platform Tauri 2 builds.
 #
 # Triggers:
 #   - Push of a tag matching `desktop-v*.*.*` (canonical release).
@@ -13,7 +13,7 @@ name: desktop · release
 #   - ubuntu-22.04        → x86_64-unknown-linux-gnu
 #
 # Outputs (uploaded to a GitHub Release):
-#   - macOS:   *.dmg  + IMTN.app inside Resources/macos/
+#   - macOS:   *.dmg  + ControlCraft.app inside Resources/macos/
 #   - Windows: *.msi  + *.nsis.exe
 #   - Linux:   *.AppImage + *.deb
 #
@@ -138,7 +138,7 @@ jobs:
       # reaches the GH log (the tauri-action wrapper was swallowing
       # errors in 100ms with "No artifacts were found", giving us
       # nothing to debug).
-      - name: Build IMTN desktop (${{ matrix.target }})
+      - name: Build ControlCraft desktop (${{ matrix.target }})
         working-directory: desktop
         shell: bash
         env:
@@ -176,7 +176,7 @@ jobs:
           BUNDLE_DIR="desktop/src-tauri/target/${{ matrix.target }}/release/bundle"
           echo "----- $BUNDLE_DIR -----"
           if [ -d "$BUNDLE_DIR" ]; then
-            find "$BUNDLE_DIR" -type f -name 'IMTN*' -o -name 'imtn*' | head -20
+            find "$BUNDLE_DIR" -type f -name 'ControlCraft*' -o -name 'controlcraft*' | head -20
             echo "----- total size -----"
             du -sh "$BUNDLE_DIR" || true
           else
@@ -192,14 +192,14 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.value }}
-          name: 'IMTN Desktop ${{ steps.tag.outputs.value }}'
+          name: 'ControlCraft Desktop ${{ steps.tag.outputs.value }}'
           draft: true
           prerelease: false
           generate_release_notes: false
           body: |
-            ## IMTN Desktop — ${{ steps.tag.outputs.value }}
+            ## ControlCraft Desktop — ${{ steps.tag.outputs.value }}
 
-            Cross-platform native shell for IMTN. Runs the engine + Ollama
+            Cross-platform native shell for ControlCraft. Runs the engine + Ollama
             locally so generation never leaves your machine.
 
             ### Downloads

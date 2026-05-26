@@ -1,11 +1,11 @@
-# IMTN threat model
+# ControlCraft threat model
 
 A living document. Update on every architectural change. Last
 reviewed: at the same SHA as this commit.
 
 ## Scope
 
-The system under analysis is **IMTN as deployed to Azure
+The system under analysis is **ControlCraft as deployed to Azure
 under `rg-motion-forge-dev`** (the resource-group name predates the
 brand and stays as-is for infra continuity), plus the local
 developer workstation running the CLI + Python sidecars.
@@ -29,7 +29,7 @@ Out of scope:
        Azure Container Apps Ingress (ACA)
                 │
                 ▼
-       axum HTTP service (IMTN api)
+       axum HTTP service (ControlCraft api)
                 │
                 ▼  Managed Identity
        ┌────────┴───────────────────────────────┐

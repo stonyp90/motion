@@ -90,10 +90,10 @@ export function TrustStrip() {
         <p className="mt-8 text-center text-sm text-text-tertiary">
           For partnership, procurement, or investor conversations:{' '}
           <a
-            href="mailto:partnerships@imtn.io"
+            href="mailto:partnerships@controlcraft.io"
             className="font-medium text-text-accent underline-offset-2 hover:underline"
           >
-            partnerships@imtn.io
+            partnerships@controlcraft.io
           </a>
         </p>
       </div>

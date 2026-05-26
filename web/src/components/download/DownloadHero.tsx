@@ -14,12 +14,12 @@ import {
 import { ASSETS, VERSION, type DownloadAsset, type DownloadOs } from '@/lib/download-manifest';
 
 /**
- * Download landing for the IMTN desktop app.
+ * Download landing for the ControlCraft desktop app.
  *
  * Repo is private — we don't link to GitHub Releases. Every install
  * button hits `/api/download/<os>` which 302-redirects to the actual
  * installer URL hosted on our private storage origin. The URL is a
- * server-only env (`IMTN_DOWNLOAD_BASE`) so it's never in the HTML;
+ * server-only env (`ControlCraft_DOWNLOAD_BASE`) so it's never in the HTML;
  * a 503 + "build pending" comes back when the CI hasn't uploaded yet.
  *
  * UX pattern: Linear's per-OS card grid + Cursor's OS-detected
@@ -77,7 +77,7 @@ export function DownloadHero() {
           Desktop · Native shell
         </p>
         <h1 className="text-[44px] font-bold leading-[1.05] tracking-tight text-text-primary sm:text-[56px]">
-          Run IMTN
+          Run ControlCraft
           <br />
           on your own machine.
         </h1>
@@ -134,7 +134,7 @@ export function DownloadHero() {
         <TrustChip
           icon={<Server className="h-4 w-4" />}
           title="Same web product"
-          body="Identical UI to imtn.io — the desktop just wraps it with sidecars."
+          body="Identical UI to controlcraft.io — the desktop just wraps it with sidecars."
         />
       </div>
 

@@ -7,7 +7,7 @@
  * sees JSON shapes we hand back from `/api/auth/*` routes.
  *
  * Env contract (set in web/.env.local for dev; see .env.example for prod):
- *   KEYCLOAK_ISSUER         — e.g. http://127.0.0.1:8080/realms/motion-forge
+ *   KEYCLOAK_ISSUER         — e.g. http://127.0.0.1:8080/realms/controlcraft
  *   KEYCLOAK_CLIENT_ID      — `motion-forge-web`
  *   KEYCLOAK_CLIENT_SECRET  — confidential-client secret
  *   KEYCLOAK_ADMIN_USER     — master realm bootstrap admin (default `admin`)
@@ -16,7 +16,7 @@
 
 import 'server-only';
 
-const ISSUER = process.env.KEYCLOAK_ISSUER ?? 'http://127.0.0.1:8080/realms/motion-forge';
+const ISSUER = process.env.KEYCLOAK_ISSUER ?? 'http://127.0.0.1:8080/realms/controlcraft';
 const CLIENT_ID = process.env.KEYCLOAK_CLIENT_ID ?? 'motion-forge-web';
 const CLIENT_SECRET = process.env.KEYCLOAK_CLIENT_SECRET ?? '';
 const ADMIN_USER = process.env.KEYCLOAK_ADMIN_USER ?? 'admin';
@@ -25,7 +25,7 @@ const ADMIN_PASSWORD = process.env.KEYCLOAK_ADMIN_PASSWORD ?? 'admin';
 /** Derive the master-realm base URL from the realm-scoped issuer. */
 function masterBase(): string {
   const u = new URL(ISSUER);
-  // /realms/motion-forge → /realms/master
+  // /realms/controlcraft → /realms/master
   u.pathname = u.pathname.replace(/\/realms\/[^/]+\/?$/, '/realms/master');
   return u.toString().replace(/\/$/, '');
 }

@@ -62,7 +62,7 @@ export function KPIStrip() {
             with vertical dividers on desktop. Plain text only; the KPI grid
             already carries the visual weight. */}
         <ul
-          aria-label="What IMTN promises"
+          aria-label="What ControlCraft promises"
           className="mt-14 flex flex-col items-center justify-center gap-3 text-center text-lg font-medium text-text-primary sm:text-xl lg:mt-16 lg:flex-row lg:flex-wrap lg:gap-x-8 lg:gap-y-2"
         >
           {OKRS.map((okr, i) => (

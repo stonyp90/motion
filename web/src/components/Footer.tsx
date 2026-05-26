@@ -23,7 +23,7 @@ export function Footer() {
           <a href="/terms" className="transition-colors hover:text-text-primary">
             Terms
           </a>
-          <a href="mailto:hello@imtn.io" className="transition-colors hover:text-text-primary">
+          <a href="mailto:hello@controlcraft.io" className="transition-colors hover:text-text-primary">
             Contact
           </a>
         </nav>

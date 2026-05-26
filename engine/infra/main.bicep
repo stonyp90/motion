@@ -27,7 +27,7 @@ param location string = resourceGroup().location
 @description('Image tag for mf-api. The CI pipeline bumps this on every revision.')
 param apiImageTag string = 'latest'
 
-@description('Image tag for the IMTN web frontend (Next.js standalone). The CI pipeline bumps this on every web push.')
+@description('Image tag for the ControlCraft web frontend (Next.js standalone). The CI pipeline bumps this on every web push.')
 param webImageTag string = 'latest'
 
 @description('Image tag for the Keycloak identity provider (custom build with the motion-forge realm baked in).')
@@ -73,10 +73,13 @@ param enableNfsModelMount bool = false
 @maxValue(730)
 param logRetentionDays int = 90
 
-@description('CORS allowed origins for the API container. Default locks to localhost + motion.ursly.io; set to [] to disable CORS entirely. Avoid [\'*\'] in production (SOC 2 CC6).')
+@description('CORS allowed origins for the API container. Default locks to localhost + the controlcraft.io public domain + the ursly subdomain (legacy). Set to [] to disable CORS entirely. Avoid [\'*\'] in production (SOC 2 CC6).')
 param corsAllowedOrigins array = [
   'http://localhost:3001'
   'http://localhost:3007'
+  'https://controlcraft.io'
+  'https://www.controlcraft.io'
+  'https://app.controlcraft.io'
   'https://motion.ursly.io'
 ]
 
@@ -138,9 +141,9 @@ var names = {
   openAi:      'oai-mf-${env}-${suffix}'
   acaEnv:      'cae-mf-${env}-${suffix}'
   apiApp:      'ca-mf-api-${env}'
-  webApp:      'ca-imtn-web-${env}'
-  keycloakApp: 'ca-imtn-keycloak-${env}'
-  postgres:    'pg-imtn-${env}-${take(suffix, 8)}'
+  webApp:      'ca-controlcraft-web-${env}'
+  keycloakApp: 'ca-controlcraft-keycloak-${env}'
+  postgres:    'pg-controlcraft-${env}-${take(suffix, 8)}'
   postgresDb:  'keycloak'
   segmentJob:  'caj-mf-segment-${env}'
   renderJob:   'caj-mf-render-${env}'
@@ -657,7 +660,7 @@ resource apiApp 'Microsoft.App/containerApps@2025-01-01' = {
             // Keycloak issuer for JWT validation in `crates/http/auth.rs`.
             // The realm-scoped URL matches the audience claim that the
             // web frontend's `/api/auth/*` routes mint.
-            { name: 'KEYCLOAK_ISSUER',   value: 'https://${names.keycloakApp}.${acaEnv.properties.defaultDomain}/realms/motion-forge' }
+            { name: 'KEYCLOAK_ISSUER',   value: 'https://${names.keycloakApp}.${acaEnv.properties.defaultDomain}/realms/controlcraft' }
             { name: 'KEYCLOAK_AUDIENCE', value: 'motion-forge-web,motion-forge-engine' }
             { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
           ]
@@ -700,7 +703,7 @@ resource apiApp 'Microsoft.App/containerApps@2025-01-01' = {
   dependsOn: [ acrPullRoleAssignment, storageBlobDataContributor ]
 }
 
-// ---- imtn-web: Next.js standalone server, public ingress ----
+// ---- controlcraft-web: Next.js standalone server, public ingress ----
 //
 // Same Consumption workload profile as the API. The image is built by
 // .github/workflows/web-deploy-azure.yml and pushed to the same ACR as
@@ -746,7 +749,7 @@ resource webApp 'Microsoft.App/containerApps@2025-01-01' = {
       containers: [
         {
           name: 'web'
-          image: '${acr.properties.loginServer}/imtn-web:${webImageTag}'
+          image: '${acr.properties.loginServer}/controlcraft-web:${webImageTag}'
           // Next standalone server is light — 0.25 vCPU / 0.5 GiB
           // handles ~50 rps before autoscale needs to step in.
           resources: { cpu: json('0.25'), memory: '0.5Gi' }
@@ -757,7 +760,7 @@ resource webApp 'Microsoft.App/containerApps@2025-01-01' = {
             // Keycloak wiring — the realm-scoped issuer is what the
             // `/api/auth/{register,login,refresh}` route handlers
             // hit via `lib/server/keycloak.ts`.
-            { name: 'KEYCLOAK_ISSUER',         value: 'https://${names.keycloakApp}.${acaEnv.properties.defaultDomain}/realms/motion-forge' }
+            { name: 'KEYCLOAK_ISSUER',         value: 'https://${names.keycloakApp}.${acaEnv.properties.defaultDomain}/realms/controlcraft' }
             { name: 'KEYCLOAK_CLIENT_ID',      value: 'motion-forge-web' }
             { name: 'KEYCLOAK_CLIENT_SECRET',  secretRef: 'kc-client-secret' }
             { name: 'KEYCLOAK_ADMIN_USER',     value: 'admin' }
@@ -805,7 +808,7 @@ resource webApp 'Microsoft.App/containerApps@2025-01-01' = {
   dependsOn: [ acrPullRoleAssignment ]
 }
 
-// ---- imtn-keycloak: identity provider, public ingress ----------------
+// ---- controlcraft-keycloak: identity provider, public ingress ----------------
 //
 // Custom image (built from engine/infra/docker/Dockerfile.keycloak)
 // with the motion-forge realm export baked in — first boot runs
@@ -851,7 +854,7 @@ resource keycloakApp 'Microsoft.App/containerApps@2025-01-01' = {
       containers: [
         {
           name: 'keycloak'
-          image: '${acr.properties.loginServer}/imtn-keycloak:${keycloakImageTag}'
+          image: '${acr.properties.loginServer}/controlcraft-keycloak:${keycloakImageTag}'
           // Keycloak idles ~250 MB; 0.5 vCPU / 1 GiB handles ~50 logins/s.
           resources: { cpu: json('0.5'), memory: '1Gi' }
           env: [
@@ -1118,9 +1121,9 @@ output frontDoorEndpoint string = 'https://${fdEndpoint.properties.hostName}'
 output apiIngressFqdn string = apiApp.properties.configuration.ingress.fqdn
 output webIngressFqdn string = webApp.properties.configuration.ingress.fqdn
 output keycloakIngressFqdn string = keycloakApp.properties.configuration.ingress.fqdn
-output keycloakIssuer string = 'https://${keycloakApp.properties.configuration.ingress.fqdn}/realms/motion-forge'
+output keycloakIssuer string = 'https://${keycloakApp.properties.configuration.ingress.fqdn}/realms/controlcraft'
 output postgresFqdn string = postgres.properties.fullyQualifiedDomainName
-// After DNS is added (`CNAME motion → ca-imtn-web-{env}.<env-suffix>.azurecontainerapps.io`)
+// After DNS is added (`CNAME motion → ca-controlcraft-web-{env}.<env-suffix>.azurecontainerapps.io`)
 // run:  az containerapp hostname add … --hostname motion.ursly.io --validation-method CNAME
 // then: az containerapp hostname bind … (provisions managed cert).
 // We don't bind in Bicep because the cert provisioning fails if DNS

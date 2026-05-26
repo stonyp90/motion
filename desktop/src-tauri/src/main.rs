@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    imtn_desktop_lib::run();
+    controlcraft_desktop_lib::run();
 }

@@ -4,7 +4,7 @@ import { Footer } from '@/components/Footer';
 
 export const metadata: Metadata = {
   title: 'Privacy',
-  description: 'How IMTN handles your data and uploads.',
+  description: 'How ControlCraft handles your data and uploads.',
 };
 
 /**
@@ -24,7 +24,7 @@ export default function PrivacyPage() {
           <p className="text-sm text-text-tertiary">Effective May 2026</p>
           <div className="mt-10 flex flex-col gap-6 text-base leading-[1.7] text-text-secondary">
             <p>
-              IMTN turns a brief into a finished motion graphic. The principles
+              ControlCraft turns a brief into a finished motion graphic. The principles
               below describe how we handle the data you bring in.
             </p>
             <Section title="What we collect">
@@ -39,17 +39,17 @@ export default function PrivacyPage() {
               We do not move uploads off your tenant or share them with third parties.
             </Section>
             <Section title="Generated assets">
-              Animations and videos produced by IMTN live alongside their session
+              Animations and videos produced by ControlCraft live alongside their session
               workspace. You can export them locally; nothing is published or shared
               automatically.
             </Section>
             <Section title="Retention">
               Session workspaces follow your tenant&apos;s retention policy and may
               be cleared at any time. Long-term assets should live in your DAM,
-              not IMTN.
+              not ControlCraft.
             </Section>
             <Section title="Contact">
-              Questions or deletion requests: <a className="text-text-accent underline-offset-2 hover:underline" href="mailto:hello@imtn.io">hello@imtn.io</a>.
+              Questions or deletion requests: <a className="text-text-accent underline-offset-2 hover:underline" href="mailto:hello@controlcraft.io">hello@controlcraft.io</a>.
             </Section>
           </div>
         </div>

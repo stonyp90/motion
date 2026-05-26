@@ -223,7 +223,7 @@ export function ProcessDemo() {
 
   return (
     <section
-      aria-label="IMTN process demo"
+      aria-label="ControlCraft process demo"
       className="mx-auto w-full max-w-3xl"
     >
       {/* Phase rail */}

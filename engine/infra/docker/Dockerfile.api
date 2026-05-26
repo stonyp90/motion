@@ -6,7 +6,7 @@
 #       -f infra/docker/Dockerfile.api .
 
 # ---- builder ----
-FROM rust:1.95-slim-bookworm AS builder
+FROM public.ecr.aws/docker/library/rust:1.95-slim-bookworm AS builder
 WORKDIR /src
 
 # Cache the dependency layer. `cmake`, `clang`, and `build-essential` are
@@ -23,7 +23,7 @@ COPY themes ./themes
 RUN cargo build --release --bin motion-forge
 
 # ---- runtime ----
-FROM debian:bookworm-slim AS runtime
+FROM public.ecr.aws/docker/library/debian:bookworm-slim AS runtime
 WORKDIR /app
 
 # Only the ffmpeg binary — no libav*-dev needed; we use ffmpeg-sidecar.

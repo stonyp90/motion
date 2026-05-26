@@ -1,8 +1,8 @@
 {
-  "realm": "motion-forge",
+  "realm": "controlcraft",
   "enabled": true,
-  "displayName": "motion-forge",
-  "displayNameHtml": "<strong>motion-forge</strong>",
+  "displayName": "ControlCraft",
+  "displayNameHtml": "<strong>ControlCraft</strong>",
   "registrationAllowed": false,
   "rememberMe": true,
   "verifyEmail": false,

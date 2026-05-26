@@ -1,4 +1,4 @@
-# Contributing to IMTN
+# Contributing to ControlCraft
 
 Thanks for opening a PR. This document is the operational contract: prerequisites, bootstrap, conventions, the PR checklist CI enforces. Read it once, then keep it open the first time you push.
 
@@ -37,7 +37,7 @@ cd web && npm ci && cd ..
 docker compose up -d
 
 # 4. Wait for Keycloak to import the realm (about 30 s on a cold image).
-#    `docker logs -f imtn-keycloak` exits when the import is done.
+#    `docker logs -f controlcraft-keycloak` exits when the import is done.
 
 # 5. Run the web app.
 cd web && npm run dev

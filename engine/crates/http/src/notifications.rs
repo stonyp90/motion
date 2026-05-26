@@ -263,19 +263,19 @@ pub fn email_service_from_env() -> Arc<dyn EmailService> {
         Ok("ses") => {
             let region = std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".into());
             let from = std::env::var("MOTION_FORGE_EMAIL_FROM")
-                .unwrap_or_else(|_| "noreply@imtn.io".into());
+                .unwrap_or_else(|_| "noreply@controlcraft.io".into());
             Arc::new(SesEmailService { region, from })
         }
         Ok("sendgrid") => Arc::new(SendgridEmailService {
             api_key: std::env::var("SENDGRID_API_KEY").unwrap_or_default(),
             from: std::env::var("MOTION_FORGE_EMAIL_FROM")
-                .unwrap_or_else(|_| "noreply@imtn.io".into()),
+                .unwrap_or_else(|_| "noreply@controlcraft.io".into()),
         }),
         Ok("azure") => Arc::new(AzureCommsEmailService {
             endpoint: std::env::var("AZURE_COMMS_ENDPOINT").unwrap_or_default(),
             access_key: std::env::var("AZURE_COMMS_KEY").unwrap_or_default(),
             from: std::env::var("MOTION_FORGE_EMAIL_FROM")
-                .unwrap_or_else(|_| "noreply@imtn.io".into()),
+                .unwrap_or_else(|_| "noreply@controlcraft.io".into()),
         }),
         _ => Arc::new(StubEmailService),
     }

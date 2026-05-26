@@ -126,7 +126,7 @@ export function LoginForm({ searchParamsPromise }: Props) {
         </form>
 
         <p className="mt-6 text-center text-sm text-text-secondary">
-          New to IMTN?{' '}
+          New to ControlCraft?{' '}
           <Link
             href={(`/signup${sp.next ? `?next=${encodeURIComponent(sp.next)}` : ''}`) as never}
             className="font-medium text-text-accent underline-offset-2 hover:underline"

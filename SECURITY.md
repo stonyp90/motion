@@ -2,10 +2,10 @@
 
 ## Reporting a vulnerability
 
-If you've found a vulnerability in IMTN, please report it
+If you've found a vulnerability in ControlCraft, please report it
 **privately** so we can fix it before public disclosure.
 
-**Email**: `security@imtn.io`
+**Email**: `security@controlcraft.io`
 
 **PGP**: not yet published; encrypt to the email address using
 [age](https://github.com/FiloSottile/age) if you want at-rest
@@ -57,7 +57,7 @@ in the GHSA advisory and release notes unless they prefer anonymity.
 
 ## Supported versions
 
-IMTN is pre-1.0; only the latest `main` is supported. Once
+ControlCraft is pre-1.0; only the latest `main` is supported. Once
 we cut `1.0`, we'll support the current major + previous major for
 security patches.
 

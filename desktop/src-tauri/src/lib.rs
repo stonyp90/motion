@@ -121,7 +121,7 @@ pub fn run() {
                 frontend.parse().expect("static frontend URL parses")
             });
             WebviewWindowBuilder::new(app, "main", WebviewUrl::External(parsed))
-                .title("IMTN")
+                .title("ControlCraft")
                 .inner_size(1440.0, 900.0)
                 .min_inner_size(1024.0, 640.0)
                 .resizable(true)
@@ -312,6 +312,6 @@ fn frontend_url() -> String {
     } else {
         // Prod default — overridable via env so internal testers can
         // pin a staging URL without rebuilding.
-        std::env::var("MOTION_FORGE_FRONTEND_URL").unwrap_or_else(|_| "https://imtn.io".into())
+        std::env::var("MOTION_FORGE_FRONTEND_URL").unwrap_or_else(|_| "https://controlcraft.io".into())
     }
 }

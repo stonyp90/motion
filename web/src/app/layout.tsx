@@ -12,7 +12,7 @@ const inter = Inter({
   variable: '--font-sans',
 });
 
-// Display font — Space Grotesk for the IMTN wordmark and section
+// Display font — Space Grotesk for the ControlCraft wordmark and section
 // headlines. Geometric, slightly mechanical, reads premium-tech at
 // large sizes. Pairs cleanly with Inter (matching x-height) so the
 // type system stays cohesive.
@@ -39,15 +39,15 @@ const themeFoucScript = `
 `;
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://imtn.io'),
+  metadataBase: new URL('https://controlcraft.io'),
   title: {
-    default: 'IMTN — prompt-based motion graphics',
-    template: '%s · IMTN',
+    default: 'ControlCraft — prompt-based motion graphics',
+    template: '%s · ControlCraft',
   },
   description:
     'Type a prompt, get a motion graphic. Local engine + local models, no cloud round-trip. 90s first render, sub-second iterations.',
   openGraph: {
-    title: 'IMTN — prompt-based motion graphics',
+    title: 'ControlCraft — prompt-based motion graphics',
     description:
       'Type a prompt, get a motion graphic. Local engine + local models, no cloud round-trip. 90s first render, sub-second iterations.',
     type: 'website',

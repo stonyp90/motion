@@ -32,11 +32,11 @@ export function DocsViewer({
           servers: [
             {
               url: engineBase,
-              description: 'IMTN engine (local dev)',
+              description: 'ControlCraft engine (local dev)',
             },
             {
-              url: 'https://api.imtn.io',
-              description: 'IMTN engine (production)',
+              url: 'https://api.controlcraft.io',
+              description: 'ControlCraft engine (production)',
             },
           ],
         }}

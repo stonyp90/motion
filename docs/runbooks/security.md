@@ -1,4 +1,4 @@
-# IMTN Security Runbook
+# ControlCraft Security Runbook
 
 How we authenticate, what we log, how secrets enter the system,
 and what to do when a credential leaks. Engineer-facing; the
@@ -34,10 +34,10 @@ outside the workspace.
 
 ```bash
 # Engine
-KEYCLOAK_ISSUER=https://auth.imtn.io/realms/motion-forge
+KEYCLOAK_ISSUER=https://auth.controlcraft.io/realms/motion-forge
 KEYCLOAK_AUDIENCE=motion-forge-web,motion-forge-engine
-MOTION_FORGE_ALLOWED_ORIGINS=https://imtn.io,https://app.imtn.io
-MOTION_FORGE_DATA_DIR=/var/lib/imtn
+MOTION_FORGE_ALLOWED_ORIGINS=https://controlcraft.io,https://app.controlcraft.io
+MOTION_FORGE_DATA_DIR=/var/lib/controlcraft
 MOTION_FORGE_EMAIL_BACKEND=ses        # or sendgrid / azure / stub
 
 # Engine — DEV ONLY, do NOT set in prod
@@ -55,7 +55,7 @@ they're consumed:
 | `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` | `azure-deploy.yml` + `web-deploy-azure.yml` | Entra app registration → see "Federated identity" below |
 | ~~`VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`~~ | _superseded_ — web moved to Azure Container Apps 2026-05; see `web-deploy.yml` header for rollback path | n/a |
 | `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | `desktop-release.yml` | Apple Developer Program → Certificates + App-specific password |
-| `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | `desktop-release.yml` | `cd desktop && npx tauri signer generate -w ~/.tauri/imtn.key` |
+| `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | `desktop-release.yml` | `cd desktop && npx tauri signer generate -w ~/.tauri/controlcraft.key` |
 | `KEYCLOAK_*` | `azure-deploy.yml` smoke step | Realm export from prod Keycloak |
 
 ### Azure federated identity (one-time setup)
@@ -65,8 +65,8 @@ secret stored in GH. The flow:
 
 ```bash
 # 1. Pick a service principal (or create one).
-APP_ID=$(az ad app list --display-name imtn-github-deploy --query "[0].appId" -o tsv)
-[ -z "$APP_ID" ] && APP_ID=$(az ad app create --display-name imtn-github-deploy --query appId -o tsv)
+APP_ID=$(az ad app list --display-name controlcraft-github-deploy --query "[0].appId" -o tsv)
+[ -z "$APP_ID" ] && APP_ID=$(az ad app create --display-name controlcraft-github-deploy --query appId -o tsv)
 az ad sp create --id "$APP_ID" 2>/dev/null || true
 
 # 2. Federate it against this repo + the `dev` environment.
@@ -106,11 +106,11 @@ than red — but the deploy doesn't happen until the credential exists.
 
 ```bash
 cd desktop
-npx tauri signer generate -w ~/.tauri/imtn.key
-# → prints public key + writes private key to ~/.tauri/imtn.key
+npx tauri signer generate -w ~/.tauri/controlcraft.key
+# → prints public key + writes private key to ~/.tauri/controlcraft.key
 # Public key goes into `tauri.conf.json` → plugins.updater.pubkey.
 # Private key + password go into GH Secrets:
-gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/imtn.key
+gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/controlcraft.key
 gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --body "<the password you set>"
 ```
 
@@ -129,7 +129,7 @@ gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --body "<the password you set>"
    - GitHub: Settings → Audit log → filter on the actor
 3. **Notify.** If customer data may have been touched, file an
    incident under `incidents/YYYY-MM-DD-<slug>.md` and email
-   `security@imtn.io`.
+   `security@controlcraft.io`.
 
 ## Why we don't accept credentials over chat / email / Slack
 

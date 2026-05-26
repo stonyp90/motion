@@ -1,10 +1,10 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "IMTN",
+  "productName": "ControlCraft",
   "version": "0.1.0",
-  "identifier": "io.imtn.desktop",
+  "identifier": "io.controlcraft.desktop",
   "build": {
-    "frontendDist": "https://imtn.io",
+    "frontendDist": "https://controlcraft.io",
     "devUrl": "http://localhost:3010"
   },
   "app": {
@@ -18,8 +18,8 @@
     "targets": "all",
     "category": "DeveloperTool",
     "shortDescription": "Motion graphics from a prompt — local engine + local models",
-    "longDescription": "IMTN runs the motion-forge prompt-to-Lottie pipeline on your machine with bundled engine and Ollama sidecars. No cloud round-trip required.",
-    "copyright": "Copyright (c) 2026 IMTN",
+    "longDescription": "ControlCraft runs the motion-forge prompt-to-Lottie pipeline on your machine with bundled engine and Ollama sidecars. No cloud round-trip required.",
+    "copyright": "Copyright (c) 2026 ControlCraft",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

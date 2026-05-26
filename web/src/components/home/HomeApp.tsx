@@ -326,7 +326,7 @@ export function HomeApp({ isAuthenticated: _ssrAuth = false }: HomeAppProps = {}
       if (!animation || isExporting) return;
       if (kind === 'lottie') {
         // Local download — no backend required, no auth.
-        downloadJson(clone(animation), `imtn-${Date.now()}.lottie.json`);
+        downloadJson(clone(animation), `controlcraft-${Date.now()}.lottie.json`);
         return;
       }
       // MP4 (and future pack-zip) go through the engine's binary
@@ -353,7 +353,7 @@ export function HomeApp({ isAuthenticated: _ssrAuth = false }: HomeAppProps = {}
         const objectUrl = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = objectUrl;
-        a.download = `imtn-${Date.now()}.${ext}`;
+        a.download = `controlcraft-${Date.now()}.${ext}`;
         document.body.appendChild(a);
         a.click();
         a.remove();
