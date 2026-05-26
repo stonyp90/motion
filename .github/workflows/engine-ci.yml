@@ -88,15 +88,40 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ----------------------------------------------------------------------
+      # Short-circuit: skip ALL setup if no `.hurl` specs exist yet. W26
+      # is supposed to populate engine/tests/api-contract/ — until then,
+      # running the docker compose + cargo build + hurl install is wasted
+      # work, and the `engine/target/release` cargo dir ends up owned by
+      # root after docker mounts the engine directory as a volume, which
+      # then breaks the next cargo build with EACCES.
+      # ----------------------------------------------------------------------
+      - name: Check whether hurl specs are wired
+        id: gate
+        working-directory: engine
+        run: |
+          shopt -s nullglob
+          SPECS=(tests/api-contract/*.hurl)
+          if (( ${#SPECS[@]} == 0 )); then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::no .hurl specs yet — skipping api-contract setup."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install ffmpeg binary
+        if: steps.gate.outputs.skip != 'true'
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
       - uses: dtolnay/rust-toolchain@stable
+        if: steps.gate.outputs.skip != 'true'
       - uses: Swatinem/rust-cache@v2
+        if: steps.gate.outputs.skip != 'true'
         with:
           workspaces: engine
 
       - name: Bring up dependency stack (postgres + keycloak)
+        if: steps.gate.outputs.skip != 'true'
         run: |
           docker compose up -d
           for i in $(seq 1 30); do
@@ -107,9 +132,11 @@ jobs:
           done
 
       - name: Build motion-forge-http
+        if: steps.gate.outputs.skip != 'true'
         run: cargo build -p motion-forge-http --release
 
       - name: Start motion-forge-http
+        if: steps.gate.outputs.skip != 'true'
         env:
           MOTION_FORGE_BIND: 127.0.0.1:8080
           RUST_LOG: info
@@ -126,6 +153,7 @@ jobs:
           curl -sf http://127.0.0.1:8080/healthz || (cat /tmp/motion-forge-http.log; exit 1)
 
       - name: Install hurl
+        if: steps.gate.outputs.skip != 'true'
         run: |
           # Pin a stable version; Trail of Bits release scheme is monotonic.
           HURL_VER=5.0.1
@@ -135,17 +163,14 @@ jobs:
           hurl --version
 
       - name: Run hurl contract suite
+        if: steps.gate.outputs.skip != 'true'
         env:
           API_URL: http://127.0.0.1:8080
         run: |
-          # W26 will populate engine/tests/api-contract/*.hurl. Until then,
-          # this job documents the contract harness without failing CI.
+          # The gate above already verified specs exist — at this point we
+          # always have something to run.
           shopt -s nullglob
           SPECS=(tests/api-contract/*.hurl)
-          if (( ${#SPECS[@]} == 0 )); then
-            echo "::notice::no .hurl specs yet — W26 hasn't merged. Skipping."
-            exit 0
-          fi
           echo "Running ${#SPECS[@]} hurl spec(s)"
           hurl --test \
             --variable "api_url=${API_URL}" \
@@ -153,7 +178,7 @@ jobs:
             "${SPECS[@]}"
 
       - name: Upload hurl report
-        if: always()
+        if: steps.gate.outputs.skip != 'true' && always()
         uses: actions/upload-artifact@v4
         with:
           name: hurl-report
@@ -164,7 +189,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Tear down
-        if: always()
+        if: steps.gate.outputs.skip != 'true' && always()
         run: |
           if [[ -f /tmp/motion-forge-http.pid ]]; then
             kill "$(cat /tmp/motion-forge-http.pid)" 2>/dev/null || true
@@ -199,7 +224,7 @@ jobs:
           cache-to: type=gha,scope=engine-api,mode=max
 
       - name: Trivy scan (HIGH+ fails)
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@0.36.0
         with:
           image-ref: motion-forge-api:ci
           format: sarif
