@@ -49,7 +49,7 @@ export function PreviewFullscreen({ open, onClose, animation }: Props) {
       if (e.key === 'Escape' || e.key === 'f' || e.key === 'F') {
         e.preventDefault();
         onClose();
-      } else if (e.key === ' ') {
+      } else if (e.key === ' ' && animation) {
         e.preventDefault();
         togglePlay();
       }
@@ -62,11 +62,15 @@ export function PreviewFullscreen({ open, onClose, animation }: Props) {
       document.removeEventListener('keydown', handler);
       document.body.style.overflow = prevOverflow;
     };
-  }, [open, onClose]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, onClose, animation]);
 
-  if (!open || !animation) return null;
+  // Allow opening on an empty canvas — Krea / Runway pattern, so users
+  // can see the empty state at full size before they generate anything.
+  if (!open) return null;
 
   const togglePlay = () => {
+    if (!animation) return;
     setIsPlaying((p) => !p);
     const inst = lottieRef.current as { play?: () => void; pause?: () => void } | null;
     if (!inst) return;
@@ -74,10 +78,10 @@ export function PreviewFullscreen({ open, onClose, animation }: Props) {
     else inst.play?.();
   };
 
-  const duration = durationSeconds(animation);
-  const fps = (animation.fr as number | undefined) ?? 30;
-  const width = (animation.w as number | undefined) ?? 1920;
-  const height = (animation.h as number | undefined) ?? 1080;
+  const duration = animation ? durationSeconds(animation) : 0;
+  const fps = (animation?.fr as number | undefined) ?? 30;
+  const width = (animation?.w as number | undefined) ?? 1920;
+  const height = (animation?.h as number | undefined) ?? 1080;
 
   return (
     <div
@@ -108,20 +112,41 @@ export function PreviewFullscreen({ open, onClose, animation }: Props) {
         </div>
       </div>
 
-      {/* Stage — centres the Lottie at its native aspect, letterboxed. */}
+      {/* Stage — centres the Lottie at its native aspect, letterboxed.
+          Renders the same alive empty state as the embedded preview
+          when there's nothing to play yet, so opening fullscreen on
+          a fresh session reads as "your canvas, full size", not as
+          a broken modal. */}
       <div className="flex flex-1 items-center justify-center overflow-hidden p-6">
         <div
           className="relative h-full w-full"
           style={{ aspectRatio: `${width} / ${height}` }}
         >
-          <Lottie
-            animationData={animation}
-            loop
-            autoplay={isPlaying}
-            lottieRef={lottieRef as never}
-            rendererSettings={{ preserveAspectRatio: 'xMidYMid meet' }}
-            style={{ width: '100%', height: '100%' }}
-          />
+          {animation ? (
+            <Lottie
+              animationData={animation}
+              loop
+              autoplay={isPlaying}
+              lottieRef={lottieRef as never}
+              rendererSettings={{ preserveAspectRatio: 'xMidYMid meet' }}
+              style={{ width: '100%', height: '100%' }}
+            />
+          ) : (
+            <div className="grid h-full w-full place-items-center rounded-2xl bg-[radial-gradient(circle_at_30%_30%,rgba(16,185,129,0.10),transparent_60%),radial-gradient(circle_at_70%_70%,rgba(110,231,183,0.08),transparent_55%)]">
+              <div className="flex flex-col items-center gap-4 rounded-2xl border border-white/10 bg-black/30 px-8 py-6 backdrop-blur-md">
+                <span
+                  aria-hidden
+                  className="h-2 w-2 animate-pulse rounded-full bg-accent-400"
+                />
+                <p className="text-base font-semibold text-white/90">
+                  Your motion graphic will appear here
+                </p>
+                <p className="font-mono text-2xs uppercase tracking-[0.18em] text-white/50">
+                  Press Esc to go back and start a brief
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -130,9 +155,10 @@ export function PreviewFullscreen({ open, onClose, animation }: Props) {
         <button
           type="button"
           onClick={togglePlay}
-          className="grid h-10 w-10 place-items-center rounded-full bg-accent-500 text-white transition hover:bg-accent-600"
+          disabled={!animation}
+          className="grid h-10 w-10 place-items-center rounded-full bg-accent-500 text-white transition hover:bg-accent-600 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
           aria-label={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
-          title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
+          title={animation ? (isPlaying ? 'Pause (Space)' : 'Play (Space)') : 'Generate something first'}
         >
           {isPlaying ? (
             <Pause className="h-4 w-4" />
@@ -142,13 +168,19 @@ export function PreviewFullscreen({ open, onClose, animation }: Props) {
         </button>
 
         <div className="flex-1 font-mono text-xs text-white/50">
-          <span className="text-white/80">{duration.toFixed(1)}s</span>
-          <span className="mx-2">·</span>
-          <span>{fps} fps</span>
-          <span className="mx-2">·</span>
-          <span>
-            {width} × {height}
-          </span>
+          {animation ? (
+            <>
+              <span className="text-white/80">{duration.toFixed(1)}s</span>
+              <span className="mx-2">·</span>
+              <span>{fps} fps</span>
+              <span className="mx-2">·</span>
+              <span>
+                {width} × {height}
+              </span>
+            </>
+          ) : (
+            <span className="text-white/40">idle · awaiting first generate</span>
+          )}
         </div>
 
         <button

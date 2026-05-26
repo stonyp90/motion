@@ -19,8 +19,15 @@ export interface TokenUsage {
  * accounting on the wire when the orchestrator captures real usage.
  */
 const MODEL_INFO: Record<ModelChoice, { max: number; perMTok: number; vendor: string; icon: typeof Cpu }> = {
-  'ollama/llava': { max: 4096, perMTok: 0, vendor: 'local', icon: Cpu },
-  'ollama/qwen2.5-vl': { max: 32_768, perMTok: 0, vendor: 'local', icon: Cpu },
+  // Local · vision-capable
+  'ollama/llama3.2-vision:11b': { max: 128_000, perMTok: 0, vendor: 'local', icon: Cpu },
+  'ollama/qwen2-vl:7b': { max: 32_768, perMTok: 0, vendor: 'local', icon: Cpu },
+  'ollama/llava-llama3:8b': { max: 8192, perMTok: 0, vendor: 'local', icon: Cpu },
+  // Local · text-only
+  'ollama/qwen2.5:7b': { max: 32_768, perMTok: 0, vendor: 'local', icon: Cpu },
+  'ollama/gemma2:9b': { max: 8192, perMTok: 0, vendor: 'local', icon: Cpu },
+  'ollama/deepseek-r1:8b': { max: 128_000, perMTok: 0, vendor: 'local', icon: Cpu },
+  // Cloud
   'openai/gpt-4o': { max: 128_000, perMTok: 2.5, vendor: 'cloud', icon: Cloud },
   'openai/gpt-4o-mini': { max: 128_000, perMTok: 0.15, vendor: 'cloud', icon: Cloud },
   'anthropic/claude-sonnet-4': { max: 200_000, perMTok: 3.0, vendor: 'cloud', icon: Brain },

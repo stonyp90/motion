@@ -28,6 +28,7 @@ import {
 import { ModelPicker, type ModelChoice } from './ModelPicker';
 import { TokenUsageChip, type TokenUsage } from './TokenUsageChip';
 import { LocalMetricsChip } from './LocalMetricsChip';
+import { FormatRow } from './FormatRow';
 
 interface HomeAppProps {
   /**
@@ -63,7 +64,10 @@ const FALLBACK_PRESETS: Record<ControlsValue['preset'], string> = {
 };
 
 const DEFAULT_CONTROLS: ControlsValue = {
-  duration: 20,
+  // 30s + Wide 16:9 matches the FormatRow's "Wide" default mapping,
+  // so the LENGTH row lands on the "30s · standard" preset chip
+  // instead of falling through to "20s · custom" on first paint.
+  duration: 30,
   preset: 'corporate',
   aspect: '16:9',
 };
@@ -118,7 +122,7 @@ export function HomeApp({ isAuthenticated: _ssrAuth = false }: HomeAppProps = {}
   const [animation, setAnimation] = useState<LottieJson | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<PendingFile[]>([]);
-  const [model, setModel] = useState<ModelChoice>('ollama/llava');
+  const [model, setModel] = useState<ModelChoice>('ollama/llama3.2-vision:11b');
   // Session work-dir, surfaced by `/v1/uploads` and by every
   // successful generate. Iterate REQUIRES this to refine an existing
   // animation, so we keep it across re-renders and only clear it
@@ -402,6 +406,12 @@ export function HomeApp({ isAuthenticated: _ssrAuth = false }: HomeAppProps = {}
           Let&rsquo;s build.
         </h1>
 
+        {/* Format row — platform-named aspect + length quick-picks.
+            Sits above the prompt so the user makes the visual
+            decision (where this video is going to live) before
+            writing the brief that depends on it. */}
+        <FormatRow value={controls} onChange={setControls} />
+
         <PromptInput
           value={prompt}
           onChange={setPrompt}
@@ -437,9 +447,11 @@ export function HomeApp({ isAuthenticated: _ssrAuth = false }: HomeAppProps = {}
           }
         />
 
-        {/* Meta strip — running session token / context / cost. Sits
-            between the prompt and the example chips so it reads as
-            "for this session" rather than as a per-call indicator. */}
+        {/* Meta strip — running session usage + host metrics. The
+            model label is already visible in the picker chip inside
+            the prompt bar, so this row keeps to numbers only:
+            tokens consumed (TokenUsageChip) + machine health
+            (LocalMetricsChip, click to expand the drawer). */}
         <div className="-mt-3 flex items-center justify-end gap-2 px-1">
           <span className="text-2xs uppercase tracking-[0.14em] text-text-tertiary">
             Session

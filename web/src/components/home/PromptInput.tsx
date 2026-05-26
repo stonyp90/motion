@@ -166,21 +166,37 @@ export function PromptInput({
           {castSlot}
           {voiceSlot}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           {controlsSlot}
+          {/* Generate — primary action. Bigger, brighter, hints at the
+              shortcut when active and at the missing-prompt blocker
+              when disabled. Mirrors Cursor / Lovable / v0's "main
+              CTA" pattern where the button is loud enough to read
+              across the room. */}
           <button
             type="button"
             onClick={onGenerate}
             disabled={!value.trim() || isGenerating}
-            className="inline-flex items-center gap-1.5 rounded-full bg-accent-700 px-4 py-1.5 text-sm font-semibold text-white shadow-card transition hover:bg-accent-800 hover:shadow-glow disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:shadow-none"
+            title={
+              !value.trim()
+                ? 'Write a brief above to generate'
+                : isGenerating
+                  ? 'Generating…'
+                  : 'Generate (⌘ Enter)'
+            }
+            className="group inline-flex items-center gap-2 rounded-full bg-accent-700 px-5 py-2 text-sm font-semibold text-white shadow-card transition-all hover:-translate-y-px hover:bg-accent-800 hover:shadow-glow disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:shadow-none disabled:hover:translate-y-0"
             aria-label="Generate motion graphic"
+            data-testid="generate-button"
           >
             {isGenerating ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              <Sparkles className="h-4 w-4" />
+              <Sparkles className="h-4 w-4 transition-transform group-hover:scale-110" />
             )}
-            {isGenerating ? 'Generating' : 'Generate'}
+            <span>{isGenerating ? 'Generating' : 'Generate'}</span>
+            {!isGenerating && value.trim() && (
+              <span className="hidden font-mono text-2xs opacity-70 sm:inline">⌘⏎</span>
+            )}
           </button>
         </div>
       </div>
