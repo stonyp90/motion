@@ -63,6 +63,10 @@ impl Sidecars {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        // Auto-update plugin — endpoints + pubkey come from
+        // tauri.conf.json. The frontend calls the JS API to check +
+        // install; see web/src/components/UpdateBanner.tsx.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Sidecars::default())
         .setup(|app| {
             if cfg!(debug_assertions) {

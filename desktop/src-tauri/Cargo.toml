@@ -22,5 +22,11 @@ log = "0.4"
 tauri = { version = "2.11.2", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-shell = "2"
+# tauri-plugin-updater wires the auto-update flow. The plugin checks
+# `endpoints` from tauri.conf.json on app startup; if a newer version
+# is published it downloads, verifies the signature against `pubkey`,
+# and installs. Signing key is `TAURI_SIGNING_PRIVATE_KEY` (already
+# in GH secrets); generated artifacts get `.sig` siblings in CI.
+tauri-plugin-updater = "2"
 tokio = { version = "1", features = ["full"] }
 rand = "0.8"

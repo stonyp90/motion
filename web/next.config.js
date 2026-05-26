@@ -31,7 +31,7 @@ const SECURITY_HEADERS = [
       "img-src 'self' data: blob: https:",
       "media-src 'self' blob:",
       "font-src 'self' data:",
-      "connect-src 'self' https://api.imtn.io https://api.github.com http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*",
+      "connect-src 'self' https://api.controlcraft.io https://api.github.com http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*",
       "object-src 'none'",
       "base-uri 'self'",
       "form-action 'self'",

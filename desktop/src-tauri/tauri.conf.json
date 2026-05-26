@@ -13,8 +13,18 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://controlcraft.io/api/updater/{{target}}-{{arch}}/{{current_version}}"
+      ],
+      "pubkey": "TODO_TAURI_PUBKEY_REPLACE_BEFORE_RELEASE",
+      "windows": { "installMode": "passive" }
+    }
+  },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "category": "DeveloperTool",
     "shortDescription": "Motion graphics from a prompt — local engine + local models",
