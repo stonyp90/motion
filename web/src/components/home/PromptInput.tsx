@@ -9,6 +9,13 @@ interface Props {
   onGenerate: () => void;
   isGenerating: boolean;
   /**
+   * When true the textarea defaults to a smaller height (2 lines
+   * instead of 4) so the preview below gets more of the viewport.
+   * Toggle this from the parent once an animation exists — the user
+   * is now iterating, not drafting a fresh brief.
+   */
+  compact?: boolean;
+  /**
    * Slot for W2's cast / characters surface (e.g. CastRow). Rendered
    * in the bottom-left of the prompt control row. The home only
    * passes a stub today; W2 swaps in the real component by editing
@@ -44,7 +51,8 @@ interface Props {
   controlsSlot?: ReactNode;
 }
 
-const MIN_HEIGHT = 96; // px — about 4 lines
+const MIN_HEIGHT_FULL = 96; // px — about 4 lines (initial draft state)
+const MIN_HEIGHT_COMPACT = 56; // px — about 2 lines (iteration state, animation already exists)
 const MAX_HEIGHT = 360; // px — cap on autoresize before scroll kicks in
 
 /**
@@ -62,6 +70,7 @@ export function PromptInput({
   onChange,
   onGenerate,
   isGenerating,
+  compact = false,
   castSlot,
   voiceSlot,
   attachSlot,
@@ -75,20 +84,22 @@ export function PromptInput({
   // counter and only treat the surface as "dragging" while > 0.
   const dragDepth = useRef(0);
 
+  const minHeight = compact ? MIN_HEIGHT_COMPACT : MIN_HEIGHT_FULL;
+
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
     // Reset to auto so scrollHeight reflects content, not previous size.
-    // Empty textarea: clamp to MIN_HEIGHT instead of letting it grow to
+    // Empty textarea: clamp to minHeight instead of letting it grow to
     // some quirky scrollHeight default. Filled: grow to fit, cap at MAX.
     el.style.height = 'auto';
     if (!value.trim()) {
-      el.style.height = `${MIN_HEIGHT}px`;
+      el.style.height = `${minHeight}px`;
       return;
     }
-    const next = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, el.scrollHeight));
+    const next = Math.min(MAX_HEIGHT, Math.max(minHeight, el.scrollHeight));
     el.style.height = `${next}px`;
-  }, [value]);
+  }, [value, minHeight]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // ⌘/Ctrl+Enter submits — matches every "AI prompt box" the user
@@ -154,10 +165,14 @@ export function PromptInput({
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
         onPaste={handlePaste}
-        placeholder="Describe what you want to show — a launch teaser, a pricing explainer, a quarterly recap…"
-        rows={4}
-        className="block w-full resize-none overflow-y-auto border-0 bg-transparent px-5 py-4 font-sans text-base leading-relaxed text-text-primary placeholder:font-mono placeholder:text-sm placeholder:text-text-tertiary focus:outline-none"
-        style={{ minHeight: MIN_HEIGHT, maxHeight: MAX_HEIGHT }}
+        placeholder={
+          compact
+            ? 'Refine the animation — change the tagline, swap a scene, retime…'
+            : 'Describe what you want to show — a launch teaser, a pricing explainer, a quarterly recap…'
+        }
+        rows={compact ? 2 : 4}
+        className="block w-full resize-none overflow-y-auto border-0 bg-transparent px-5 py-3 font-sans text-base leading-relaxed text-text-primary placeholder:font-mono placeholder:text-sm placeholder:text-text-tertiary focus:outline-none"
+        style={{ minHeight, maxHeight: MAX_HEIGHT }}
       />
 
       <div className="flex items-center justify-between gap-3 border-t border-border-light px-4 py-2.5">

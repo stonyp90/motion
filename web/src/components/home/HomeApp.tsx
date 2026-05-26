@@ -29,6 +29,7 @@ import { ModelPicker, type ModelChoice } from './ModelPicker';
 import { TokenUsageChip, type TokenUsage } from './TokenUsageChip';
 import { LocalMetricsChip } from './LocalMetricsChip';
 import { FormatRow } from './FormatRow';
+import { IterationRail, type IterationEntry } from './IterationRail';
 
 interface HomeAppProps {
   /**
@@ -120,6 +121,15 @@ export function HomeApp({ isAuthenticated: _ssrAuth = false }: HomeAppProps = {}
   const [controls, setControls] = useState<ControlsValue>(DEFAULT_CONTROLS);
   const [isGenerating, setIsGenerating] = useState(false);
   const [animation, setAnimation] = useState<LottieJson | null>(null);
+  // Per-session generation history. Newest entries are appended;
+  // IterationRail reverses for display so latest reads left-to-right.
+  // Cleared only by reloading the page — we treat the session as the
+  // unit of work, not the individual generation.
+  const [iterations, setIterations] = useState<IterationEntry[]>([]);
+  // Tracks which iteration is on stage so the rail can ring it.
+  // Initially null; bumped when a new generate lands or the user
+  // clicks a thumbnail.
+  const [activeIterationId, setActiveIterationId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<PendingFile[]>([]);
   const [model, setModel] = useState<ModelChoice>('ollama/llama3.2-vision:11b');
@@ -273,6 +283,17 @@ export function HomeApp({ isAuthenticated: _ssrAuth = false }: HomeAppProps = {}
       const json = (await lottieResp.json()) as LottieJson;
       if (!Array.isArray(json.layers)) throw new Error('not a lottie document');
       setAnimation(json);
+      // Append to the iteration rail so the user can rewind to this
+      // exact generation later. `crypto.randomUUID()` is available in
+      // every browser we ship to (Safari ≥15.4, Chrome ≥92, FF ≥95).
+      const entry: IterationEntry = {
+        id: crypto.randomUUID(),
+        prompt,
+        animation: json,
+        ts: Date.now(),
+      };
+      setIterations((prev) => [...prev, entry]);
+      setActiveIterationId(entry.id);
       void model; // model is captured for future engine support; engine ignores it today
     } catch (e) {
       const fb = await loadFallback();
@@ -408,6 +429,11 @@ export function HomeApp({ isAuthenticated: _ssrAuth = false }: HomeAppProps = {}
           onChange={setPrompt}
           onGenerate={handleGenerate}
           isGenerating={isGenerating}
+          // Compact mode kicks in once an animation exists — the user
+          // has shifted from "drafting a brief" (where a tall textarea
+          // helps you spread out) to "iterating on this one" (where
+          // every pixel below should belong to the preview).
+          compact={animation !== null}
           onAttach={(files) =>
             setAttachments((p) => [...p, ...classifyToPending(files)])
           }
@@ -461,6 +487,19 @@ export function HomeApp({ isAuthenticated: _ssrAuth = false }: HomeAppProps = {}
             {error}
           </p>
         )}
+
+        {/* Iteration rail — sits between the prompt and the preview so
+            the user can rewind without losing the brief context above.
+            Hidden by the component itself when iterations are empty. */}
+        <IterationRail
+          iterations={iterations}
+          activeId={activeIterationId}
+          onSelect={(entry) => {
+            setAnimation(entry.animation);
+            setPrompt(entry.prompt);
+            setActiveIterationId(entry.id);
+          }}
+        />
 
         <PreviewFrame
           animation={animation}
