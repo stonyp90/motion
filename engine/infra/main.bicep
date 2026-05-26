@@ -42,6 +42,9 @@ param renderImageTag string = 'latest'
 @description('Postgres Flexible Server admin login (used by Keycloak to write to the realm DB).')
 param postgresAdminLogin string = 'pgadmin'
 
+@description('Region for the Postgres Flexible Server. Defaults to `eastus2` because personal-tier subs are commonly restricted from provisioning PG-FS in `eastus` (LocationIsOfferRestricted error). Cross-region ACA→PG traffic adds ~30 ms but is fine for Keycloak.')
+param postgresLocation string = 'eastus2'
+
 @secure()
 @description('Postgres Flexible Server admin password. Stored in Key Vault on first deploy; downstream resources reference the secret.')
 param postgresAdminPassword string = newGuid()
@@ -438,7 +441,9 @@ resource cosmosDataContributor 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAss
 
 resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2024-11-01-preview' = {
   name: names.postgres
-  location: location
+  // Use the dedicated postgres region (see `postgresLocation` param)
+  // since eastus is offer-restricted for PG-FS on personal subs.
+  location: postgresLocation
   tags: tags
   sku: {
     name: 'Standard_B1ms'
