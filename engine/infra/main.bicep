@@ -39,18 +39,15 @@ param segmentImageTag string = 'latest'
 @description('Image tag for the render job.')
 param renderImageTag string = 'latest'
 
-@description('Postgres Flexible Server admin login (used by Keycloak to write to the realm DB).')
-param postgresAdminLogin string = 'pgadmin'
-
-@description('Region for the Postgres Flexible Server. Defaults to `eastus2` because personal-tier subs are commonly restricted from provisioning PG-FS in `eastus` (LocationIsOfferRestricted error). Cross-region ACA→PG traffic adds ~30 ms but is fine for Keycloak.')
-param postgresLocation string = 'eastus2'
-
-@secure()
-@description('Postgres Flexible Server admin password. Stored in Key Vault on first deploy; downstream resources reference the secret.')
-param postgresAdminPassword string = newGuid()
+// NOTE: `postgresAdminLogin`, `postgresLocation`, `postgresAdminPassword`
+// were removed when Keycloak pivoted to H2-on-Azure-Files because the
+// personal-tier sub is offer-restricted for PG-FS in every region we
+// tried. The Bicep `--parameters postgresAdminPassword=…` in the
+// workflows is now harmless (Bicep ignores unknown params unless
+// `--parameters file.bicepparam` is used, which it isn't here).
 
 @secure()
-@description('Keycloak bootstrap admin password. Stored in Key Vault on first deploy; the Keycloak container reads it from the env via a Container Apps secret.')
+@description('Keycloak bootstrap admin password. Used for the initial /admin login on the master realm; rotate via Keycloak admin UI post-deploy. The Keycloak container reads this from a Container Apps secret reference.')
 param keycloakAdminPassword string = newGuid()
 
 @description('GPU workload-profile SKU for the segment job. Default NC8as-T4 (~$1.20/hr). Requires GPU quota.')
@@ -146,11 +143,10 @@ var names = {
   apiApp:      'ca-mf-api-${env}'
   webApp:      'ca-controlcraft-web-${env}'
   keycloakApp: 'ca-controlcraft-keycloak-${env}'
-  // `-eus2` differentiator so the name doesn't collide with a stale
-  // reservation in eastus from a prior failed deploy. PG-FS keeps a
-  // hidden name lock for ~hours after a failed provision.
-  postgres:    'pg-controlcraft-${env}-eus2-${take(suffix, 8)}'
-  postgresDb:  'keycloak'
+  // Azure Files SMB share that Keycloak's H2 file DB lives on + the
+  // ACA env storage definition that mounts it into the container.
+  keycloakDataShare:   'keycloakdata'
+  keycloakDataStorage: 'keycloak-data'
   segmentJob:  'caj-mf-segment-${env}'
   renderJob:   'caj-mf-render-${env}'
   jobQueue:    'jobs'
@@ -371,6 +367,20 @@ resource modelsShare 'Microsoft.Storage/storageAccounts/fileServices/shares@2024
   }
 }
 
+// SMB share that Keycloak uses for its file-backed H2 database.
+// Mounted at /opt/keycloak/data inside the Keycloak ACA container.
+// Single-replica only (H2 has file locks) — we already run Keycloak
+// at minReplicas=maxReplicas=1, so this is fine. Migrate to a hosted
+// PG when the sub gets PG-FS quota.
+resource keycloakDataShare 'Microsoft.Storage/storageAccounts/fileServices/shares@2024-01-01' = {
+  parent: fileService
+  name: 'keycloakdata'
+  properties: {
+    shareQuota: 16
+    enabledProtocols: 'SMB'
+  }
+}
+
 // ---- cosmos DB (optional) ----
 
 resource cosmos 'Microsoft.DocumentDB/databaseAccounts@2024-11-15' = if (enableCosmos) {
@@ -430,51 +440,20 @@ resource cosmosDataContributor 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAss
   }
 }
 
-// ---- Postgres Flexible Server (Keycloak backing store) ---------------
+// ---- Postgres (deferred) ----------------------------------------------
 //
-// Burstable B1ms is the cheapest tier (~$15/month at 0% util, ~$30 at
-// sustained load). Keycloak with a few thousand users uses well under
-// 1 GB / 1 CPU. Single-zone HA is overkill for dev; flip
-// availabilityZone + zoneRedundant for prod when there are real users.
+// The personal-tier sub is offer-restricted on `Microsoft.DBforPostgreSQL/
+// flexibleServers` in every region we tried (eastus + eastus2). Until
+// the quota request clears, Keycloak runs in dev-file mode (H2) with
+// its data persisted to an Azure Files SMB share (`keycloakdata` above).
 //
-// FirewallRules: AllowAllAzureServices (0.0.0.0/0.0.0.0) opens the
-// server to all Azure IPs — Keycloak's ACA container app connects from
-// within Azure but doesn't have a static egress IP under Consumption.
-// For prod we should switch to Private Endpoint + VNet integration.
-
-resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2024-11-01-preview' = {
-  name: names.postgres
-  // Use the dedicated postgres region (see `postgresLocation` param)
-  // since eastus is offer-restricted for PG-FS on personal subs.
-  location: postgresLocation
-  tags: tags
-  sku: {
-    name: 'Standard_B1ms'
-    tier: 'Burstable'
-  }
-  properties: {
-    version: '16'
-    administratorLogin: postgresAdminLogin
-    administratorLoginPassword: postgresAdminPassword
-    storage: { storageSizeGB: 32, autoGrow: 'Enabled' }
-    backup: { backupRetentionDays: 7, geoRedundantBackup: 'Disabled' }
-    highAvailability: { mode: 'Disabled' }
-    network: { publicNetworkAccess: 'Enabled' }
-    authConfig: { activeDirectoryAuth: 'Disabled', passwordAuth: 'Enabled' }
-  }
-}
-
-resource postgresAllowAzure 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2024-11-01-preview' = {
-  parent: postgres
-  name: 'AllowAllAzureServices'
-  properties: { startIpAddress: '0.0.0.0', endIpAddress: '0.0.0.0' }
-}
-
-resource postgresKcDb 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2024-11-01-preview' = {
-  parent: postgres
-  name: names.postgresDb
-  properties: { charset: 'UTF8', collation: 'en_US.utf8' }
-}
+// Migration path once PG-FS is available:
+//   1. Provision the PG Flexible Server (resource block kept in git
+//      history at commit 26473040511's parent — `git show HEAD~2 -- engine/infra/main.bicep`).
+//   2. Set KC_DB=postgres + KC_DB_URL in the Keycloak app.
+//   3. Run `kc.sh export --realm controlcraft` against the H2 instance,
+//      copy the JSON, run `kc.sh import` against the new PG-backed
+//      instance.
 
 // ---- Redis ----
 
@@ -597,6 +576,25 @@ resource acaStorage 'Microsoft.App/managedEnvironments/storages@2025-01-01' = if
       accessMode: 'ReadOnly'
     }
   }
+}
+
+// SMB-mounted Files share for Keycloak's H2 database. Single replica
+// only — H2 file locking prevents concurrent writers. The storage
+// account key is fetched at deploy time and stored as an ACA env
+// secret; the Keycloak app references this storage by name when it
+// declares its volume.
+resource acaKeycloakStorage 'Microsoft.App/managedEnvironments/storages@2025-01-01' = {
+  parent: acaEnv
+  name: names.keycloakDataStorage
+  properties: {
+    azureFile: {
+      accountName: filesAccount.name
+      accountKey: filesAccount.listKeys().keys[0].value
+      shareName: names.keycloakDataShare
+      accessMode: 'ReadWrite'
+    }
+  }
+  dependsOn: [ keycloakDataShare ]
 }
 
 // ---- mf-api: always-warm axum HTTP service ----
@@ -853,7 +851,6 @@ resource keycloakApp 'Microsoft.App/containerApps@2025-01-01' = {
       ]
       secrets: [
         { name: 'kc-admin-pw', value: keycloakAdminPassword }
-        { name: 'pg-pw',       value: postgresAdminPassword }
       ]
       maxInactiveRevisions: 2
     }
@@ -866,12 +863,10 @@ resource keycloakApp 'Microsoft.App/containerApps@2025-01-01' = {
           // Keycloak idles ~250 MB; 0.5 vCPU / 1 GiB handles ~50 logins/s.
           resources: { cpu: json('0.5'), memory: '1Gi' }
           env: [
-            // DB connection — pgBouncer-style URL pointing at the
-            // Flexible Server with the keycloak database.
-            { name: 'KC_DB',          value: 'postgres' }
-            { name: 'KC_DB_URL',      value: 'jdbc:postgresql://${postgres.properties.fullyQualifiedDomainName}:5432/${names.postgresDb}?sslmode=require' }
-            { name: 'KC_DB_USERNAME', value: postgresAdminLogin }
-            { name: 'KC_DB_PASSWORD', secretRef: 'pg-pw' }
+            // H2 file-backed DB on the Azure Files SMB mount at
+            // /opt/keycloak/data. KC_DB=dev-file is the official
+            // mode for single-replica with persistent state.
+            { name: 'KC_DB', value: 'dev-file' }
             // Bootstrap admin — used only for the first login to the
             // master realm. Rotate via Keycloak's own UI post-deploy.
             { name: 'KC_BOOTSTRAP_ADMIN_USERNAME', value: 'admin' }
@@ -884,6 +879,11 @@ resource keycloakApp 'Microsoft.App/containerApps@2025-01-01' = {
             { name: 'KC_HTTP_ENABLED',     value: 'true' }
             { name: 'KC_HEALTH_ENABLED',   value: 'true' }
             { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
+          ]
+          // Persist the H2 file across container restarts. Without
+          // this, every revision flush wipes the realm + users.
+          volumeMounts: [
+            { volumeName: 'kcdata', mountPath: '/opt/keycloak/data' }
           ]
           probes: [
             // Keycloak's /health endpoints live under /health/{live,ready,started}
@@ -911,17 +911,24 @@ resource keycloakApp 'Microsoft.App/containerApps@2025-01-01' = {
         }
       ]
       scale: {
-        // Single replica: Keycloak supports clustering but it's
-        // overkill for dev. Postgres handles all shared state already.
+        // Single replica is mandatory while we run H2 — the file lock
+        // would prevent any second replica from booting. Migrate to PG
+        // before scaling out.
         minReplicas: 1
         maxReplicas: 1
       }
+      volumes: [
+        {
+          name: 'kcdata'
+          storageType: 'AzureFile'
+          storageName: names.keycloakDataStorage
+        }
+      ]
     }
   }
   dependsOn: [
     acrPullRoleAssignment
-    postgresKcDb
-    postgresAllowAzure
+    acaKeycloakStorage
   ]
 }
 
@@ -1130,7 +1137,7 @@ output apiIngressFqdn string = apiApp.properties.configuration.ingress.fqdn
 output webIngressFqdn string = webApp.properties.configuration.ingress.fqdn
 output keycloakIngressFqdn string = keycloakApp.properties.configuration.ingress.fqdn
 output keycloakIssuer string = 'https://${keycloakApp.properties.configuration.ingress.fqdn}/realms/controlcraft'
-output postgresFqdn string = postgres.properties.fullyQualifiedDomainName
+// Postgres output removed — Keycloak runs on H2 / Azure Files now.
 // After DNS is added (`CNAME motion → ca-controlcraft-web-{env}.<env-suffix>.azurecontainerapps.io`)
 // run:  az containerapp hostname add … --hostname motion.ursly.io --validation-method CNAME
 // then: az containerapp hostname bind … (provisions managed cert).

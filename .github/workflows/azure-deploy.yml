@@ -187,7 +187,7 @@ jobs:
             --template-file engine/infra/main.bicep \
             --parameters "engine/infra/parameters.dev.bicepparam" \
             --parameters "apiImageTag=${IMAGE_TAG}" "renderImageTag=${IMAGE_TAG}" "keycloakImageTag=${IMAGE_TAG}" \
-            --parameters "keycloakAdminPassword=${{ secrets.KEYCLOAK_ADMIN_PASSWORD }}" "postgresAdminPassword=${{ secrets.POSTGRES_ADMIN_PASSWORD }}" \
+            --parameters "keycloakAdminPassword=${{ secrets.KEYCLOAK_ADMIN_PASSWORD }}" \
             --query "properties.provisioningState" -o tsv
 
       - name: Print Front Door endpoint
@@ -258,7 +258,7 @@ jobs:
             --template-file engine/infra/main.bicep \
             --parameters "engine/infra/parameters.prod.bicepparam" \
             --parameters "apiImageTag=${IMAGE_TAG}" "renderImageTag=${IMAGE_TAG}" "keycloakImageTag=${IMAGE_TAG}" \
-            --parameters "keycloakAdminPassword=${{ secrets.KEYCLOAK_ADMIN_PASSWORD }}" "postgresAdminPassword=${{ secrets.POSTGRES_ADMIN_PASSWORD }}" \
+            --parameters "keycloakAdminPassword=${{ secrets.KEYCLOAK_ADMIN_PASSWORD }}" \
             --query "properties.provisioningState" -o tsv
 
       - name: Resolve prod Front Door endpoint
