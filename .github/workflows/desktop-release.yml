@@ -142,15 +142,27 @@ jobs:
         working-directory: desktop
         shell: bash
         env:
+          # Tauri Updater signing — gracefully no-ops when empty.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          # macOS code-signing — only enter this block when the
+          # APPLE_CERTIFICATE secret is actually populated. Passing
+          # an empty string up to Tauri triggers `security import`
+          # against an empty file, which fails the whole bundle.
+          # Linux + Windows skip the block entirely.
+          if [ -n "${{ secrets.APPLE_CERTIFICATE }}" ]; then
+            echo "::group::macOS code-signing enabled"
+            export APPLE_CERTIFICATE="${{ secrets.APPLE_CERTIFICATE }}"
+            export APPLE_CERTIFICATE_PASSWORD="${{ secrets.APPLE_CERTIFICATE_PASSWORD }}"
+            export APPLE_SIGNING_IDENTITY="${{ secrets.APPLE_SIGNING_IDENTITY }}"
+            export APPLE_ID="${{ secrets.APPLE_ID }}"
+            export APPLE_PASSWORD="${{ secrets.APPLE_PASSWORD }}"
+            export APPLE_TEAM_ID="${{ secrets.APPLE_TEAM_ID }}"
+            echo "::endgroup::"
+          else
+            echo "::notice::APPLE_CERTIFICATE secret not set — building unsigned. Users will see a Gatekeeper warning on first launch; right-click → Open to bypass."
+          fi
           npx tauri build \
             --target ${{ matrix.target }} \
             --bundles ${{ matrix.bundles }} \
