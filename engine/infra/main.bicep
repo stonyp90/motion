@@ -132,7 +132,11 @@ var names = {
   workdirContainer: 'workdirs'
   fdProfile:   'fd-mf-${env}-${suffix}'
   fdEndpoint:  'mf-${env}-${suffix}'
-  fdEndpointWeb: 'imtn-${env}-${suffix}'
+  // No `fdEndpointWeb` — the web is served straight off its ACA
+  // ingress (ACA provides automatic TLS for `*.azurecontainerapps.io`
+  // and binds custom domains via `az containerapp hostname add` with
+  // a free managed cert). AFD added latency + cost without a payoff
+  // for this surface; revive if/when we need WAF or edge cache.
 }
 
 // ---- identity ----
@@ -545,14 +549,16 @@ resource apiApp 'Microsoft.App/containerApps@2025-01-01' = {
         transport: 'auto'
         allowInsecure: false
         traffic: [ { latestRevision: true, weight: 100 } ]
-        // CORS allowlist = static origins from the `corsAllowedOrigins`
-        // param + the web Front Door endpoint we computed below.
-        // `union` dedupes if someone manually added the FD URL too.
-        // Never ship `['*']` to production — SOC 2 CC6 considers it broken.
+        // CORS allowlist = static origins from `corsAllowedOrigins`
+        // (includes https://motion.ursly.io) + the ACA web ingress
+        // hostname itself so browser-side calls work whether the user
+        // hits the custom domain or the raw `*.azurecontainerapps.io`
+        // URL. Never ship `['*']` to production — SOC 2 CC6 considers
+        // it broken.
         corsPolicy: {
           allowedOrigins: union(
             corsAllowedOrigins,
-            [ 'https://${fdEndpointWeb.properties.hostName}' ]
+            [ 'https://${webApp.properties.configuration.ingress.fqdn}' ]
           )
           allowedMethods: [ 'GET', 'POST', 'OPTIONS' ]
           allowedHeaders: [ 'authorization', 'content-type', 'accept', 'origin' ]
@@ -913,92 +919,16 @@ resource fdRoute 'Microsoft.Cdn/profiles/afdEndpoints/routes@2024-09-01' = {
   dependsOn: [ fdOrigin ]
 }
 
-// ---- Front Door: web endpoint + origin + route -----------------------
-//
-// Separate endpoint from the API on purpose — clean separation lets
-// each surface get its own custom domain + WAF policy without rule
-// gymnastics. The endpoint name `imtn-{env}-{suffix}` is what DNS
-// CNAMEs to (e.g. `imtn.io → imtn-prod-xyz.z01.azurefd.net`).
-
-resource fdEndpointWeb 'Microsoft.Cdn/profiles/afdEndpoints@2024-09-01' = {
-  parent: fdProfile
-  name: names.fdEndpointWeb
-  location: 'global'
-  tags: tags
-  properties: { enabledState: 'Enabled' }
-}
-
-resource fdOriginGroupWeb 'Microsoft.Cdn/profiles/originGroups@2024-09-01' = {
-  parent: fdProfile
-  name: 'web-origins'
-  properties: {
-    loadBalancingSettings: { sampleSize: 4, successfulSamplesRequired: 3 }
-    healthProbeSettings: {
-      // Next standalone returns 200 on `/` even for unauthenticated
-      // visitors (it's the hero / sign-in page) — cheaper + more
-      // reliable than wiring a dedicated /_health endpoint.
-      probePath: '/'
-      probeRequestType: 'HEAD'
-      probeProtocol: 'Https'
-      probeIntervalInSeconds: 30
-    }
-  }
-}
-
-resource fdOriginWeb 'Microsoft.Cdn/profiles/originGroups/origins@2024-09-01' = {
-  parent: fdOriginGroupWeb
-  name: 'aca-web'
-  properties: {
-    hostName: webApp.properties.configuration.ingress.fqdn
-    originHostHeader: webApp.properties.configuration.ingress.fqdn
-    httpsPort: 443
-    httpPort: 80
-    priority: 1
-    weight: 1000
-    enabledState: 'Enabled'
-    enforceCertificateNameCheck: true
-  }
-}
-
-resource fdRouteWeb 'Microsoft.Cdn/profiles/afdEndpoints/routes@2024-09-01' = {
-  parent: fdEndpointWeb
-  name: 'default'
-  properties: {
-    originGroup: { id: fdOriginGroupWeb.id }
-    supportedProtocols: [ 'Https' ]
-    patternsToMatch: [ '/*' ]
-    forwardingProtocol: 'HttpsOnly'
-    httpsRedirect: 'Enabled'
-    linkToDefaultDomain: 'Enabled'
-    cacheConfiguration: {
-      // Next sets its own Cache-Control headers per route (immutable
-      // chunks, no-store for SSR). IgnoreQueryString lets AFD cache
-      // static assets without query-string permutations.
-      queryStringCachingBehavior: 'IgnoreQueryString'
-      compressionSettings: {
-        contentTypesToCompress: [
-          'application/javascript'
-          'application/json'
-          'application/xml'
-          'image/svg+xml'
-          'text/css'
-          'text/html'
-          'text/javascript'
-          'text/plain'
-        ]
-        isCompressionEnabled: true
-      }
-    }
-  }
-  dependsOn: [ fdOriginWeb ]
-}
-
 // ---- outputs ----
 
 output frontDoorEndpoint string = 'https://${fdEndpoint.properties.hostName}'
-output frontDoorEndpointWeb string = 'https://${fdEndpointWeb.properties.hostName}'
 output apiIngressFqdn string = apiApp.properties.configuration.ingress.fqdn
 output webIngressFqdn string = webApp.properties.configuration.ingress.fqdn
+// After DNS is added (`CNAME motion → ca-imtn-web-{env}.<env-suffix>.azurecontainerapps.io`)
+// run:  az containerapp hostname add … --hostname motion.ursly.io --validation-method CNAME
+// then: az containerapp hostname bind … (provisions managed cert).
+// We don't bind in Bicep because the cert provisioning fails if DNS
+// isn't already in place — chicken-and-egg.
 output acrLoginServer string = acr.properties.loginServer
 output blobAccountName string = storage.name
 output cosmosEndpoint string = enableCosmos ? cosmos.properties.documentEndpoint : ''

@@ -149,35 +149,38 @@ jobs:
             --parameters "webImageTag=${IMAGE_TAG}" \
             --query "properties.provisioningState" -o tsv
 
-      - name: Print web Front Door endpoint
+      - name: Print web ACA endpoint
         id: summary
         run: |
-          FD_PROFILE=$(az afd profile list -g "rg-motion-forge-dev" --query '[0].name' -o tsv)
-          # Endpoint name pattern matches `imtn-{env}-{suffix}` from
-          # main.bicep names.fdEndpointWeb. Filter on the imtn- prefix.
-          FD=$(az afd endpoint list --profile-name "$FD_PROFILE" -g "rg-motion-forge-dev" \
-            --query "[?starts_with(name, 'imtn-')] | [0].hostName" -o tsv)
-          echo "url=https://${FD}" >> "$GITHUB_OUTPUT"
+          # Web is served directly from the ACA ingress hostname —
+          # ACA provides automatic TLS for the *.azurecontainerapps.io
+          # cert. Custom domains (e.g. motion.ursly.io) bind via
+          # `az containerapp hostname add` after DNS is in place.
+          ACA=$(az containerapp show -g "rg-motion-forge-dev" -n ca-imtn-web-dev \
+            --query 'properties.configuration.ingress.fqdn' -o tsv)
+          echo "url=https://${ACA}" >> "$GITHUB_OUTPUT"
           {
             echo "## imtn web · dev deploy"
             echo "* Image tag: \`${IMAGE_TAG}\`"
-            echo "* Front Door: https://${FD}"
+            echo "* ACA ingress: https://${ACA}"
+            echo ""
+            echo "Custom domain: bind motion.ursly.io once DNS resolves —"
+            echo "see engine/infra/main.bicep webApp comment for the recipe."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Post-deploy smoke (dev)
         run: |
-          FD_PROFILE=$(az afd profile list -g "rg-motion-forge-dev" --query '[0].name' -o tsv)
-          FD=$(az afd endpoint list --profile-name "$FD_PROFILE" -g "rg-motion-forge-dev" \
-            --query "[?starts_with(name, 'imtn-')] | [0].hostName" -o tsv)
+          ACA=$(az containerapp show -g "rg-motion-forge-dev" -n ca-imtn-web-dev \
+            --query 'properties.configuration.ingress.fqdn' -o tsv)
           for _i in $(seq 1 30); do
-            CODE=$(curl -sf -o /dev/null -w '%{http_code}' "https://${FD}/" 2>/dev/null || echo "000")
+            CODE=$(curl -sf -o /dev/null -w '%{http_code}' "https://${ACA}/" 2>/dev/null || echo "000")
             if [[ "$CODE" == "200" || "$CODE" == "307" || "$CODE" == "302" ]]; then
-              echo "web up (HTTP $CODE)"; exit 0
+              echo "web up (HTTP $CODE) at https://${ACA}"; exit 0
             fi
             echo "waiting (HTTP $CODE, attempt $_i)"
             sleep 6
           done
-          echo "::error::web Front Door smoke failed after retries"
+          echo "::error::web ACA ingress smoke failed after retries"
           exit 1
 
   # --------------------------------------------------------------------------
@@ -214,17 +217,14 @@ jobs:
             --parameters "webImageTag=${IMAGE_TAG}" \
             --query "properties.provisioningState" -o tsv
 
-      - name: Resolve prod Front Door endpoint
+      - name: Resolve prod web ACA endpoint
         id: summary
         run: |
-          FD_PROFILE=$(az afd profile list -g "rg-motion-forge-prod" --query '[0].name' -o tsv)
-          FD=$(az afd endpoint list --profile-name "$FD_PROFILE" -g "rg-motion-forge-prod" \
-            --query "[?starts_with(name, 'imtn-')] | [0].hostName" -o tsv)
-          {
-            echo "url=https://${FD}"
-          } >> "$GITHUB_OUTPUT"
+          ACA=$(az containerapp show -g "rg-motion-forge-prod" -n ca-imtn-web-prod \
+            --query 'properties.configuration.ingress.fqdn' -o tsv)
+          echo "url=https://${ACA}" >> "$GITHUB_OUTPUT"
           {
             echo "## imtn web · prod deploy"
             echo "* Image tag: \`${IMAGE_TAG}\`"
-            echo "* Front Door: https://${FD}"
+            echo "* ACA ingress: https://${ACA}"
           } >> "$GITHUB_STEP_SUMMARY"
