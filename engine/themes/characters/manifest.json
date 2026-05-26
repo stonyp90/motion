@@ -36,7 +36,7 @@
     {
       "id": "generic-product",
       "name": "Product",
-      "archetype": "product",
+      "archetype": "product-icon",
       "file": "generic-product.json",
       "default_scale": 0.7,
       "preferred_y": 0.6

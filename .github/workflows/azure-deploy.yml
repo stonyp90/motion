@@ -51,16 +51,71 @@ jobs:
     timeout-minutes: 30
     outputs:
       image_tag: ${{ env.IMAGE_TAG }}
+      skip: ${{ steps.preflight.outputs.skip }}
     steps:
       - uses: actions/checkout@v4
 
+      # ----------------------------------------------------------------------
+      # Pre-flight: validate that the AZURE_* secrets exist AND that the
+      # Entra app registration has a federated credential for this repo +
+      # environment. The latter cannot be checked from inside the job
+      # (it requires Microsoft Graph access), so we proxy via the actual
+      # azure/login step: if it fails with AADSTS700213 the deploy is
+      # blocked on a one-time Entra portal step the maintainer must run.
+      #
+      # Setup recipe (run once per environment, dev + prod):
+      #   az ad app federated-credential create --id <APP_OBJECT_ID> \
+      #     --parameters '{
+      #       "name": "github-stonyp90-motion-dev",
+      #       "issuer": "https://token.actions.githubusercontent.com",
+      #       "subject": "repo:stonyp90/motion:environment:dev",
+      #       "audiences": ["api://AzureADTokenExchange"]
+      #     }'
+      #
+      # See docs/runbooks/security.md → "Azure OIDC federated identity"
+      # for the full walkthrough including the prod variant.
+      # ----------------------------------------------------------------------
+      - name: Pre-flight (AZURE_* secrets present)
+        id: secrets
+        env:
+          AZURE_CLIENT_ID:        ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID:        ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID:  ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          if [[ -z "$AZURE_CLIENT_ID" || -z "$AZURE_TENANT_ID" || -z "$AZURE_SUBSCRIPTION_ID" ]]; then
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::AZURE_* secrets missing; skipping Azure deploy."
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: azure/login@v2
+        if: steps.secrets.outputs.ok == 'true'
+        # AADSTS700213 → missing federated credential in Entra for this
+        # repo+env subject. continue-on-error keeps the run amber rather
+        # than red; the `gate` step below merges secret + login state
+        # into a single `skip` output the downstream jobs read.
+        continue-on-error: true
+        id: login
         with:
           client-id:       ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Compute final skip flag
+        id: preflight
+        run: |
+          if [[ "${{ steps.secrets.outputs.ok }}" != "true" ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ steps.login.outcome }}" == "failure" ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::azure/login failed — likely missing OIDC federated credential for repo:stonyp90/motion:environment:dev. See docs/runbooks/security.md → 'Azure OIDC federated identity'."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Resolve dev ACR (image registry)
+        if: steps.preflight.outputs.skip != 'true'
         id: discover
         run: |
           RG="rg-motion-forge-dev"
@@ -73,6 +128,7 @@ jobs:
           echo "acr=${ACR}" >> "$GITHUB_OUTPUT"
 
       - name: Build + push images via ACR Build
+        if: steps.preflight.outputs.skip != 'true'
         run: |
           # API image (Rust) — slow build, ~6 min on ACR
           az acr build --registry ${{ steps.discover.outputs.acr }} \
@@ -98,8 +154,9 @@ jobs:
     name: deploy · dev
     needs: build-images
     if: |
-      github.event_name == 'push' ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.env == 'dev')
+      needs.build-images.outputs.skip != 'true' &&
+      (github.event_name == 'push' ||
+       (github.event_name == 'workflow_dispatch' && github.event.inputs.env == 'dev'))
     runs-on: ubuntu-latest
     environment:
       name: dev
@@ -163,6 +220,7 @@ jobs:
     name: deploy · prod (approval required)
     needs: build-images
     if: |
+      needs.build-images.outputs.skip != 'true' &&
       github.event_name == 'workflow_dispatch' &&
       github.event.inputs.env == 'prod'
     runs-on: ubuntu-latest

@@ -30,8 +30,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use motion_forge_render::OutputFormat;
-use motion_forge_figma::{ImportKind, fetch_frame, parse_figma_url, to_lottie_layer};
+use motion_forge_figma::ImportKind;
 use motion_forge_pipeline::{Composition, GenerateConfig, IterateConfig, Pipeline};
 use motion_forge_prompt_orchestrator::{
     brief::{Brief, parse_brief},
@@ -39,6 +38,7 @@ use motion_forge_prompt_orchestrator::{
     presets::{self, Preset, PresetSummary},
     script_synth::synthesize_script,
 };
+use motion_forge_render::OutputFormat;
 use motion_forge_style_extract::Theme;
 use motion_forge_web_export::{WebExportFormat, export as web_export};
 use serde::{Deserialize, Serialize};
@@ -48,9 +48,9 @@ use std::sync::Arc;
 
 use crate::api_keys::{ApiKeyStore, IssuedApiKey, Tier};
 use crate::auth::{Claims, KeycloakAuthLayer, KeycloakConfig, Principal, PrincipalKind};
-use crate::notifications::{EmailService, EventKind, NotificationPrefs, NotificationPrefsStore};
+use crate::notifications::{EmailService, NotificationPrefs, NotificationPrefsStore};
 use crate::rate_limit::RateLimitLayer;
-use crate::usage::{UsageEvent, UsageLog, UsageReport};
+use crate::usage::{UsageLog, UsageReport};
 use axum::Extension;
 use stt_route::{SttRouteConfig, stt_stream_handler};
 
@@ -70,8 +70,8 @@ pub async fn serve(bind: &str) -> Result<()> {
         .map_err(|e| anyhow::anyhow!("failed to open API key store: {e}"))?;
     let notif_prefs = NotificationPrefsStore::from_env()
         .map_err(|e| anyhow::anyhow!("failed to open notification prefs store: {e}"))?;
-    let usage = UsageLog::from_env()
-        .map_err(|e| anyhow::anyhow!("failed to open usage log: {e}"))?;
+    let usage =
+        UsageLog::from_env().map_err(|e| anyhow::anyhow!("failed to open usage log: {e}"))?;
     let email = notifications::email_service_from_env();
     tracing::info!(
         backend = std::env::var("MOTION_FORGE_EMAIL_BACKEND")
@@ -132,7 +132,10 @@ pub async fn serve(bind: &str) -> Result<()> {
         .route("/v1/api-keys", post(api_keys_issue).get(api_keys_list))
         .route("/v1/api-keys/:id", axum::routing::delete(api_keys_revoke))
         .route("/v1/me", get(me_handler))
-        .route("/v1/me/notifications", get(notifications_get).put(notifications_put))
+        .route(
+            "/v1/me/notifications",
+            get(notifications_get).put(notifications_put),
+        )
         .route("/v1/me/notifications/test", post(notifications_test))
         .route("/v1/me/usage", get(usage_get))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(
@@ -245,13 +248,22 @@ fn build_cors() -> tower_http::cors::CorsLayer {
             header::CONTENT_TYPE,
             header::ACCEPT,
             // Custom auth header — our API-key alternative to Bearer.
-            HeaderValue::from_static("x-api-key").as_bytes().try_into().unwrap(),
+            HeaderValue::from_static("x-api-key")
+                .as_bytes()
+                .try_into()
+                .unwrap(),
         ])
         .expose_headers([
             // Surface rate-limit budget to SDK callers so they can
             // back off without parsing the body.
-            HeaderValue::from_static("x-ratelimit-limit").as_bytes().try_into().unwrap(),
-            HeaderValue::from_static("x-ratelimit-remaining").as_bytes().try_into().unwrap(),
+            HeaderValue::from_static("x-ratelimit-limit")
+                .as_bytes()
+                .try_into()
+                .unwrap(),
+            HeaderValue::from_static("x-ratelimit-remaining")
+                .as_bytes()
+                .try_into()
+                .unwrap(),
         ])
         .max_age(std::time::Duration::from_secs(3600))
 }
@@ -268,10 +280,7 @@ fn is_loopback_bind(bind: &str) -> bool {
 /// Validate a list of paths — applies the same rules as `validate_path`
 /// to each entry. Empty input → empty output (no error).
 fn validate_path_list(items: &[String], label: &str) -> Result<Vec<PathBuf>, ApiError> {
-    items
-        .iter()
-        .map(|s| validate_path(s, label))
-        .collect()
+    items.iter().map(|s| validate_path(s, label)).collect()
 }
 
 fn validate_path(s: &str, label: &str) -> Result<PathBuf, ApiError> {
@@ -367,8 +376,7 @@ async fn generate(
         None => None,
     };
     let reference_images = validate_path_list(&req.reference_images, "reference_images")?;
-    let reference_documents =
-        validate_path_list(&req.reference_documents, "reference_documents")?;
+    let reference_documents = validate_path_list(&req.reference_documents, "reference_documents")?;
     let config = GenerateConfig {
         reference_video,
         prompt: req.prompt,
@@ -436,8 +444,7 @@ async fn iterate(
         None => None,
     };
     let reference_images = validate_path_list(&req.reference_images, "reference_images")?;
-    let reference_documents =
-        validate_path_list(&req.reference_documents, "reference_documents")?;
+    let reference_documents = validate_path_list(&req.reference_documents, "reference_documents")?;
     let config = IterateConfig {
         work_dir,
         prompt: req.prompt,
@@ -546,7 +553,8 @@ async fn binary_export_handler(
     let disposition = format!("attachment; filename=\"motion.{}\"", fmt.extension());
     headers.insert(
         header::CONTENT_DISPOSITION,
-        HeaderValue::from_str(&disposition).unwrap_or_else(|_| HeaderValue::from_static("attachment")),
+        HeaderValue::from_str(&disposition)
+            .unwrap_or_else(|_| HeaderValue::from_static("attachment")),
     );
     tracing::info!(
         format = %fmt.slug(),
@@ -624,8 +632,7 @@ impl Default for Thresholds {
 
 /// Cached system handle so we don't re-spawn /proc readers on every
 /// request. Mutex is cheap relative to a sysinfo refresh.
-static SYS: std::sync::OnceLock<std::sync::Mutex<sysinfo::System>> =
-    std::sync::OnceLock::new();
+static SYS: std::sync::OnceLock<std::sync::Mutex<sysinfo::System>> = std::sync::OnceLock::new();
 
 async fn metrics_handler() -> Json<MetricsSnapshot> {
     use sysinfo::{Pid, ProcessRefreshKind, RefreshKind, System};
@@ -669,7 +676,10 @@ async fn metrics_handler() -> Json<MetricsSnapshot> {
                 rss_bytes: p.memory(),
                 threads: p.tasks().map(|t| t.len() as u32).unwrap_or(1),
             },
-            None => ProcessMetric { rss_bytes: 0, threads: 1 },
+            None => ProcessMetric {
+                rss_bytes: 0,
+                threads: 1,
+            },
         };
         MetricsSnapshot {
             cpu,
@@ -724,7 +734,10 @@ struct IssueApiKeyRequest {
 
 /// Only JWT-authenticated users may manage API keys — an API key
 /// must not be able to mint more API keys (privilege escalation).
-fn require_jwt(claims: Option<&Claims>, principal_kind: Option<&PrincipalKind>) -> Result<String, ApiError> {
+fn require_jwt(
+    claims: Option<&Claims>,
+    principal_kind: Option<&PrincipalKind>,
+) -> Result<String, ApiError> {
     match (claims, principal_kind) {
         (Some(c), Some(PrincipalKind::User)) => Ok(c.sub.clone()),
         _ => Err(ApiError::forbidden(
@@ -880,7 +893,11 @@ async fn notifications_test(
         .ok_or_else(|| ApiError::bad_request("no email on file"))?;
     state
         .email
-        .send(&to, "IMTN — notification test", "Notifications are wired up.")
+        .send(
+            &to,
+            "IMTN — notification test",
+            "Notifications are wired up.",
+        )
         .await
         .map_err(|e| ApiError::internal(e.to_string()))?;
     Ok(Json(serde_json::json!({
@@ -945,7 +962,11 @@ async fn upload_handler(
             .filter(|c| c.is_ascii_alphanumeric())
             .take(8)
             .collect::<String>();
-        let filename = format!("{}.{}", short_id(), if ext.is_empty() { "bin".into() } else { ext });
+        let filename = format!(
+            "{}.{}",
+            short_id(),
+            if ext.is_empty() { "bin".into() } else { ext }
+        );
         let path = dir.join(&filename);
         std::fs::write(&path, &bytes).map_err(ApiError::internal)?;
         let kind = classify(content_type.as_deref(), &filename);

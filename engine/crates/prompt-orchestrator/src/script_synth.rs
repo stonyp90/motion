@@ -158,9 +158,14 @@ mod tests {
             ]
         }"#;
         let backend = MockBackend::new(canned);
-        let brief = synthesize_script(&backend, "Explain Chrono to first-time founders, 60s", 60.0, 3)
-            .await
-            .expect("synth ok");
+        let brief = synthesize_script(
+            &backend,
+            "Explain Chrono to first-time founders, 60s",
+            60.0,
+            3,
+        )
+        .await
+        .expect("synth ok");
 
         assert_eq!(brief.scenes.len(), 3);
         assert_eq!(brief.scenes[0].id, "1.0");

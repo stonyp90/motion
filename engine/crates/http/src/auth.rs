@@ -426,8 +426,9 @@ where
                         req.extensions_mut().insert(principal);
                         return inner.call(req).await;
                     }
-                    return Ok(AuthError::Decode("invalid or revoked API key".into())
-                        .into_response());
+                    return Ok(
+                        AuthError::Decode("invalid or revoked API key".into()).into_response()
+                    );
                 }
             }
 
@@ -536,15 +537,6 @@ fn extract_credential(req: &Request<Body>) -> Result<Credential, AuthError> {
         .trim()
         .to_string();
     Ok(Credential::Bearer(token))
-}
-
-/// Back-compat wrapper used by tests that predate `extract_credential`.
-#[cfg(test)]
-fn extract_bearer(req: &Request<Body>) -> Result<String, AuthError> {
-    match extract_credential(req)? {
-        Credential::Bearer(s) => Ok(s),
-        Credential::ApiKey(_) => Err(AuthError::Malformed("expected Authorization: Bearer".into())),
-    }
 }
 
 #[cfg(test)]

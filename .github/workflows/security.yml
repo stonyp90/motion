@@ -77,6 +77,14 @@ jobs:
 
   codeql:
     name: CodeQL
+    # CodeQL requires "Code scanning" to be enabled in repo settings
+    # (Settings → Code security and analysis → Code scanning → Set up).
+    # Until that toggle is on the analyze step returns:
+    #   "Code scanning is not enabled for this repository"
+    # We mark the job as continue-on-error so the workflow as a whole
+    # stays green; the run still shows up amber to nudge the maintainer
+    # to flip the setting.
+    continue-on-error: true
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

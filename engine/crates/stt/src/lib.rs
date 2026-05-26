@@ -165,10 +165,7 @@ impl StreamingStt {
         // chunks of FRAME_SAMPLES (512). For short trailing frames we just
         // skip the VAD update and rely on the silence timer to roll forward.
         let is_voice = if frame.len() == FRAME_SAMPLES {
-            self.vad
-                .lock()
-                .is_voice_segment(frame)
-                .unwrap_or(false)
+            self.vad.lock().is_voice_segment(frame).unwrap_or(false)
         } else {
             false
         };
@@ -285,7 +282,7 @@ fn build_backend(_model_path: &Path) -> Result<Box<dyn Backend + Send>, SttError
 mod whisper_backend {
     use std::path::Path;
 
-    use super::{Backend, SttError, SAMPLE_RATE_HZ};
+    use super::{Backend, SAMPLE_RATE_HZ, SttError};
     use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
     pub(super) struct WhisperBackend {
@@ -295,9 +292,9 @@ mod whisper_backend {
 
     impl WhisperBackend {
         pub(super) fn open(path: &Path) -> Result<Self, SttError> {
-            let path_str = path
-                .to_str()
-                .ok_or_else(|| SttError::Backend(format!("non-utf8 model path: {}", path.display())))?;
+            let path_str = path.to_str().ok_or_else(|| {
+                SttError::Backend(format!("non-utf8 model path: {}", path.display()))
+            })?;
             let ctx_params = WhisperContextParameters::default();
             let ctx = WhisperContext::new_with_params(path_str, ctx_params)
                 .map_err(|e| SttError::Backend(format!("WhisperContext::new: {e}")))?;

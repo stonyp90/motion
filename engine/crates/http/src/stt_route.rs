@@ -22,12 +22,12 @@ use std::env;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use futures_util::{SinkExt, StreamExt};
-use motion_forge_stt::{StreamingStt, TranscriptEvent, FRAME_SAMPLES};
+use motion_forge_stt::{FRAME_SAMPLES, StreamingStt, TranscriptEvent};
 use serde::Serialize;
 
 /// Environment variable the operator sets to point at the whisper.cpp model.
@@ -132,15 +132,14 @@ async fn handle_socket(socket: WebSocket, model_path: PathBuf) {
         // responsive (otherwise long-running whisper inference would
         // starve other tasks on the runtime).
         let worker_clone = Arc::clone(&worker);
-        let events = match tokio::task::spawn_blocking(move || worker_clone.feed_frame(&samples))
-            .await
-        {
-            Ok(ev) => ev,
-            Err(e) => {
-                tracing::error!(error = %e, "stt: feed_frame join error");
-                break;
-            }
-        };
+        let events =
+            match tokio::task::spawn_blocking(move || worker_clone.feed_frame(&samples)).await {
+                Ok(ev) => ev,
+                Err(e) => {
+                    tracing::error!(error = %e, "stt: feed_frame join error");
+                    break;
+                }
+            };
         if !send_events(&mut sender, &events).await {
             break;
         }
@@ -243,7 +242,10 @@ mod tests {
             std::env::set_var(MODEL_PATH_ENV, "/tmp/whisper-test.bin");
         }
         let cfg = SttRouteConfig::from_env();
-        assert_eq!(cfg.model_path.as_deref(), Some(std::path::Path::new("/tmp/whisper-test.bin")));
+        assert_eq!(
+            cfg.model_path.as_deref(),
+            Some(std::path::Path::new("/tmp/whisper-test.bin"))
+        );
         unsafe {
             std::env::remove_var(MODEL_PATH_ENV);
         }

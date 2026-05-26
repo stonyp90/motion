@@ -109,7 +109,13 @@ impl NotificationPrefsStore {
         // becomes `_` so a hostile sub claim can't escape the dir.
         let safe: String = owner_sub
             .chars()
-            .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
         self.dir.join(format!("{safe}.json"))
     }
@@ -192,7 +198,7 @@ impl EmailService for StubEmailService {
 }
 
 /* ---- Production adapter stubs — empty impls + TODOs. Add the real
-        body when a customer picks the provider. */
+body when a customer picks the provider. */
 
 /// AWS Simple Email Service. Will use `aws-sdk-ses` when implemented.
 #[derive(Debug, Default, Clone)]
@@ -206,7 +212,9 @@ impl EmailService for SesEmailService {
     async fn send(&self, _to: &str, _subject: &str, _body: &str) -> Result<(), EmailError> {
         // TODO(deploy): build an aws_sdk_ses::Client with credentials
         // from the ambient env, call send_email().
-        Err(EmailError::Transport("SES adapter not yet implemented".into()))
+        Err(EmailError::Transport(
+            "SES adapter not yet implemented".into(),
+        ))
     }
 }
 
@@ -222,7 +230,9 @@ impl EmailService for SendgridEmailService {
     async fn send(&self, _to: &str, _subject: &str, _body: &str) -> Result<(), EmailError> {
         // TODO(deploy): POST https://api.sendgrid.com/v3/mail/send with
         // the SG API contract; bearer auth.
-        Err(EmailError::Transport("SendGrid adapter not yet implemented".into()))
+        Err(EmailError::Transport(
+            "SendGrid adapter not yet implemented".into(),
+        ))
     }
 }
 

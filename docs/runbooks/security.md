@@ -92,6 +92,16 @@ gh secret set AZURE_SUBSCRIPTION_ID --body "$AZURE_SUBSCRIPTION_ID"
 Same flow for `:environment:prod` once you cut a prod environment
 in GitHub Settings → Environments.
 
+**Troubleshooting** — when `azure/login` fails with:
+
+> `AADSTS700213: No matching federated identity record found for presented assertion subject 'repo:stonyp90/motion:environment:dev'`
+
+…it's exactly the missing-credential case. Re-run step 2 above with
+the `environment:dev` subject (or `environment:prod` for the prod
+job). `azure-deploy.yml` pre-flights this and emits a warning + sets
+`skip=true` on subsequent steps so the workflow stays amber rather
+than red — but the deploy doesn't happen until the credential exists.
+
 ### Tauri Updater keypair (one-time setup)
 
 ```bash

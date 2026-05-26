@@ -83,16 +83,22 @@ pub fn build_character_layer(
             // reference so a missing/empty precomp asset doesn't
             // render as a transparent hole.
             (
-                vec![shape_group_rect_zero_centered(bbox[0], bbox[1], accent, 0.0)],
+                vec![shape_group_rect_zero_centered(
+                    bbox[0], bbox[1], accent, 0.0,
+                )],
                 format!("character:{id}:lottie"),
             )
         }
         Some(VisualSpec::Svg { .. }) => (
-            vec![shape_group_rect_zero_centered(bbox[0], bbox[1], accent, 1.0)],
+            vec![shape_group_rect_zero_centered(
+                bbox[0], bbox[1], accent, 1.0,
+            )],
             format!("character:{id}:svg"),
         ),
         Some(VisualSpec::Generative { .. }) => (
-            vec![shape_group_rect_zero_centered(bbox[0], bbox[1], accent, 1.0)],
+            vec![shape_group_rect_zero_centered(
+                bbox[0], bbox[1], accent, 1.0,
+            )],
             format!("character:{id}:generative-placeholder"),
         ),
         None => (
@@ -125,12 +131,12 @@ pub fn build_character_layer(
     // id so a future renderer can swap the placeholder rect for the
     // real precomp reference (ty: 0 + `refId`). We deliberately
     // keep the placeholder shape so MVP previewers still play.
-    if matches!(character.map(|c| &c.visual), Some(VisualSpec::Lottie { .. })) {
+    if matches!(
+        character.map(|c| &c.visual),
+        Some(VisualSpec::Lottie { .. })
+    ) {
         if let Value::Object(map) = &mut layer_json {
-            map.insert(
-                "refId".into(),
-                Value::String(character_asset_id(id)),
-            );
+            map.insert("refId".into(), Value::String(character_asset_id(id)));
         }
     }
     Some(layer_json)
@@ -250,7 +256,9 @@ mod tests {
             id: id.into(),
             name: id.into(),
             archetype: Archetype::Person,
-            visual: VisualSpec::Lottie { json: sprite_lottie() },
+            visual: VisualSpec::Lottie {
+                json: sprite_lottie(),
+            },
             defaults: BehavioralDefaults::default(),
             accent_hex: Some("#10b981".into()),
             tags: vec![],
@@ -322,8 +330,7 @@ mod tests {
     fn lottie_character_emits_refid_and_asset() {
         let (reg, timeline) = timeline_with_character();
         let layer = &timeline.shots[0].layers[0];
-        let v =
-            build_character_layer(&reg, layer, &timeline, 5, 0, 120).expect("layer built");
+        let v = build_character_layer(&reg, layer, &timeline, 5, 0, 120).expect("layer built");
         assert_eq!(v["refId"].as_str(), Some("char-alex"));
         assert!(v["nm"].as_str().unwrap().contains("alex"));
 

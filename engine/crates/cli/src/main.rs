@@ -872,4 +872,3 @@ fn derive_work_dir(out: &std::path::Path, label: &str) -> PathBuf {
     let stem = out.file_stem().and_then(|s| s.to_str()).unwrap_or(label);
     parent.join(format!("{stem}-work"))
 }
-

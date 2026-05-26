@@ -165,10 +165,7 @@ fn too_many(principal: Principal, retry_after_seconds: u64) -> Response<Body> {
         "X-RateLimit-Limit",
         HeaderValue::from_str(&principal.rpm.to_string()).unwrap_or(HeaderValue::from_static("0")),
     );
-    h.insert(
-        "X-RateLimit-Remaining",
-        HeaderValue::from_static("0"),
-    );
+    h.insert("X-RateLimit-Remaining", HeaderValue::from_static("0"));
     res
 }
 
@@ -183,13 +180,15 @@ mod tests {
         Router::new()
             .route("/x", get(|| async { "ok" }))
             .layer(RateLimitLayer::new())
-            .layer(axum::middleware::from_fn(move |mut req: Request<Body>, next: axum::middleware::Next| {
-                let p = p.clone();
-                async move {
-                    req.extensions_mut().insert(p);
-                    next.run(req).await
-                }
-            }))
+            .layer(axum::middleware::from_fn(
+                move |mut req: Request<Body>, next: axum::middleware::Next| {
+                    let p = p.clone();
+                    async move {
+                        req.extensions_mut().insert(p);
+                        next.run(req).await
+                    }
+                },
+            ))
     }
 
     #[tokio::test]
@@ -204,14 +203,16 @@ mod tests {
         for _ in 0..5 {
             let res = app
                 .clone()
-                .oneshot(HttpRequest::builder().uri("/x").body(Body::empty()).unwrap())
+                .oneshot(
+                    HttpRequest::builder()
+                        .uri("/x")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
                 .await
                 .unwrap();
             assert_eq!(res.status(), 200);
-            assert_eq!(
-                res.headers().get("X-RateLimit-Limit").unwrap(),
-                "5"
-            );
+            assert_eq!(res.headers().get("X-RateLimit-Limit").unwrap(), "5");
         }
     }
 
@@ -226,12 +227,22 @@ mod tests {
         let app = router_with_principal(p);
         for _ in 0..2 {
             app.clone()
-                .oneshot(HttpRequest::builder().uri("/x").body(Body::empty()).unwrap())
+                .oneshot(
+                    HttpRequest::builder()
+                        .uri("/x")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
                 .await
                 .unwrap();
         }
         let res = app
-            .oneshot(HttpRequest::builder().uri("/x").body(Body::empty()).unwrap())
+            .oneshot(
+                HttpRequest::builder()
+                    .uri("/x")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(res.status(), 429);

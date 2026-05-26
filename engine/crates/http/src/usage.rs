@@ -129,7 +129,7 @@ impl UsageLog {
                 continue;
             }
             let day = &ev.ts[..10];
-            if day.to_string() < cutoff_day {
+            if day < cutoff_day.as_str() {
                 continue;
             }
             let bucket = by_day.entry(day.to_string()).or_default();
@@ -156,9 +156,18 @@ impl UsageLog {
             generated_at: now_rfc3339(),
             lookback_days,
             total,
-            by_day: by_day.into_iter().map(|(day, b)| DailyRow { day, bucket: b }).collect(),
-            by_model: by_model.into_iter().map(|(model, b)| ModelRow { model, bucket: b }).collect(),
-            by_route: by_route.into_iter().map(|(route, calls)| RouteRow { route, calls }).collect(),
+            by_day: by_day
+                .into_iter()
+                .map(|(day, b)| DailyRow { day, bucket: b })
+                .collect(),
+            by_model: by_model
+                .into_iter()
+                .map(|(model, b)| ModelRow { model, bucket: b })
+                .collect(),
+            by_route: by_route
+                .into_iter()
+                .map(|(route, calls)| RouteRow { route, calls })
+                .collect(),
         }
     }
 }
@@ -257,7 +266,14 @@ mod tests {
         }
     }
 
-    fn ev(principal: &str, route: &str, model: Option<&str>, tin: u32, tout: u32, cost: u64) -> UsageEvent {
+    fn ev(
+        principal: &str,
+        route: &str,
+        model: Option<&str>,
+        tin: u32,
+        tout: u32,
+        cost: u64,
+    ) -> UsageEvent {
         UsageEvent {
             ts: now_rfc3339(),
             principal_id: principal.into(),
@@ -274,9 +290,30 @@ mod tests {
     fn append_then_aggregate_for_principal() {
         let tmp = TempDir::new().unwrap();
         let log = log_in(tmp.path());
-        log.append(ev("user:a", "/v1/generate", Some("ollama/llava"), 100, 50, 1500));
-        log.append(ev("user:a", "/v1/iterate", Some("ollama/llava"), 50, 25, 750));
-        log.append(ev("user:b", "/v1/generate", Some("openai/gpt-4o"), 1000, 500, 30000));
+        log.append(ev(
+            "user:a",
+            "/v1/generate",
+            Some("ollama/llava"),
+            100,
+            50,
+            1500,
+        ));
+        log.append(ev(
+            "user:a",
+            "/v1/iterate",
+            Some("ollama/llava"),
+            50,
+            25,
+            750,
+        ));
+        log.append(ev(
+            "user:b",
+            "/v1/generate",
+            Some("openai/gpt-4o"),
+            1000,
+            500,
+            30000,
+        ));
         let rep = log.aggregate_for("user:a", 30);
         assert_eq!(rep.total.calls, 2);
         assert_eq!(rep.total.tokens_in, 150);
