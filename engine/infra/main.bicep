@@ -551,14 +551,16 @@ resource apiApp 'Microsoft.App/containerApps@2025-01-01' = {
         traffic: [ { latestRevision: true, weight: 100 } ]
         // CORS allowlist = static origins from `corsAllowedOrigins`
         // (includes https://motion.ursly.io) + the ACA web ingress
-        // hostname itself so browser-side calls work whether the user
-        // hits the custom domain or the raw `*.azurecontainerapps.io`
-        // URL. Never ship `['*']` to production — SOC 2 CC6 considers
-        // it broken.
+        // hostname constructed from `names.webApp` + the ACA env's
+        // `defaultDomain`. We construct the URL instead of reading
+        // `webApp.properties.…fqdn` so apiApp doesn't depend on
+        // webApp — webApp already depends on apiApp (engine URL env),
+        // and the reverse would be a Bicep cycle (BCP080). Never ship
+        // `['*']` to production — SOC 2 CC6 considers it broken.
         corsPolicy: {
           allowedOrigins: union(
             corsAllowedOrigins,
-            [ 'https://${webApp.properties.configuration.ingress.fqdn}' ]
+            [ 'https://${names.webApp}.${acaEnv.properties.defaultDomain}' ]
           )
           allowedMethods: [ 'GET', 'POST', 'OPTIONS' ]
           allowedHeaders: [ 'authorization', 'content-type', 'accept', 'origin' ]

@@ -61,7 +61,10 @@ jobs:
             --load \
             engine
       - name: Trivy scan
-        uses: aquasecurity/trivy-action@0.36.0
+        # All trivy-action tags are `v`-prefixed in source control.
+        # The earlier un-prefixed `@0.24.0` worked by historical accident
+        # (a yanked legacy tag); current versions need the `v`.
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: motion-forge-api:scan
           format: sarif

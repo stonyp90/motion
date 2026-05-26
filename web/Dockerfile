@@ -6,6 +6,14 @@
 #   `builder`  → installs deps + runs `next build` with `output: 'standalone'`.
 #   `runner`   → distroless node image with just the server + static assets.
 #
+# Base image sourcing: we pull `node:22-alpine` from AWS Public ECR's
+# Docker library mirror (`public.ecr.aws/docker/library/`) rather than
+# Docker Hub directly — Docker Hub enforces an anonymous-pull rate
+# limit (100/6h per IP) that bit us in ACR Build. AWS's mirror is a
+# 1:1 copy of `docker.io/library/*` and has no rate limit. The runner
+# stage's `gcr.io/distroless/nodejs22-debian12:nonroot` is Google's
+# registry — also rate-limit-free.
+#
 # Image size target: < 200 MB. Last measured: ~140 MB compressed on
 # linux/amd64 (distroless-node + standalone server + static assets).
 #
@@ -20,7 +28,7 @@
 #   time. Never embed in the image.
 
 # ------------------------------------------------------------------ deps
-FROM node:22-alpine AS deps
+FROM public.ecr.aws/docker/library/node:22-alpine AS deps
 WORKDIR /app
 # Alpine + Next sharp need libc6-compat for some prebuilt binaries.
 RUN apk add --no-cache libc6-compat
@@ -28,7 +36,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
 # ------------------------------------------------------------------ builder
-FROM node:22-alpine AS builder
+FROM public.ecr.aws/docker/library/node:22-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .

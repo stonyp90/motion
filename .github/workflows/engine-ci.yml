@@ -224,7 +224,7 @@ jobs:
           cache-to: type=gha,scope=engine-api,mode=max
 
       - name: Trivy scan (HIGH+ fails)
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: motion-forge-api:ci
           format: sarif
