@@ -3,6 +3,7 @@ using 'main.bicep'
 param env = 'dev'
 param location = 'eastus'
 param apiImageTag = 'latest'
+param webImageTag = 'latest'
 param segmentImageTag = 'latest'
 param renderImageTag = 'latest'
 
@@ -23,6 +24,9 @@ param openAiModelName = 'gpt-4o-mini'
 param frontDoorSku = 'Standard_AzureFrontDoor'
 param apiMinReplicas = 1
 param apiMaxReplicas = 3
+// Web: dev keeps a single warm replica — fine for demo traffic.
+param webMinReplicas = 1
+param webMaxReplicas = 2
 
 // SOC 2 CC4: 90-day Log Analytics retention. Bump to 180 for prod.
 param logRetentionDays = 90

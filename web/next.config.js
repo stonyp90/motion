@@ -61,6 +61,12 @@ const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   typedRoutes: true,
+  // `standalone` emits a minimal `.next/standalone/` tree with the
+  // server + a curated set of node_modules — exactly what we need to
+  // ship inside a slim container. Local `npm run dev` ignores this.
+  // The Dockerfile copies `.next/standalone`, `.next/static`, and
+  // `public/` into a runtime stage and starts `node server.js`.
+  output: 'standalone',
   async headers() {
     return [
       // Apply security headers to every route. Order matters — Next

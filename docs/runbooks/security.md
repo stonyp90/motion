@@ -52,8 +52,8 @@ they're consumed:
 
 | Secret | Used by | Source |
 |---|---|---|
-| `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` | `azure-deploy.yml` | Entra app registration → see "Federated identity" below |
-| `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID` | `web-deploy.yml` | `vercel link` then `cat .vercel/project.json` |
+| `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` | `azure-deploy.yml` + `web-deploy-azure.yml` | Entra app registration → see "Federated identity" below |
+| ~~`VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`~~ | _superseded_ — web moved to Azure Container Apps 2026-05; see `web-deploy.yml` header for rollback path | n/a |
 | `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | `desktop-release.yml` | Apple Developer Program → Certificates + App-specific password |
 | `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | `desktop-release.yml` | `cd desktop && npx tauri signer generate -w ~/.tauri/imtn.key` |
 | `KEYCLOAK_*` | `azure-deploy.yml` smoke step | Realm export from prod Keycloak |

@@ -27,6 +27,9 @@ param location string = resourceGroup().location
 @description('Image tag for mf-api. The CI pipeline bumps this on every revision.')
 param apiImageTag string = 'latest'
 
+@description('Image tag for the IMTN web frontend (Next.js standalone). The CI pipeline bumps this on every web push.')
+param webImageTag string = 'latest'
+
 @description('Image tag for the segment job.')
 param segmentImageTag string = 'latest'
 
@@ -89,6 +92,16 @@ param apiMinReplicas int = 1
 @maxValue(100)
 param apiMaxReplicas int = 10
 
+@description('Min replicas for the web app. 1 = warm; 0 saves $$ but adds cold-start.')
+@minValue(0)
+@maxValue(10)
+param webMinReplicas int = 1
+
+@description('Max replicas for the web app.')
+@minValue(1)
+@maxValue(100)
+param webMaxReplicas int = 5
+
 @description('Tags applied to every resource.')
 param tags object = {
   project: 'motion-forge'
@@ -111,6 +124,7 @@ var names = {
   openAi:      'oai-mf-${env}-${suffix}'
   acaEnv:      'cae-mf-${env}-${suffix}'
   apiApp:      'ca-mf-api-${env}'
+  webApp:      'ca-imtn-web-${env}'
   segmentJob:  'caj-mf-segment-${env}'
   renderJob:   'caj-mf-render-${env}'
   jobQueue:    'jobs'
@@ -118,6 +132,7 @@ var names = {
   workdirContainer: 'workdirs'
   fdProfile:   'fd-mf-${env}-${suffix}'
   fdEndpoint:  'mf-${env}-${suffix}'
+  fdEndpointWeb: 'imtn-${env}-${suffix}'
 }
 
 // ---- identity ----
@@ -530,10 +545,15 @@ resource apiApp 'Microsoft.App/containerApps@2025-01-01' = {
         transport: 'auto'
         allowInsecure: false
         traffic: [ { latestRevision: true, weight: 100 } ]
-        // CORS allowlist comes from the `corsAllowedOrigins` param. Never
-        // ship `['*']` to production — SOC 2 CC6 considers it broken.
+        // CORS allowlist = static origins from the `corsAllowedOrigins`
+        // param + the web Front Door endpoint we computed below.
+        // `union` dedupes if someone manually added the FD URL too.
+        // Never ship `['*']` to production — SOC 2 CC6 considers it broken.
         corsPolicy: {
-          allowedOrigins: corsAllowedOrigins
+          allowedOrigins: union(
+            corsAllowedOrigins,
+            [ 'https://${fdEndpointWeb.properties.hostName}' ]
+          )
           allowedMethods: [ 'GET', 'POST', 'OPTIONS' ]
           allowedHeaders: [ 'authorization', 'content-type', 'accept', 'origin' ]
           maxAge: 600
@@ -604,6 +624,95 @@ resource apiApp 'Microsoft.App/containerApps@2025-01-01' = {
     }
   }
   dependsOn: [ acrPullRoleAssignment, storageBlobDataContributor ]
+}
+
+// ---- imtn-web: Next.js standalone server, public ingress ----
+//
+// Same Consumption workload profile as the API. The image is built by
+// .github/workflows/web-deploy-azure.yml and pushed to the same ACR as
+// the engine images. CORS is not needed here — the web server only
+// responds to its own domain.
+
+resource webApp 'Microsoft.App/containerApps@2025-01-01' = {
+  name: names.webApp
+  location: location
+  tags: tags
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: { '${managedIdentity.id}': {} }
+  }
+  properties: {
+    managedEnvironmentId: acaEnv.id
+    workloadProfileName: 'Consumption'
+    configuration: {
+      activeRevisionsMode: 'Single'
+      ingress: {
+        external: true
+        targetPort: 3000
+        transport: 'auto'
+        allowInsecure: false
+        traffic: [ { latestRevision: true, weight: 100 } ]
+      }
+      registries: [
+        { server: acr.properties.loginServer, identity: managedIdentity.id }
+      ]
+      secrets: []
+      maxInactiveRevisions: 2
+    }
+    template: {
+      revisionSuffix: substring(uniqueString(webImageTag), 0, 6)
+      containers: [
+        {
+          name: 'web'
+          image: '${acr.properties.loginServer}/imtn-web:${webImageTag}'
+          // Next standalone server is light — 0.25 vCPU / 0.5 GiB
+          // handles ~50 rps before autoscale needs to step in.
+          resources: { cpu: json('0.25'), memory: '0.5Gi' }
+          env: [
+            { name: 'NODE_ENV', value: 'production' }
+            { name: 'PORT', value: '3000' }
+            { name: 'HOSTNAME', value: '0.0.0.0' }
+            // Server-side proxy in `app/api/engine/file/route.ts` calls
+            // the engine via internal-ACA hostname. Using FQDN keeps
+            // CORS off the critical path (same Front Door domain).
+            { name: 'ENGINE_BASE_URL', value: 'https://${apiApp.properties.configuration.ingress.fqdn}' }
+            { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
+          ]
+          probes: [
+            {
+              type: 'Liveness'
+              httpGet: { path: '/', port: 3000 }
+              periodSeconds: 30
+              failureThreshold: 3
+            }
+            {
+              type: 'Readiness'
+              httpGet: { path: '/', port: 3000 }
+              periodSeconds: 5
+              failureThreshold: 3
+            }
+            {
+              type: 'Startup'
+              httpGet: { path: '/', port: 3000 }
+              periodSeconds: 5
+              failureThreshold: 12
+            }
+          ]
+        }
+      ]
+      scale: {
+        minReplicas: webMinReplicas
+        maxReplicas: webMaxReplicas
+        rules: [
+          {
+            name: 'http-concurrency'
+            http: { metadata: { concurrentRequests: '100' } }
+          }
+        ]
+      }
+    }
+  }
+  dependsOn: [ acrPullRoleAssignment ]
 }
 
 // ---- mf-segment-job: GPU-backed SAM 2 job (optional) ----
@@ -804,10 +913,92 @@ resource fdRoute 'Microsoft.Cdn/profiles/afdEndpoints/routes@2024-09-01' = {
   dependsOn: [ fdOrigin ]
 }
 
+// ---- Front Door: web endpoint + origin + route -----------------------
+//
+// Separate endpoint from the API on purpose — clean separation lets
+// each surface get its own custom domain + WAF policy without rule
+// gymnastics. The endpoint name `imtn-{env}-{suffix}` is what DNS
+// CNAMEs to (e.g. `imtn.io → imtn-prod-xyz.z01.azurefd.net`).
+
+resource fdEndpointWeb 'Microsoft.Cdn/profiles/afdEndpoints@2024-09-01' = {
+  parent: fdProfile
+  name: names.fdEndpointWeb
+  location: 'global'
+  tags: tags
+  properties: { enabledState: 'Enabled' }
+}
+
+resource fdOriginGroupWeb 'Microsoft.Cdn/profiles/originGroups@2024-09-01' = {
+  parent: fdProfile
+  name: 'web-origins'
+  properties: {
+    loadBalancingSettings: { sampleSize: 4, successfulSamplesRequired: 3 }
+    healthProbeSettings: {
+      // Next standalone returns 200 on `/` even for unauthenticated
+      // visitors (it's the hero / sign-in page) — cheaper + more
+      // reliable than wiring a dedicated /_health endpoint.
+      probePath: '/'
+      probeRequestType: 'HEAD'
+      probeProtocol: 'Https'
+      probeIntervalInSeconds: 30
+    }
+  }
+}
+
+resource fdOriginWeb 'Microsoft.Cdn/profiles/originGroups/origins@2024-09-01' = {
+  parent: fdOriginGroupWeb
+  name: 'aca-web'
+  properties: {
+    hostName: webApp.properties.configuration.ingress.fqdn
+    originHostHeader: webApp.properties.configuration.ingress.fqdn
+    httpsPort: 443
+    httpPort: 80
+    priority: 1
+    weight: 1000
+    enabledState: 'Enabled'
+    enforceCertificateNameCheck: true
+  }
+}
+
+resource fdRouteWeb 'Microsoft.Cdn/profiles/afdEndpoints/routes@2024-09-01' = {
+  parent: fdEndpointWeb
+  name: 'default'
+  properties: {
+    originGroup: { id: fdOriginGroupWeb.id }
+    supportedProtocols: [ 'Https' ]
+    patternsToMatch: [ '/*' ]
+    forwardingProtocol: 'HttpsOnly'
+    httpsRedirect: 'Enabled'
+    linkToDefaultDomain: 'Enabled'
+    cacheConfiguration: {
+      // Next sets its own Cache-Control headers per route (immutable
+      // chunks, no-store for SSR). IgnoreQueryString lets AFD cache
+      // static assets without query-string permutations.
+      queryStringCachingBehavior: 'IgnoreQueryString'
+      compressionSettings: {
+        contentTypesToCompress: [
+          'application/javascript'
+          'application/json'
+          'application/xml'
+          'image/svg+xml'
+          'text/css'
+          'text/html'
+          'text/javascript'
+          'text/plain'
+        ]
+        isCompressionEnabled: true
+      }
+    }
+  }
+  dependsOn: [ fdOriginWeb ]
+}
+
 // ---- outputs ----
 
 output frontDoorEndpoint string = 'https://${fdEndpoint.properties.hostName}'
+output frontDoorEndpointWeb string = 'https://${fdEndpointWeb.properties.hostName}'
 output apiIngressFqdn string = apiApp.properties.configuration.ingress.fqdn
+output webIngressFqdn string = webApp.properties.configuration.ingress.fqdn
 output acrLoginServer string = acr.properties.loginServer
 output blobAccountName string = storage.name
 output cosmosEndpoint string = enableCosmos ? cosmos.properties.documentEndpoint : ''

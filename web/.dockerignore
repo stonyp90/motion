@@ -1,0 +1,33 @@
+# IMTN web — files excluded from the Docker build context.
+# Keeps the context tight so `docker build` (and ACR build) don't have
+# to ship local artefacts over the wire on every push.
+
+# Build outputs
+.next
+out
+dist
+build
+
+# Vercel artefacts — historical, no longer used after the Azure move.
+.vercel
+
+# Dependencies (deps stage re-installs from package-lock.json)
+node_modules
+
+# Test + coverage outputs
+coverage
+playwright-report
+test-results
+.lighthouseci
+
+# Editor / OS noise
+.DS_Store
+.idea
+.vscode
+*.swp
+*.log
+
+# Env files — secrets MUST come from ACA env vars, not the image.
+.env
+.env.*
+!.env.example

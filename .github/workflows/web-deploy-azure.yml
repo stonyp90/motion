@@ -1,0 +1,230 @@
+name: web · Azure deploy
+
+# Builds the IMTN web image via ACR Build, then deploys it to the
+# `imtn-web` ACA container app by bumping `webImageTag` in main.bicep.
+# Replaces the previous Vercel deploy — see ARCHITECTURE.md for the
+# rationale (single-vendor SOC 2 narrative + VNet co-locate).
+#
+# Same OIDC federated-identity story as engine · Azure deploy. If you
+# see AADSTS700213 here, follow docs/runbooks/security.md → "Azure
+# federated identity" to add `repo:stonyp90/motion:environment:dev`
+# (or `:prod`) to the Entra app registration.
+
+on:
+  workflow_dispatch:
+    inputs:
+      env:
+        description: 'Target environment (dev / prod)'
+        required: true
+        default: 'dev'
+        type: choice
+        options: [dev, prod]
+      image_tag:
+        description: 'Image tag (defaults to commit SHA)'
+        required: false
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - 'engine/infra/main.bicep'
+      - '.github/workflows/web-deploy-azure.yml'
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  IMAGE_TAG: ${{ github.event.inputs.image_tag || github.sha }}
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Build + push the web image into the same ACR as the engine images.
+  # --------------------------------------------------------------------------
+  build:
+    name: build · ACR (imtn-web)
+    runs-on: ubuntu-latest
+    environment: dev # ACR lives in the dev RG; prod ACA pulls from the same registry
+    timeout-minutes: 20
+    outputs:
+      image_tag: ${{ env.IMAGE_TAG }}
+      skip: ${{ steps.preflight.outputs.skip }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pre-flight (AZURE_* secrets present)
+        id: secrets
+        env:
+          AZURE_CLIENT_ID:        ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID:        ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID:  ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          if [[ -z "$AZURE_CLIENT_ID" || -z "$AZURE_TENANT_ID" || -z "$AZURE_SUBSCRIPTION_ID" ]]; then
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::AZURE_* secrets missing; skipping web Azure deploy."
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: azure/login@v2
+        if: steps.secrets.outputs.ok == 'true'
+        continue-on-error: true
+        id: login
+        with:
+          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Compute final skip flag
+        id: preflight
+        run: |
+          if [[ "${{ steps.secrets.outputs.ok }}" != "true" ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ steps.login.outcome }}" == "failure" ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::azure/login failed — missing OIDC federated credential for this repo+env. See docs/runbooks/security.md."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve dev ACR
+        if: steps.preflight.outputs.skip != 'true'
+        id: discover
+        run: |
+          ACR=$(az acr list --resource-group "rg-motion-forge-dev" --query "[0].name" -o tsv)
+          [[ -z "$ACR" ]] && { echo "no ACR; deploy engine first" >&2; exit 1; }
+          echo "acr=${ACR}" >> "$GITHUB_OUTPUT"
+
+      - name: Build + push web image via ACR Build
+        if: steps.preflight.outputs.skip != 'true'
+        run: |
+          # Pass the public engine URL as a build-arg so Next inlines
+          # it into the client bundle. NEXT_PUBLIC_* must be present
+          # at `next build` time — runtime env doesn't reach the
+          # already-bundled JS. For multi-env we'd build per-env images;
+          # for now both dev + prod consume the same dev API.
+          ENGINE_URL="https://${{ steps.discover.outputs.acr }}.azurecontainerapps.io" # placeholder, overwritten below
+          API_FQDN=$(az containerapp show -g rg-motion-forge-dev -n ca-mf-api-dev --query 'properties.configuration.ingress.fqdn' -o tsv 2>/dev/null || echo "")
+          if [[ -n "$API_FQDN" ]]; then
+            ENGINE_URL="https://${API_FQDN}"
+          fi
+          echo "Building with NEXT_PUBLIC_ENGINE_BASE_URL=${ENGINE_URL}"
+          az acr build --registry ${{ steps.discover.outputs.acr }} \
+            --image "imtn-web:${IMAGE_TAG}" \
+            --image "imtn-web:latest" \
+            --file web/Dockerfile \
+            --build-arg "NEXT_PUBLIC_ENGINE_BASE_URL=${ENGINE_URL}" \
+            --platform linux/amd64 \
+            web
+
+  # --------------------------------------------------------------------------
+  # Dev — auto on main. Same `dev` environment as engine deploys.
+  # --------------------------------------------------------------------------
+  deploy-dev:
+    name: deploy · dev (web)
+    needs: build
+    if: |
+      needs.build.outputs.skip != 'true' &&
+      (github.event_name == 'push' ||
+       (github.event_name == 'workflow_dispatch' && github.event.inputs.env == 'dev'))
+    runs-on: ubuntu-latest
+    environment:
+      name: dev
+      url: ${{ steps.summary.outputs.url }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Apply Bicep (web image bump)
+        run: |
+          az deployment group create \
+            --resource-group "rg-motion-forge-dev" \
+            --template-file engine/infra/main.bicep \
+            --parameters "engine/infra/parameters.dev.bicepparam" \
+            --parameters "webImageTag=${IMAGE_TAG}" \
+            --query "properties.provisioningState" -o tsv
+
+      - name: Print web Front Door endpoint
+        id: summary
+        run: |
+          FD_PROFILE=$(az afd profile list -g "rg-motion-forge-dev" --query '[0].name' -o tsv)
+          # Endpoint name pattern matches `imtn-{env}-{suffix}` from
+          # main.bicep names.fdEndpointWeb. Filter on the imtn- prefix.
+          FD=$(az afd endpoint list --profile-name "$FD_PROFILE" -g "rg-motion-forge-dev" \
+            --query "[?starts_with(name, 'imtn-')] | [0].hostName" -o tsv)
+          echo "url=https://${FD}" >> "$GITHUB_OUTPUT"
+          {
+            echo "## imtn web · dev deploy"
+            echo "* Image tag: \`${IMAGE_TAG}\`"
+            echo "* Front Door: https://${FD}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Post-deploy smoke (dev)
+        run: |
+          FD_PROFILE=$(az afd profile list -g "rg-motion-forge-dev" --query '[0].name' -o tsv)
+          FD=$(az afd endpoint list --profile-name "$FD_PROFILE" -g "rg-motion-forge-dev" \
+            --query "[?starts_with(name, 'imtn-')] | [0].hostName" -o tsv)
+          for _i in $(seq 1 30); do
+            CODE=$(curl -sf -o /dev/null -w '%{http_code}' "https://${FD}/" 2>/dev/null || echo "000")
+            if [[ "$CODE" == "200" || "$CODE" == "307" || "$CODE" == "302" ]]; then
+              echo "web up (HTTP $CODE)"; exit 0
+            fi
+            echo "waiting (HTTP $CODE, attempt $_i)"
+            sleep 6
+          done
+          echo "::error::web Front Door smoke failed after retries"
+          exit 1
+
+  # --------------------------------------------------------------------------
+  # Prod — manual workflow_dispatch only, gated by `prod` Environment
+  # approval (same pattern as engine prod deploy).
+  # --------------------------------------------------------------------------
+  deploy-prod:
+    name: deploy · prod (web, approval required)
+    needs: build
+    if: |
+      needs.build.outputs.skip != 'true' &&
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.env == 'prod'
+    runs-on: ubuntu-latest
+    environment:
+      name: prod
+      url: ${{ steps.summary.outputs.url }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Apply Bicep (web prod)
+        run: |
+          az deployment group create \
+            --resource-group "rg-motion-forge-prod" \
+            --template-file engine/infra/main.bicep \
+            --parameters "engine/infra/parameters.prod.bicepparam" \
+            --parameters "webImageTag=${IMAGE_TAG}" \
+            --query "properties.provisioningState" -o tsv
+
+      - name: Resolve prod Front Door endpoint
+        id: summary
+        run: |
+          FD_PROFILE=$(az afd profile list -g "rg-motion-forge-prod" --query '[0].name' -o tsv)
+          FD=$(az afd endpoint list --profile-name "$FD_PROFILE" -g "rg-motion-forge-prod" \
+            --query "[?starts_with(name, 'imtn-')] | [0].hostName" -o tsv)
+          {
+            echo "url=https://${FD}"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "## imtn web · prod deploy"
+            echo "* Image tag: \`${IMAGE_TAG}\`"
+            echo "* Front Door: https://${FD}"
+          } >> "$GITHUB_STEP_SUMMARY"

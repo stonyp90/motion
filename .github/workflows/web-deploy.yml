@@ -1,26 +1,20 @@
-name: web · deploy
+name: web · deploy (vercel · superseded)
 
-# Auto-deploy the IMTN web frontend to Vercel on every push to main
-# (production) and every PR (preview).
+# SUPERSEDED 2026-05-26: web hosting moved to Azure Container Apps to
+# consolidate the SOC 2 vendor pack onto a single provider. The active
+# workflow is `.github/workflows/web-deploy-azure.yml`.
 #
-# Secrets required (set in repo Settings → Secrets and variables → Actions):
-#   - VERCEL_TOKEN       : personal access token from vercel.com/account/tokens
-#   - VERCEL_ORG_ID      : `team_xxx` or your personal user id
-#   - VERCEL_PROJECT_ID  : `prj_xxx` (from `.vercel/project.json` after `vercel link`)
+# This file is kept for two reasons:
+#   1. It still serves as documentation of the Vercel deploy contract
+#      if we ever need to re-enable it (e.g. for an emergency rollback).
+#   2. Removing it entirely would surprise anyone watching the repo's
+#      Actions tab — a clearly-labelled "superseded" file is louder.
 #
-# When secrets are missing the job exits cleanly with a skip message,
-# so a fresh fork doesn't bombard the user with red runs.
+# The triggers are stripped down to `workflow_dispatch` only, so the
+# workflow never fires automatically. To re-enable: restore the
+# `push` + `pull_request` blocks below and disable web-deploy-azure.yml.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'web/**'
-      - '.github/workflows/web-deploy.yml'
-  pull_request:
-    paths:
-      - 'web/**'
-      - '.github/workflows/web-deploy.yml'
   workflow_dispatch:
 
 permissions:
