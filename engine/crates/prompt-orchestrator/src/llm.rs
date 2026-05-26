@@ -117,9 +117,25 @@ impl OllamaBackend {
     }
 
     pub fn from_env() -> Self {
+        // Default model picked Nov 2025 from the Hugging Face Open LLM
+        // Leaderboard + the Ollama community's structured-output
+        // shortlist. Criteria:
+        //   - Open weights (Apache-2.0 or equivalent permissive)
+        //   - Strong JSON adherence under constrained-output prompts
+        //   - Vision-capable (so reference_images flow through without
+        //     needing a second model swap)
+        //   - Fits in ~8 GB RAM (laptop-class default)
+        //
+        // llama3.2-vision:11b wins on this rubric — Meta's vision
+        // model with native image input via Ollama's `images: [...]`
+        // field, top-3 on the Open VLM leaderboard, and Llama 3's
+        // structured-output fine-tunes (Hermes, Nous) carry over.
+        //
+        // Override with OLLAMA_MODEL=<tag> per deploy. The full
+        // recommended set is in /install on the web app.
         Self::new(
             std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "http://localhost:11434".into()),
-            std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "llama3.1:8b".into()),
+            std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "llama3.2-vision:11b".into()),
         )
     }
 
