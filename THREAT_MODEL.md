@@ -1,13 +1,14 @@
-# motion-forge threat model
+# IMTN threat model
 
 A living document. Update on every architectural change. Last
 reviewed: at the same SHA as this commit.
 
 ## Scope
 
-The system under analysis is **motion-forge as deployed to Azure
-under `rg-motion-forge-dev`**, plus the local developer workstation
-running the CLI + Python sidecars.
+The system under analysis is **IMTN as deployed to Azure
+under `rg-motion-forge-dev`** (the resource-group name predates the
+brand and stays as-is for infra continuity), plus the local
+developer workstation running the CLI + Python sidecars.
 
 Out of scope:
 
@@ -28,7 +29,7 @@ Out of scope:
        Azure Container Apps Ingress (ACA)
                 │
                 ▼
-       axum HTTP service (motion-forge api)
+       axum HTTP service (IMTN api)
                 │
                 ▼  Managed Identity
        ┌────────┴───────────────────────────────┐
