@@ -8,13 +8,19 @@ import { MotionLogo } from './MotionLogo';
 import { selectIsAuthenticated, useAuthStore } from '@/stores/auth-store';
 
 /**
- * Slim app header: logo + Download link + Sign in / account control.
+ * Slim app header: logo + (auth-gated) Download link + Sign in / account control.
  *
  * The single-screen app does not have marketing nav — the page itself
  * IS the call to action. We keep just enough chrome to identify the
- * product, point users at the desktop download, and give them a way
- * back into their account. When signed in, the Sign-in pill flips to
- * a Sign-out pill with the user initial.
+ * product, point signed-in users at the desktop download, and give
+ * everyone a way back into their account. When signed in, the Sign-in
+ * pill flips to a Sign-out pill with the user initial.
+ *
+ * The Download link is **only rendered when the user is authenticated**
+ * — the desktop app is a customer artifact, not marketing material, so
+ * the public site stays free of distributable binaries until the
+ * visitor has signed in. The route `/download` enforces the same gate
+ * server-side (a direct visit while signed out redirects to /login).
  *
  * The repo is private; we don't link out to GitHub. Source access is
  * granted per-account by IT, never via a public URL on the site.
@@ -45,15 +51,19 @@ export function Header() {
 
         <div className="flex items-center gap-1">
           <ThemeToggle />
-          <Link
-            href={"/download" as never}
-            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-text-primary"
-            aria-label="Download ControlCraft desktop"
-          >
-            <Download className="h-4 w-4" />
-            <span className="hidden sm:inline">Download</span>
-          </Link>
-          <div className="mx-1 h-5 w-px bg-border-light" aria-hidden />
+          {hydrated && isAuthenticated && (
+            <>
+              <Link
+                href={"/download" as never}
+                className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-text-primary"
+                aria-label="Download ControlCraft desktop"
+              >
+                <Download className="h-4 w-4" />
+                <span className="hidden sm:inline">Download</span>
+              </Link>
+              <div className="mx-1 h-5 w-px bg-border-light" aria-hidden />
+            </>
+          )}
           {hydrated && isAuthenticated ? (
             <button
               type="button"

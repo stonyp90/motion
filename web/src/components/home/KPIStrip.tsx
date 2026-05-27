@@ -57,28 +57,6 @@ export function KPIStrip() {
             </div>
           ))}
         </dl>
-
-        {/* OKR strip — three single-line promises stacked on mobile, inline
-            with vertical dividers on desktop. Plain text only; the KPI grid
-            already carries the visual weight. */}
-        <ul
-          aria-label="What ControlCraft promises"
-          className="mt-14 flex flex-col items-center justify-center gap-3 text-center text-lg font-medium text-text-primary sm:text-xl lg:mt-16 lg:flex-row lg:flex-wrap lg:gap-x-8 lg:gap-y-2"
-        >
-          {OKRS.map((okr, i) => (
-            <li
-              key={okr}
-              className={
-                'flex items-center gap-3 lg:gap-8 ' +
-                (i > 0
-                  ? 'lg:before:inline-block lg:before:h-1 lg:before:w-1 lg:before:rounded-[1px] lg:before:bg-accent-500'
-                  : '')
-              }
-            >
-              {okr}
-            </li>
-          ))}
-        </ul>
       </div>
     </section>
   );
@@ -119,10 +97,4 @@ const KPIS: ReadonlyArray<Kpi> = [
     label: 'Iterations per campaign',
     detail: 'Re-cut to a new tagline, new audience, new market in seconds.',
   },
-] as const;
-
-const OKRS: ReadonlyArray<string> = [
-  'Turn campaign briefs into shippable motion design the same day.',
-  'Let marketing and brand teams own the production loop.',
-  'Keep every asset and prompt on enterprise-grade infrastructure.',
 ] as const;
