@@ -204,10 +204,32 @@ jobs:
         working-directory: desktop
         shell: bash
         env:
-          # Tauri Updater signing — gracefully no-ops when empty.
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Raw secret values — we conditionally re-export below.
+          # We DON'T export the canonical Tauri env names directly
+          # because passing a non-empty-but-malformed key value
+          # crashes the bundler 9 min into the build with
+          # "Missing comment in secret key". Validate first.
+          RAW_TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          RAW_TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
+          # Tauri updater signing — only export the env vars when the
+          # secret value is a real minisign secret key (starts with
+          # `untrusted comment:`). A non-empty malformed value is the
+          # most common failure mode: someone pastes only the base64
+          # body from the .key file and drops the comment header, or
+          # accidentally pastes the .pub key.
+          if [ -n "$RAW_TAURI_SIGNING_PRIVATE_KEY" ]; then
+            if [[ "$RAW_TAURI_SIGNING_PRIVATE_KEY" == untrusted\ comment:* ]]; then
+              export TAURI_SIGNING_PRIVATE_KEY="$RAW_TAURI_SIGNING_PRIVATE_KEY"
+              export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$RAW_TAURI_SIGNING_PRIVATE_KEY_PASSWORD"
+              echo "::notice::Tauri updater signing enabled"
+            else
+              echo "::warning::TAURI_SIGNING_PRIVATE_KEY is set but missing the 'untrusted comment:' minisign header — building UNSIGNED. The full contents of desktop/.tauri-keys/key (including the first comment line) need to go in the secret."
+            fi
+          else
+            echo "::notice::TAURI_SIGNING_PRIVATE_KEY not set — building unsigned (no auto-update artifacts will be produced)"
+          fi
+
           # macOS code-signing — only enter this block when the
           # APPLE_CERTIFICATE secret is actually populated. Passing
           # an empty string up to Tauri triggers `security import`

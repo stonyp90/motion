@@ -41,21 +41,27 @@ if [ ! -f "$PINS_FILE" ]; then
   exit 1
 fi
 
-OLLAMA_VERSION=$(node -e "console.log(require('$PINS_FILE').version)")
+# Pipe the file in via stdin so we don't pass a path argument to
+# node's require(). On Windows runners (Git Bash) the POSIX-style
+# `$PINS_FILE` ("/d/a/motion/...") gets handed to Node which expects a
+# Windows path; require() errors with `Cannot find module`.
+# Reading from fd 0 sidesteps the whole conversion dance.
+PINS_JSON=$(cat "$PINS_FILE")
+OLLAMA_VERSION=$(node -e "console.log(JSON.parse(require('fs').readFileSync(0,'utf8')).version)" <<< "$PINS_JSON")
 ASSET=$(node -e "
-  const j = require('$PINS_FILE');
+  const j = JSON.parse(require('fs').readFileSync(0,'utf8'));
   const t = j.targets['$TARGET'];
   if (!t) { console.error('unknown target: $TARGET'); process.exit(1); }
   console.log(t.asset);
-")
+" <<< "$PINS_JSON")
 EXTRACT_PATH=$(node -e "
-  const j = require('$PINS_FILE');
+  const j = JSON.parse(require('fs').readFileSync(0,'utf8'));
   console.log(j.targets['$TARGET'].extract_path);
-")
+" <<< "$PINS_JSON")
 EXPECTED_SHA=$(node -e "
-  const j = require('$PINS_FILE');
+  const j = JSON.parse(require('fs').readFileSync(0,'utf8'));
   console.log(j.targets['$TARGET'].sha256);
-")
+" <<< "$PINS_JSON")
 
 URL="https://github.com/ollama/ollama/releases/download/v${OLLAMA_VERSION}/${ASSET}"
 TMP_DIR="$(mktemp -d)"

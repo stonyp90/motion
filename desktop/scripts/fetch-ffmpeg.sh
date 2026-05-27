@@ -44,15 +44,18 @@ if [ ! -f "$PINS_FILE" ]; then
   exit 1
 fi
 
+# Pipe via stdin instead of a path argument — see fetch-ollama.sh for
+# the same Windows Git-Bash / Node `require()` path-conversion gotcha.
+PINS_JSON=$(cat "$PINS_FILE")
 URL=$(node -e "
-  const j = require('$PINS_FILE');
+  const j = JSON.parse(require('fs').readFileSync(0,'utf8'));
   const t = j.targets['$TARGET'];
   if (!t) { console.error('unknown target: $TARGET'); process.exit(1); }
   console.log(t.url);
-")
-ASSET=$(node -e "console.log(require('$PINS_FILE').targets['$TARGET'].asset)")
-EXTRACT_PATH=$(node -e "console.log(require('$PINS_FILE').targets['$TARGET'].extract_path)")
-EXPECTED_SHA=$(node -e "console.log(require('$PINS_FILE').targets['$TARGET'].sha256)")
+" <<< "$PINS_JSON")
+ASSET=$(node -e "console.log(JSON.parse(require('fs').readFileSync(0,'utf8')).targets['$TARGET'].asset)" <<< "$PINS_JSON")
+EXTRACT_PATH=$(node -e "console.log(JSON.parse(require('fs').readFileSync(0,'utf8')).targets['$TARGET'].extract_path)" <<< "$PINS_JSON")
+EXPECTED_SHA=$(node -e "console.log(JSON.parse(require('fs').readFileSync(0,'utf8')).targets['$TARGET'].sha256)" <<< "$PINS_JSON")
 
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
