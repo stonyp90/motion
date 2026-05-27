@@ -8,7 +8,9 @@ import { createHash, createHmac } from 'crypto';
  * POSTs the JSON envelope. Env contract:
  *
  *   AZURE_COMMS_ENDPOINT  — hostname only, e.g. `acs-controlcraft-dev-…
- *                            .communication.azure.com`
+ *                            .communication.azure.com`. A full URL
+ *                            (`https://…`) is also accepted; the scheme
+ *                            is stripped and the bare host validated.
  *   AZURE_COMMS_KEY       — base64-encoded primary key from
  *                            `commsService.listKeys()`
  *   EMAIL_FROM            — verified sender, e.g.
@@ -16,8 +18,11 @@ import { createHash, createHmac } from 'crypto';
  *   EMAIL_FROM_NAME       — display name (default `ControlCraft`)
  *
  * Failure mode: the function NEVER throws — a failed welcome email
- * shouldn't block signup. Errors are logged and silently swallowed so
- * the caller can still return the JWT.
+ * shouldn't block signup. Errors are logged loudly and `false` is
+ * returned; the caller can still return the JWT. A misconfigured
+ * `AZURE_COMMS_ENDPOINT` (wrong TLD, IP literal, …) is treated as a
+ * config error and the send is refused outright instead of producing a
+ * silently-bad HMAC that the server rejects with 401.
  */
 
 interface SendArgs {
@@ -28,21 +33,81 @@ interface SendArgs {
   text?: string;
 }
 
+/**
+ * Discriminated result of [`parseAcsEndpoint`]. The error path carries
+ * a message suitable for direct logging so callers don't have to
+ * reformat it.
+ */
+export type ParseAcsEndpointResult =
+  | { ok: true; host: string }
+  | { ok: false; error: string };
+
+/**
+ * Parse + validate the value of `AZURE_COMMS_ENDPOINT`.
+ *
+ * Accepts the bare hostname (`acs-foo.communication.azure.com`) OR the
+ * full URL with scheme (`https://acs-foo.communication.azure.com/`,
+ * `http://...`) — strips the scheme and any trailing path, then
+ * validates the remainder against the ACS hostname pattern:
+ * `^[a-z0-9-]+\.communication\.azure\.com$`.
+ *
+ * Returns the validated bare hostname so it can be used both as the
+ * URL host AND the explicit `Host:` request header (so the host we
+ * signed and the host we put on the wire are always equal — we don't
+ * trust the platform's URL parser to round-trip the value identically).
+ *
+ * Pure function — no I/O, no env reads, fully unit-testable.
+ */
+export function parseAcsEndpoint(raw: string | undefined | null): ParseAcsEndpointResult {
+  if (raw == null) {
+    return { ok: false, error: 'AZURE_COMMS_ENDPOINT is empty' };
+  }
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return { ok: false, error: 'AZURE_COMMS_ENDPOINT is empty' };
+  }
+  // Strip leading `^https?://` (case-insensitive) if the operator
+  // pasted a full URL.
+  const noScheme = trimmed.replace(/^https?:\/\//i, '');
+  // Strip trailing path/query — keep only the authority chunk.
+  const host = noScheme.split('/')[0].toLowerCase();
+  // Validate against `^[a-z0-9-]+\.communication\.azure\.com$`.
+  // The leftmost label is one DNS segment — no dots — so chained
+  // attacker hosts and IP literals are both rejected.
+  // RFC 1035: a label can't start or end with a hyphen.
+  const acsHostnameRe = /^(?!-)[a-z0-9-]+(?<!-)\.communication\.azure\.com$/;
+  if (!acsHostnameRe.test(host)) {
+    return {
+      ok: false,
+      error: `AZURE_COMMS_ENDPOINT must be a bare ACS hostname (e.g. \`acs-foo.communication.azure.com\`) — got \`${raw}\``,
+    };
+  }
+  return { ok: true, host };
+}
+
 export async function sendEmail({ to, subject, html, text }: SendArgs): Promise<boolean> {
-  const endpoint = process.env.AZURE_COMMS_ENDPOINT;
   const key = process.env.AZURE_COMMS_KEY;
   const from = process.env.EMAIL_FROM;
+  const parsed = parseAcsEndpoint(process.env.AZURE_COMMS_ENDPOINT);
 
-  if (!endpoint || !key || !from) {
+  if (!parsed.ok) {
+    console.error('[email] ACS endpoint invalid — refusing to send', {
+      to,
+      subject,
+      reason: parsed.error,
+    });
+    return false;
+  }
+  if (!key || !from) {
     console.warn('[email] ACS env not set — skipping send', {
       to,
       subject,
-      hasEndpoint: !!endpoint,
       hasKey: !!key,
       hasFrom: !!from,
     });
     return false;
   }
+  const host = parsed.host;
 
   const payload = {
     senderAddress: from,
@@ -56,7 +121,6 @@ export async function sendEmail({ to, subject, html, text }: SendArgs): Promise<
   const body = JSON.stringify(payload);
   const bodyHash = createHash('sha256').update(body).digest('base64');
   const date = new Date().toUTCString(); // RFC 7231: "Fri, 23 May 2025 12:00:00 GMT"
-  const host = endpoint.replace(/\/+$/, '');
   const pathAndQuery = '/emails:send?api-version=2023-03-31';
   const stringToSign = `POST\n${pathAndQuery}\n${date};${host};${bodyHash}`;
   const signature = createHmac('sha256', Buffer.from(key, 'base64'))
@@ -67,6 +131,10 @@ export async function sendEmail({ to, subject, html, text }: SendArgs): Promise<
     const res = await fetch(`https://${host}${pathAndQuery}`, {
       method: 'POST',
       headers: {
+        // Pin Host explicitly so dispatch matches what we signed,
+        // regardless of how the platform's URL parser decided to
+        // normalize the value.
+        Host: host,
         'x-ms-date': date,
         'x-ms-content-sha256': bodyHash,
         'Content-Type': 'application/json',

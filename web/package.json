@@ -10,7 +10,9 @@
     "sync-themes": "node scripts/sync-themes.mjs",
     "start": "next start -p 3001",
     "lint": "next lint",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@auth/core": "^0.41.2",
@@ -35,7 +37,8 @@
     "eslint-config-next": "^15.5.0",
     "postcss": "^8.5.15",
     "tailwindcss": "^3.4.0",
-    "typescript": "^5.6.0"
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.9"
   },
   "overridesNote": "postcss <8.5.10 has GHSA-qx2v-qp2m-jg93 (XSS via unescaped </style> in CSS Stringify). next@15.5.18 bundles 8.4.31 transitively; the override below forces the patched version across the entire dep tree (incl. next/node_modules/postcss) so `npm audit` stays clean without waiting for Vercel to bump postcss inside the next package.",
   "overrides": {

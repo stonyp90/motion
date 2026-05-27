@@ -243,11 +243,96 @@ impl EmailService for SendgridEmailService {
 /// `endpoint` is the host name only (`<id>.communication.azure.com`),
 /// `access_key` is the base64-encoded primary key from
 /// `commsService.listKeys()`, `from` is the verified sender address.
+///
+/// The `endpoint` field is run through [`parse_acs_endpoint`] at send
+/// time — operators routinely set `AZURE_COMMS_ENDPOINT` to the full
+/// URL pasted from the portal (`https://acs-foo.communication.azure.com`),
+/// which used to break both the URL passed to reqwest AND the `host`
+/// chunk of the HMAC string-to-sign. The parser strips the scheme,
+/// rejects anything that doesn't look like a real ACS hostname, and
+/// returns the validated host so we can plumb it through to the
+/// explicit `Host:` header (instead of trusting the URL parser).
 #[derive(Debug, Default, Clone)]
 pub struct AzureCommsEmailService {
     pub endpoint: String,
     pub access_key: String,
     pub from: String,
+}
+
+/// Error returned when `AZURE_COMMS_ENDPOINT` is unusable.
+///
+/// Kept separate from [`EmailError`] so the parse helper stays pure and
+/// can be unit-tested without dragging in the email-service plumbing.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum ConfigError {
+    #[error("AZURE_COMMS_ENDPOINT is empty")]
+    Empty,
+    #[error(
+        "AZURE_COMMS_ENDPOINT must be a bare ACS hostname (e.g. \
+         `acs-foo.communication.azure.com`) — got `{0}`"
+    )]
+    InvalidHostname(String),
+}
+
+/// Parse + validate the value of `AZURE_COMMS_ENDPOINT`.
+///
+/// Accepts the bare hostname (`acs-foo.communication.azure.com`) OR the
+/// full URL with scheme (`https://acs-foo.communication.azure.com/`,
+/// `http://...`) — strips the scheme and any trailing path, then
+/// validates the remainder against the ACS hostname pattern:
+/// `^[a-z0-9-]+\.communication\.azure\.com$`.
+///
+/// Returns the validated bare hostname so it can be used both as the
+/// URL host AND the explicit `Host:` request header (so signing +
+/// dispatch agree, regardless of how reqwest's URL parser felt about
+/// the value).
+///
+/// Pure function — no I/O, no env reads, fully unit-testable.
+pub fn parse_acs_endpoint(raw: &str) -> Result<String, ConfigError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(ConfigError::Empty);
+    }
+    // Strip leading `^https?://` (case-insensitive) if the operator
+    // pasted a full URL. ACS hostnames are ASCII-only so byte indexing
+    // by scheme-prefix length is safe.
+    let lower_trimmed = trimmed.to_ascii_lowercase();
+    let no_scheme = if lower_trimmed.starts_with("https://") {
+        &trimmed["https://".len()..]
+    } else if lower_trimmed.starts_with("http://") {
+        &trimmed["http://".len()..]
+    } else {
+        trimmed
+    };
+    // Strip any trailing path/query — keep only the authority chunk.
+    let host = no_scheme
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    // Validate against `^[a-z0-9-]+\.communication\.azure\.com$` without
+    // pulling in the `regex` crate — the pattern is small enough to do
+    // by hand and the helper is on the hot path of every email send.
+    const SUFFIX: &str = ".communication.azure.com";
+    let Some(label) = host.strip_suffix(SUFFIX) else {
+        return Err(ConfigError::InvalidHostname(raw.to_string()));
+    };
+    if label.is_empty() {
+        return Err(ConfigError::InvalidHostname(raw.to_string()));
+    }
+    // The label is the leftmost DNS segment — disallow further dots so
+    // `foo.bar.communication.azure.com` and IP literals get rejected.
+    let label_ok = label
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+    if !label_ok || label.contains('.') {
+        return Err(ConfigError::InvalidHostname(raw.to_string()));
+    }
+    // RFC 1035: a label can't start or end with a hyphen.
+    if label.starts_with('-') || label.ends_with('-') {
+        return Err(ConfigError::InvalidHostname(raw.to_string()));
+    }
+    Ok(host)
 }
 
 #[async_trait::async_trait]
@@ -257,11 +342,30 @@ impl EmailService for AzureCommsEmailService {
         use hmac::{Hmac, Mac};
         use sha2::{Digest, Sha256};
 
-        if self.endpoint.is_empty() || self.access_key.is_empty() {
+        if self.access_key.is_empty() {
+            tracing::error!(
+                target: "email",
+                backend = "acs",
+                "AZURE_COMMS_KEY not set — refusing to send"
+            );
             return Err(EmailError::Transport(
-                "AZURE_COMMS_ENDPOINT/AZURE_COMMS_KEY not set".into(),
+                "AZURE_COMMS_KEY not set".into(),
             ));
         }
+        // Validate the endpoint up front. Refuse to send (and log loudly)
+        // if it's missing or malformed — previously a bad value silently
+        // produced a bogus HMAC and the welcome mail just stopped.
+        let host = parse_acs_endpoint(&self.endpoint).map_err(|e| {
+            tracing::error!(
+                target: "email",
+                backend = "acs",
+                raw_endpoint = %self.endpoint,
+                error = %e,
+                "AZURE_COMMS_ENDPOINT is invalid — refusing to send"
+            );
+            EmailError::Transport(format!("invalid AZURE_COMMS_ENDPOINT: {e}"))
+        })?;
+
         // Body shape per ACS Email REST contract.
         let payload = serde_json::json!({
             "senderAddress": self.from,
@@ -285,7 +389,6 @@ impl EmailService for AzureCommsEmailService {
 
         // Step 3: Compose the string-to-sign.
         // Format: VERB\nPATH_AND_QUERY\nDATE;HOST;BODY_HASH
-        let host = self.endpoint.trim_end_matches('/');
         let path_and_query = "/emails:send?api-version=2023-03-31";
         let string_to_sign = format!("POST\n{path_and_query}\n{date_header};{host};{body_hash}");
 
@@ -300,10 +403,14 @@ impl EmailService for AzureCommsEmailService {
 
         // Step 5: POST with the signed Authorization header. ACS requires
         // the exact `SignedHeaders=date;host;x-ms-content-sha256` order.
+        // The explicit `Host:` header guarantees the wire host matches
+        // the host we signed — we don't trust reqwest's URL parser to
+        // round-trip the value identically.
         let url = format!("https://{host}{path_and_query}");
         let client = reqwest::Client::new();
         let resp = client
             .post(&url)
+            .header("Host", &host)
             .header("x-ms-date", &date_header)
             .header("x-ms-content-sha256", &body_hash)
             .header("Content-Type", "application/json")
@@ -441,6 +548,128 @@ mod tests {
         let s = SesEmailService::default();
         let rt = tokio::runtime::Runtime::new().unwrap();
         let err = rt.block_on(s.send("u@e.com", "", "")).unwrap_err();
+        assert!(matches!(err, EmailError::Transport(_)));
+    }
+
+    /* ---- ACS endpoint parsing — guards both the URL we POST to and
+    the host chunk of the HMAC string-to-sign. */
+
+    #[test]
+    fn parse_acs_endpoint_happy_path_bare_host() {
+        let host = parse_acs_endpoint("acs-foo.communication.azure.com").unwrap();
+        assert_eq!(host, "acs-foo.communication.azure.com");
+    }
+
+    #[test]
+    fn parse_acs_endpoint_strips_https_prefix() {
+        let host = parse_acs_endpoint("https://acs-foo.communication.azure.com").unwrap();
+        assert_eq!(host, "acs-foo.communication.azure.com");
+    }
+
+    #[test]
+    fn parse_acs_endpoint_strips_https_prefix_with_trailing_slash() {
+        let host = parse_acs_endpoint("https://acs-foo.communication.azure.com/").unwrap();
+        assert_eq!(host, "acs-foo.communication.azure.com");
+    }
+
+    #[test]
+    fn parse_acs_endpoint_strips_http_prefix() {
+        let host = parse_acs_endpoint("http://acs-foo.communication.azure.com").unwrap();
+        assert_eq!(host, "acs-foo.communication.azure.com");
+    }
+
+    #[test]
+    fn parse_acs_endpoint_is_case_insensitive_for_scheme_and_host() {
+        let host = parse_acs_endpoint("HTTPS://ACS-FOO.communication.AZURE.com").unwrap();
+        assert_eq!(host, "acs-foo.communication.azure.com");
+    }
+
+    #[test]
+    fn parse_acs_endpoint_strips_trailing_path() {
+        let host = parse_acs_endpoint(
+            "https://acs-foo.communication.azure.com/emails:send?api-version=2023-03-31",
+        )
+        .unwrap();
+        assert_eq!(host, "acs-foo.communication.azure.com");
+    }
+
+    #[test]
+    fn parse_acs_endpoint_rejects_wrong_tld() {
+        let err = parse_acs_endpoint("acs-foo.communication.azure.net").unwrap_err();
+        assert!(matches!(err, ConfigError::InvalidHostname(_)));
+    }
+
+    #[test]
+    fn parse_acs_endpoint_rejects_ipv4_literal() {
+        let err = parse_acs_endpoint("10.0.0.1").unwrap_err();
+        assert!(matches!(err, ConfigError::InvalidHostname(_)));
+    }
+
+    #[test]
+    fn parse_acs_endpoint_rejects_extra_subdomain() {
+        // Defense in depth: don't accept an attacker-controlled host
+        // chained onto the legitimate suffix.
+        let err = parse_acs_endpoint("evil.acs-foo.communication.azure.com").unwrap_err();
+        assert!(matches!(err, ConfigError::InvalidHostname(_)));
+    }
+
+    #[test]
+    fn parse_acs_endpoint_rejects_empty() {
+        assert_eq!(parse_acs_endpoint("").unwrap_err(), ConfigError::Empty);
+        assert_eq!(parse_acs_endpoint("   ").unwrap_err(), ConfigError::Empty);
+    }
+
+    #[test]
+    fn parse_acs_endpoint_rejects_bare_suffix() {
+        let err = parse_acs_endpoint(".communication.azure.com").unwrap_err();
+        assert!(matches!(err, ConfigError::InvalidHostname(_)));
+    }
+
+    #[test]
+    fn parse_acs_endpoint_rejects_label_with_underscore() {
+        let err = parse_acs_endpoint("acs_foo.communication.azure.com").unwrap_err();
+        assert!(matches!(err, ConfigError::InvalidHostname(_)));
+    }
+
+    #[test]
+    fn parse_acs_endpoint_rejects_leading_hyphen() {
+        let err = parse_acs_endpoint("-foo.communication.azure.com").unwrap_err();
+        assert!(matches!(err, ConfigError::InvalidHostname(_)));
+    }
+
+    #[test]
+    fn azure_send_refuses_when_endpoint_is_unset() {
+        let svc = AzureCommsEmailService {
+            endpoint: "".into(),
+            access_key: "Zm9v".into(), // base64 of "foo"
+            from: "noreply@example.com".into(),
+        };
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let err = rt
+            .block_on(svc.send("u@e.com", "hi", "body"))
+            .unwrap_err();
+        match err {
+            EmailError::Transport(msg) => {
+                assert!(
+                    msg.contains("AZURE_COMMS_ENDPOINT") || msg.contains("invalid"),
+                    "unexpected message: {msg}"
+                );
+            }
+            other => panic!("expected Transport error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn azure_send_refuses_when_endpoint_is_malformed() {
+        let svc = AzureCommsEmailService {
+            endpoint: "ftp://nope.example.com".into(),
+            access_key: "Zm9v".into(),
+            from: "noreply@example.com".into(),
+        };
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let err = rt
+            .block_on(svc.send("u@e.com", "hi", "body"))
+            .unwrap_err();
         assert!(matches!(err, EmailError::Transport(_)));
     }
 }
