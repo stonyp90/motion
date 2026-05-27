@@ -5,11 +5,14 @@ import Link from 'next/link';
 import {
   Apple,
   ArrowRight,
+  Check,
+  Copy,
   Cpu,
   Download as DownloadIcon,
   Loader2,
   Server,
   Shield,
+  ShieldAlert,
 } from 'lucide-react';
 import { ASSETS, VERSION, type DownloadAsset, type DownloadOs } from '@/lib/download-manifest';
 
@@ -149,23 +152,205 @@ export function DownloadHero() {
         </Link>
       </p>
 
-      {/* Codesign warning heads-up — while we ship before the Apple
-          Developer ID + Windows EV cert paperwork clears, the OS
-          will flag the installer. Telling buyers up front (with a
-          link to the exact bypass commands) is cheaper than support
-          tickets after the fact. */}
-      <p className="mx-auto mt-3 flex max-w-3xl items-center justify-center gap-1.5 text-center text-xs text-text-tertiary">
-        Your OS may warn that the installer is from an unidentified
-        developer.{' '}
+      {/* Codesign bypass — inlined per OS so a buyer who just hit
+          the Gatekeeper / SmartScreen wall can grab the fix in one
+          place without bouncing through /install. Auto-selects the
+          tab matching the visitor's detected OS. */}
+      <CodesignBypass detectedOs={detectedOs} />
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Codesign bypass panel — temporary docs for the pre-signed window   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The 4 bypass snippets, one per artifact we ship. Each is a
+ * single-line shell or PowerShell command. The OS-detection in
+ * `DownloadHero` picks which tab opens first; visitors can switch
+ * to any other tab to grab another platform's fix.
+ *
+ * Keep these in sync with `/install#bypass-codesign` — that page is
+ * the canonical reference. When the Apple Developer ID + Windows EV
+ * cert land, both this panel and the install-page block retire
+ * together.
+ */
+const BYPASS_SNIPPETS: Array<{
+  os: DownloadOs;
+  label: string;
+  problem: string;
+  command: string;
+  note?: string;
+}> = [
+  {
+    os: 'mac-arm',
+    label: 'macOS (Apple silicon)',
+    problem: '"Apple cannot verify…" / "malicious software"',
+    command:
+      'xattr -dr com.apple.quarantine /Applications/ControlCraft.app',
+    note:
+      'Or use System Settings → Privacy & Security → Open Anyway after the first launch attempt.',
+  },
+  {
+    os: 'mac-intel',
+    label: 'macOS (Intel)',
+    problem: '"Apple cannot verify…" / "malicious software"',
+    command:
+      'xattr -dr com.apple.quarantine /Applications/ControlCraft.app',
+    note:
+      'Or use System Settings → Privacy & Security → Open Anyway after the first launch attempt.',
+  },
+  {
+    os: 'windows',
+    label: 'Windows',
+    problem: 'SmartScreen "Windows protected your PC"',
+    command:
+      'Unblock-File -Path "$env:USERPROFILE\\Downloads\\ControlCraft-Setup-*.exe"',
+    note:
+      'Or click "More info → Run anyway" on the SmartScreen dialog. PowerShell command is for IT-managed boxes that block the GUI path.',
+  },
+  {
+    os: 'linux-appimage',
+    label: 'Linux (AppImage)',
+    problem: 'AppImage won’t launch',
+    command:
+      'chmod +x ~/Downloads/ControlCraft-*.AppImage && ~/Downloads/ControlCraft-*.AppImage',
+  },
+  {
+    os: 'linux-deb',
+    label: 'Linux (.deb)',
+    problem: 'apt / dpkg refuses to install',
+    command:
+      'sudo dpkg -i ~/Downloads/controlcraft_*.deb && sudo apt --fix-broken install',
+  },
+];
+
+function CodesignBypass({ detectedOs }: { detectedOs: DownloadOs }) {
+  // Default-open the snippet matching the visitor's detected OS so
+  // they don't have to click around to find their platform.
+  const [activeOs, setActiveOs] = useState<DownloadOs>(
+    BYPASS_SNIPPETS.find((s) => s.os === detectedOs)?.os ??
+      BYPASS_SNIPPETS[0]!.os,
+  );
+  const active = BYPASS_SNIPPETS.find((s) => s.os === activeOs)!;
+
+  return (
+    <section
+      aria-labelledby="codesign-heading"
+      className="mx-auto mt-12 max-w-3xl rounded-2xl border border-secondary-200 bg-secondary-50 p-5 sm:p-6"
+    >
+      <header className="flex items-start gap-3">
+        <ShieldAlert
+          aria-hidden
+          className="mt-0.5 h-5 w-5 shrink-0 text-secondary-600"
+        />
+        <div className="flex-1">
+          <h2
+            id="codesign-heading"
+            className="text-sm font-bold text-text-primary"
+          >
+            Your OS may flag the installer — here&apos;s the one-line fix
+          </h2>
+          <p className="mt-1 text-xs leading-relaxed text-text-secondary">
+            We&apos;re shipping ControlCraft Desktop before the Apple
+            Developer ID notarization + Windows EV Code-Signing
+            certificate paperwork clears. The binary is exactly what
+            our CI built — no third-party rewrap — so you can safely
+            bypass the warning. Tap your OS:
+          </p>
+        </div>
+      </header>
+
+      <div
+        role="tablist"
+        aria-label="Per-OS bypass commands"
+        className="mt-4 flex flex-wrap gap-2"
+      >
+        {BYPASS_SNIPPETS.map((s) => (
+          <button
+            key={s.os}
+            role="tab"
+            aria-selected={s.os === activeOs}
+            type="button"
+            onClick={() => setActiveOs(s.os)}
+            className={
+              'rounded-full border px-3 py-1 text-xs font-medium transition ' +
+              (s.os === activeOs
+                ? 'border-secondary-600 bg-secondary-600 text-white shadow-soft'
+                : 'border-border-light bg-bg-primary text-text-secondary hover:border-border-default hover:text-text-primary')
+            }
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-4">
+        <p className="text-2xs font-medium uppercase tracking-[0.14em] text-text-tertiary">
+          {active.problem}
+        </p>
+        <CopyableCommand command={active.command} />
+        {active.note && (
+          <p className="mt-3 text-xs leading-relaxed text-text-tertiary">
+            {active.note}
+          </p>
+        )}
+      </div>
+
+      <p className="mt-5 border-t border-secondary-200/70 pt-4 text-2xs text-text-tertiary">
+        This panel retires when our signed builds land. Full
+        reference + DMG-mount edge case →{' '}
         <Link
           href={"/install#bypass-codesign" as never}
           className="font-medium text-text-secondary underline-offset-2 hover:text-text-accent hover:underline"
         >
-          One-line fix per platform
+          /install
         </Link>
-        — until our notarization + EV cert land.
+        .
       </p>
     </section>
+  );
+}
+
+/**
+ * Single-line shell-style block with an inline copy button. Click
+ * to copy; the button flips to a check icon for 2s as confirmation.
+ */
+function CopyableCommand({ command }: { command: string }) {
+  const [copied, setCopied] = useState(false);
+  const onCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard blocked (non-https / strict policy) — no-op */
+    }
+  };
+  return (
+    <div className="mt-2 flex items-stretch overflow-hidden rounded-lg border border-border-light bg-bg-primary">
+      <pre className="flex-1 overflow-x-auto px-3 py-2.5 font-mono text-xs leading-relaxed text-text-primary">
+        <code>{command}</code>
+      </pre>
+      <button
+        type="button"
+        onClick={onCopy}
+        aria-label={copied ? 'Copied' : 'Copy command'}
+        className={
+          'grid place-items-center border-l border-border-light px-3 transition ' +
+          (copied
+            ? 'bg-accent-50 text-accent-700'
+            : 'bg-bg-secondary text-text-tertiary hover:bg-bg-tertiary hover:text-text-secondary')
+        }
+      >
+        {copied ? (
+          <Check className="h-4 w-4" />
+        ) : (
+          <Copy className="h-4 w-4" />
+        )}
+      </button>
+    </div>
   );
 }
 
