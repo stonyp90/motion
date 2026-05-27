@@ -43,41 +43,48 @@ export interface DownloadAsset {
   filename: string;
 }
 
+// Sizes + filenames verified against the rc5 GitHub Release on
+// 2026-05-27 — see the matching tag at
+// https://github.com/stonyp90/motion/releases/tag/desktop-v0.1.0-rc5.
+// Tauri derives the filename prefix from `productName` in
+// tauri.conf.json (= "ControlCraft" — capital C) for every target,
+// so all five entries below use the same casing. Sizes are the actual
+// byte sizes reported by the GitHub Releases API rounded to whole MB.
 export const ASSETS: ReadonlyArray<DownloadAsset> = [
   {
     os: 'mac-arm',
     label: 'macOS · Apple silicon',
     detail: 'M1, M2, M3, M4 · macOS 11+',
-    sizeMb: 12,
+    sizeMb: 58,
     filename: `ControlCraft_${VERSION}_aarch64.dmg`,
   },
   {
     os: 'mac-intel',
     label: 'macOS · Intel',
     detail: 'macOS 11+',
-    sizeMb: 13,
+    sizeMb: 58,
     filename: `ControlCraft_${VERSION}_x64.dmg`,
   },
   {
     os: 'windows',
     label: 'Windows · x64',
     detail: 'Windows 10, 11',
-    sizeMb: 14,
+    sizeMb: 83,
     filename: `ControlCraft_${VERSION}_x64_en-US.msi`,
   },
   {
     os: 'linux-deb',
     label: 'Linux · .deb',
     detail: 'Debian, Ubuntu',
-    sizeMb: 15,
-    filename: `controlcraft_${VERSION}_amd64.deb`,
+    sizeMb: 87,
+    filename: `ControlCraft_${VERSION}_amd64.deb`,
   },
   {
     os: 'linux-appimage',
     label: 'Linux · AppImage',
     detail: 'Any distro',
-    sizeMb: 16,
-    filename: `controlcraft_${VERSION}_amd64.AppImage`,
+    sizeMb: 149,
+    filename: `ControlCraft_${VERSION}_amd64.AppImage`,
   },
 ];
 
