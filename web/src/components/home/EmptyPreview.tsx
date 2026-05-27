@@ -25,8 +25,16 @@ interface EmptyPreviewProps {
   onUseExample?: (brief: string) => void;
 }
 
+/**
+ * Default example brief — Quebec-flavored SR&ED tax-credit explainer.
+ * Anchors the product in the real-world bilingual use case our local
+ * (Quebec / Canada) buyers know: cabinet-comptable pitching SR&ED
+ * recovery to mid-market clients. The product's strength is turning
+ * dense regulatory copy into something a CFO actually watches; this
+ * brief makes that strength concrete the moment a visitor lands.
+ */
 const DEFAULT_EXAMPLE =
-  'A 22-panel explainer about how our pipeline edits Lottie on the edge.';
+  'Un explainer 60 secondes pour un cabinet comptable québécois qui aide les PME à récupérer leurs crédits SR&ED. Ton confiant, bilingue-friendly, palette deep navy + accent or.';
 
 export function EmptyPreview({
   exampleBrief = DEFAULT_EXAMPLE,

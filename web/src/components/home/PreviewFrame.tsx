@@ -355,10 +355,18 @@ async function rasteriseSvgToPng(
  * different samples.
  */
 function DemoSamplePlayer() {
+  // Four bundled themes, picked at random per visit. Each is a real
+  // ControlCraft-rendered Lottie demonstrating Ken Burns, real text,
+  // kinetic word-by-word reveal, varied entry directions, and
+  // SpringSoft easings — the production motion-feature surface, not
+  // a static placeholder. `quebec` is a French-copy SR&ED variant
+  // (Recherche scientifique et développement experimental tax
+  // credit) — the canonical Quebec accountant pitch.
   const samples = [
     '/lottie/corporate.json',
     '/lottie/playful.json',
     '/lottie/minimalist.json',
+    '/lottie/quebec.json',
   ];
   const [sample, setSample] = useState<unknown | null>(null);
   const [pick] = useState(() => samples[Math.floor(Math.random() * samples.length)]);

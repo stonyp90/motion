@@ -967,4 +967,399 @@ mod tests {
             .expect("ty:2 image layer missing");
         assert_eq!(image_layer["refId"].as_str(), Some("scene_1_0"));
     }
+
+    /// Writes the three demo Lottie samples consumed by the marketing
+    /// home page (`web/public/lottie/{corporate,playful,minimalist}.json`).
+    ///
+    /// Each sample exercises the full motion-feature surface — Ken
+    /// Burns on the background, real text with kinetic typography,
+    /// supporting shapes entering from varied directions with
+    /// SpringSoft easing, cross-scene crossfade. That way the empty-
+    /// state demo on the home page actually demonstrates what the
+    /// product makes, not a 2-rect placeholder loop.
+    ///
+    /// Run on demand:
+    /// `cargo test -p motion-forge-lottie-gen write_brand_samples -- --ignored --nocapture`
+    /// then commit the resulting JSON files.
+    #[test]
+    #[ignore]
+    fn write_brand_samples() {
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let out_dir = std::path::PathBuf::from(manifest_dir)
+            .join("../../../web/public/lottie")
+            .canonicalize()
+            .expect("web/public/lottie must exist");
+        let writer = SerdeLottieGenerator::new();
+        for sample in brand_samples() {
+            let out = out_dir.join(format!("{}.json", sample.name));
+            writer
+                .write(&sample.timeline, &out)
+                .expect("write brand sample");
+            eprintln!("wrote {}", out.display());
+        }
+    }
+
+    struct BrandSample {
+        name: &'static str,
+        timeline: motion_forge_prompt_orchestrator::LottieTimeline,
+    }
+
+    fn brand_samples() -> Vec<BrandSample> {
+        vec![
+            BrandSample {
+                name: "corporate",
+                timeline: build_brand_sample(
+                    BrandPalette::CORPORATE,
+                    "Ship motion design same day",
+                ),
+            },
+            BrandSample {
+                name: "playful",
+                timeline: build_brand_sample(
+                    BrandPalette::PLAYFUL,
+                    "Brief to broadcast in minutes",
+                ),
+            },
+            BrandSample {
+                name: "minimalist",
+                timeline: build_brand_sample(
+                    BrandPalette::MINIMALIST,
+                    "Less waiting. More making.",
+                ),
+            },
+            // Quebec-flavored sample: French copy on the SR&ED
+            // (Recherche scientifique et développement experimental)
+            // tax-credit explainer — the canonical Quebec/Ottawa
+            // accountant pitch. Demonstrates the product on a
+            // real-world bilingual use case.
+            BrandSample {
+                name: "quebec",
+                timeline: build_brand_sample(
+                    BrandPalette::QUEBEC,
+                    "Vos crédits SR&ED en 60 secondes",
+                ),
+            },
+        ]
+    }
+
+    /// (background, accent, text, supporting-card-fill, supporting-card-alt)
+    struct BrandPalette {
+        bg: [u8; 3],
+        accent: [u8; 3],
+        text: [u8; 3],
+        card_a: [u8; 3],
+        card_b: [u8; 3],
+    }
+
+    impl BrandPalette {
+        // Deep navy + emerald — the default "agency-grade" look.
+        const CORPORATE: BrandPalette = BrandPalette {
+            bg: [0x0b, 0x14, 0x37],
+            accent: [0x10, 0xb9, 0x81],
+            text: [0xf5, 0xf7, 0xfa],
+            card_a: [0x6e, 0xe7, 0xb7],
+            card_b: [0x3b, 0x82, 0xf6],
+        };
+        // Warm amber + coral — friendlier, playful.
+        const PLAYFUL: BrandPalette = BrandPalette {
+            bg: [0x1c, 0x10, 0x22],
+            accent: [0xf5, 0x9e, 0x0b],
+            text: [0xfd, 0xf6, 0xe3],
+            card_a: [0xec, 0x4f, 0x8b],
+            card_b: [0xfd, 0xba, 0x74],
+        };
+        // Off-white + black + single emerald dot — minimalist editorial.
+        const MINIMALIST: BrandPalette = BrandPalette {
+            bg: [0xf7, 0xf5, 0xf0],
+            accent: [0x10, 0xb9, 0x81],
+            text: [0x0a, 0x0a, 0x0a],
+            card_a: [0x1f, 0x1f, 0x1f],
+            card_b: [0x3a, 0x3a, 0x3a],
+        };
+        // Quebec flag-adjacent: deep cobalt + warm gold — reads as
+        // institutional / trustworthy, the palette accountants pitching
+        // SR&ED claims actually want. Avoids straight national colors
+        // so it doesn't read as government communication.
+        const QUEBEC: BrandPalette = BrandPalette {
+            bg: [0x0a, 0x1a, 0x42],     // deep cobalt
+            accent: [0xfd, 0xc0, 0x4b], // warm gold
+            text: [0xf8, 0xf6, 0xee],   // warm off-white
+            card_a: [0x8a, 0xc7, 0xff], // pale sky
+            card_b: [0xff, 0xd9, 0x80], // soft gold
+        };
+    }
+
+    /// Builds a 6-second, 2-scene demo Lottie that exercises the full
+    /// motion-feature surface. Scene 1: hero headline with word-by-word
+    /// reveal + 3 supporting cards entering from 3 different directions.
+    /// Scene 2: KPI strip with stagger + accent dot.
+    ///
+    /// French headlines get a French CTA close ("Essayez ControlCraft");
+    /// detected heuristically (contains an accented char or a French
+    /// stopword) so the writer doesn't need a separate flag.
+    fn build_brand_sample(
+        p: BrandPalette,
+        headline: &str,
+    ) -> motion_forge_prompt_orchestrator::LottieTimeline {
+        use motion_forge_prompt_orchestrator::{
+            Layer, LayerKind, LottieTimeline, Shot, TextReveal,
+        };
+
+        let cta_copy = if headline.chars().any(|c| {
+            matches!(
+                c,
+                'à' | 'â' | 'é' | 'è' | 'ê' | 'ë' | 'î' | 'ï' | 'ô' | 'ù' | 'û' | 'ç'
+            )
+        }) || headline.split_whitespace().any(|w| {
+            matches!(
+                w.to_lowercase().as_str(),
+                "vos" | "en" | "le" | "la" | "les" | "et" | "ou" | "de" | "du" | "des"
+            )
+        }) {
+            "Essayez ControlCraft"
+        } else {
+            "Try ControlCraft"
+        };
+
+        const W: u32 = 1920;
+        const H: u32 = 1080;
+        let cx = W as f32 * 0.5;
+        let cy = H as f32 * 0.5;
+
+        // Scene 1 (0-3s): hero headline + 3 supporting cards
+        let scene_a_layers = vec![
+            // Hero headline — word-by-word kinetic reveal, springs into place.
+            Layer {
+                name: "hero_headline".into(),
+                kind: LayerKind::Text,
+                fill_hex: Some(p.text),
+                stroke_hex: None,
+                text: Some(headline.to_string()),
+                image_asset_id: None,
+                text_reveal: Some(TextReveal::WordByWord { stagger_s: 0.12 }),
+                entry_vector: None,
+                keyframes: vec![
+                    Keyframe {
+                        time_seconds: 0.0,
+                        position: [cx, cy - 60.0],
+                        size: [W as f32 * 0.7, 96.0],
+                        rotation_degrees: 0.0,
+                        opacity: 1.0,
+                        easing_label: EasingLabel::SpringSoft,
+                    },
+                    Keyframe {
+                        time_seconds: 3.0,
+                        position: [cx, cy - 60.0],
+                        size: [W as f32 * 0.7, 96.0],
+                        rotation_degrees: 0.0,
+                        opacity: 1.0,
+                        easing_label: EasingLabel::Standard,
+                    },
+                ],
+            },
+            // Card from left with SpringSoft.
+            Layer {
+                name: "card_left".into(),
+                kind: LayerKind::Rect,
+                fill_hex: Some(p.card_a),
+                stroke_hex: None,
+                text: None,
+                image_asset_id: None,
+                text_reveal: None,
+                entry_vector: Some([-1.0, 0.0]),
+                keyframes: vec![
+                    Keyframe {
+                        time_seconds: 0.4,
+                        position: [cx - 360.0, cy + 180.0],
+                        size: [220.0, 140.0],
+                        rotation_degrees: 0.0,
+                        opacity: 0.0,
+                        easing_label: EasingLabel::SpringSoft,
+                    },
+                    Keyframe {
+                        time_seconds: 1.0,
+                        position: [cx - 360.0, cy + 180.0],
+                        size: [220.0, 140.0],
+                        rotation_degrees: 0.0,
+                        opacity: 1.0,
+                        easing_label: EasingLabel::Standard,
+                    },
+                    Keyframe {
+                        time_seconds: 3.0,
+                        position: [cx - 360.0, cy + 180.0],
+                        size: [220.0, 140.0],
+                        rotation_degrees: 0.0,
+                        opacity: 1.0,
+                        easing_label: EasingLabel::Standard,
+                    },
+                ],
+            },
+            // Center card (accent ellipse) — drops in from top.
+            Layer {
+                name: "card_center".into(),
+                kind: LayerKind::Ellipse,
+                fill_hex: Some(p.accent),
+                stroke_hex: None,
+                text: None,
+                image_asset_id: None,
+                text_reveal: None,
+                entry_vector: Some([0.0, -1.0]),
+                keyframes: vec![
+                    Keyframe {
+                        time_seconds: 0.6,
+                        position: [cx, cy + 180.0],
+                        size: [180.0, 180.0],
+                        rotation_degrees: 0.0,
+                        opacity: 0.0,
+                        easing_label: EasingLabel::SpringSoft,
+                    },
+                    Keyframe {
+                        time_seconds: 1.2,
+                        position: [cx, cy + 180.0],
+                        size: [180.0, 180.0],
+                        rotation_degrees: 0.0,
+                        opacity: 1.0,
+                        easing_label: EasingLabel::Standard,
+                    },
+                    Keyframe {
+                        time_seconds: 3.0,
+                        position: [cx, cy + 180.0],
+                        size: [180.0, 180.0],
+                        rotation_degrees: 0.0,
+                        opacity: 1.0,
+                        easing_label: EasingLabel::Standard,
+                    },
+                ],
+            },
+            // Right card from right.
+            Layer {
+                name: "card_right".into(),
+                kind: LayerKind::Rect,
+                fill_hex: Some(p.card_b),
+                stroke_hex: None,
+                text: None,
+                image_asset_id: None,
+                text_reveal: None,
+                entry_vector: Some([1.0, 0.0]),
+                keyframes: vec![
+                    Keyframe {
+                        time_seconds: 0.5,
+                        position: [cx + 360.0, cy + 180.0],
+                        size: [220.0, 140.0],
+                        rotation_degrees: 0.0,
+                        opacity: 0.0,
+                        easing_label: EasingLabel::SpringSoft,
+                    },
+                    Keyframe {
+                        time_seconds: 1.1,
+                        position: [cx + 360.0, cy + 180.0],
+                        size: [220.0, 140.0],
+                        rotation_degrees: 0.0,
+                        opacity: 1.0,
+                        easing_label: EasingLabel::Standard,
+                    },
+                    Keyframe {
+                        time_seconds: 3.0,
+                        position: [cx + 360.0, cy + 180.0],
+                        size: [220.0, 140.0],
+                        rotation_degrees: 0.0,
+                        opacity: 1.0,
+                        easing_label: EasingLabel::Standard,
+                    },
+                ],
+            },
+        ];
+
+        // Scene 2 (2.7s-6s, with crossfade overlap): CTA close.
+        let scene_b_layers = vec![
+            Layer {
+                name: "cta_headline".into(),
+                kind: LayerKind::Text,
+                fill_hex: Some(p.accent),
+                stroke_hex: None,
+                text: Some(cta_copy.to_string()),
+                image_asset_id: None,
+                text_reveal: Some(TextReveal::WordByWord { stagger_s: 0.14 }),
+                entry_vector: None,
+                keyframes: vec![
+                    Keyframe {
+                        time_seconds: 0.0,
+                        position: [cx, cy],
+                        size: [W as f32 * 0.55, 120.0],
+                        rotation_degrees: 0.0,
+                        opacity: 1.0,
+                        easing_label: EasingLabel::SpringSoft,
+                    },
+                    Keyframe {
+                        time_seconds: 3.0,
+                        position: [cx, cy],
+                        size: [W as f32 * 0.55, 120.0],
+                        rotation_degrees: 0.0,
+                        opacity: 1.0,
+                        easing_label: EasingLabel::Standard,
+                    },
+                ],
+            },
+            // Accent dot (the Tablix-signature mark).
+            Layer {
+                name: "accent_dot".into(),
+                kind: LayerKind::Rect,
+                fill_hex: Some(p.accent),
+                stroke_hex: None,
+                text: None,
+                image_asset_id: None,
+                text_reveal: None,
+                entry_vector: Some([0.0, 1.0]),
+                keyframes: vec![
+                    Keyframe {
+                        time_seconds: 0.3,
+                        position: [cx, cy + 110.0],
+                        size: [18.0, 18.0],
+                        rotation_degrees: 0.0,
+                        opacity: 0.0,
+                        easing_label: EasingLabel::SpringSoft,
+                    },
+                    Keyframe {
+                        time_seconds: 0.8,
+                        position: [cx, cy + 110.0],
+                        size: [18.0, 18.0],
+                        rotation_degrees: 0.0,
+                        opacity: 1.0,
+                        easing_label: EasingLabel::Standard,
+                    },
+                    Keyframe {
+                        time_seconds: 3.0,
+                        position: [cx, cy + 110.0],
+                        size: [18.0, 18.0],
+                        rotation_degrees: 0.0,
+                        opacity: 1.0,
+                        easing_label: EasingLabel::Standard,
+                    },
+                ],
+            },
+        ];
+
+        LottieTimeline {
+            composition_width: W,
+            composition_height: H,
+            duration_seconds: 5.7, // 3.0 + (3.0 - 0.3 crossfade overlap)
+            frame_rate: 30.0,
+            background_hex: p.bg,
+            shots: vec![
+                Shot {
+                    start_seconds: 0.0,
+                    duration_seconds: 3.0,
+                    description: "[hero] open + supporting cards".into(),
+                    layers: scene_a_layers,
+                },
+                Shot {
+                    start_seconds: 2.7,
+                    duration_seconds: 3.0,
+                    description: "[cta] close with brand mark".into(),
+                    layers: scene_b_layers,
+                },
+            ],
+            image_assets: vec![],
+        }
+    }
 }
