@@ -70,7 +70,13 @@ if [ "$EXPECTED_SHA" = "TODO_FILL_IN" ]; then
   echo "error: ffmpeg-pins.json has placeholder SHA for ${TARGET}." >&2
   exit 3
 fi
-ACTUAL_SHA=$(shasum -a 256 "$TMP_DIR/$ASSET" | awk '{print $1}')
+# Cross-OS sha256 — see fetch-ollama.sh for the same `shasum` vs
+# `openssl` fallback rationale (Windows Git Bash lacks Perl).
+if command -v shasum >/dev/null 2>&1; then
+  ACTUAL_SHA=$(shasum -a 256 "$TMP_DIR/$ASSET" | awk '{print $1}')
+else
+  ACTUAL_SHA=$(openssl dgst -sha256 "$TMP_DIR/$ASSET" | awk '{print $NF}')
+fi
 if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
   echo "error: SHA-256 mismatch for ${ASSET}" >&2
   echo "  expected: $EXPECTED_SHA" >&2

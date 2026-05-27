@@ -82,7 +82,14 @@ if [ "$EXPECTED_SHA" = "TODO_FILL_IN_FROM_OLLAMA_RELEASE_PAGE" ]; then
   echo "       and commit it before this script can pass." >&2
   exit 3
 fi
-ACTUAL_SHA=$(shasum -a 256 "$TMP_DIR/$ASSET" | awk '{print $1}')
+# Cross-OS sha256: macOS + most Linux ship `shasum -a 256`; Windows
+# Git Bash on GitHub Actions runners does NOT (no Perl), but it does
+# ship openssl. Pick whichever is available.
+if command -v shasum >/dev/null 2>&1; then
+  ACTUAL_SHA=$(shasum -a 256 "$TMP_DIR/$ASSET" | awk '{print $1}')
+else
+  ACTUAL_SHA=$(openssl dgst -sha256 "$TMP_DIR/$ASSET" | awk '{print $NF}')
+fi
 if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
   echo "error: SHA-256 mismatch for ${ASSET}" >&2
   echo "  expected: $EXPECTED_SHA" >&2
