@@ -538,19 +538,32 @@ impl LlmBackend for AnthropicBackend {
     async fn complete_json(&self, req: &LlmRequest) -> Result<String> {
         let user = if let Some(schema) = &req.schema {
             format!(
-                "{}\n\nReturn JSON matching exactly this schema:\n{}\n\nReturn ONLY the JSON object, no markdown.",
+                "{}\n\nReturn JSON matching exactly this schema:\n{}",
                 req.user, schema
             )
         } else {
-            format!("{}\n\nReturn ONLY a JSON object, no markdown.", req.user)
+            req.user.clone()
         };
+        // Anthropic's `assistant prefill` pattern: seed the assistant's
+        // turn with `{` so the model is forced to continue from inside
+        // a JSON object. This is the official Anthropic technique for
+        // structured output — eliminates the "model wrote ```json
+        // markdown" failure mode and removes the need for `Return ONLY
+        // JSON` instruction prose. We re-prepend `{` to the response
+        // below since prefill content is NOT echoed back.
         let body = AnthropicReq {
             model: &self.model,
             system: &req.system,
-            messages: vec![AnthropicMessage {
-                role: "user",
-                content: &user,
-            }],
+            messages: vec![
+                AnthropicMessage {
+                    role: "user",
+                    content: &user,
+                },
+                AnthropicMessage {
+                    role: "assistant",
+                    content: "{",
+                },
+            ],
             max_tokens: req.max_tokens,
             temperature: req.temperature,
         };
@@ -572,6 +585,10 @@ impl LlmBackend for AnthropicBackend {
             .into_iter()
             .filter_map(|c| c.text)
             .next()
+            // Re-prepend the `{` from the prefill so callers get a
+            // complete, parsable JSON object. Without this the response
+            // starts with the model's continuation (e.g. `"version":…`).
+            .map(|t| format!("{{{t}"))
             .ok_or_else(|| anyhow!("anthropic response had no text content"))
     }
 }
