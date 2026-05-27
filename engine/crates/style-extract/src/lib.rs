@@ -53,10 +53,23 @@ pub enum EasingLabel {
     Accelerate,
     Sharp,
     Bounce,
+    /// Subtle overshoot at the end of the motion — the canonical
+    /// "agency-feel" curve for hero element entrances. Lands ~10%
+    /// past the target and settles back. Use sparingly: too much
+    /// makes the comp feel jittery.
+    SpringSoft,
+    /// Pre-anticipation — pulls back slightly before launching
+    /// forward. The motion principle that telegraphs intent. Use on
+    /// emphasis beats (a "wait for it…" cue before a number lands).
+    Anticipate,
 }
 
 impl EasingLabel {
-    /// Canonical Material Design 3 cubic-bezier control points.
+    /// Canonical cubic-bezier control points. Standard / Decelerate /
+    /// Accelerate / Sharp follow Material Design 3; Bounce is a
+    /// classic overshoot; SpringSoft + Anticipate match the
+    /// `back.out` / `back.in` curves from the GSAP / framer-motion
+    /// ecosystem (the de-facto motion-design standard).
     pub fn canonical_bezier(self) -> [f32; 4] {
         match self {
             EasingLabel::Linear => [0.0, 0.0, 1.0, 1.0],
@@ -65,6 +78,11 @@ impl EasingLabel {
             EasingLabel::Accelerate => [0.4, 0.0, 1.0, 1.0],
             EasingLabel::Sharp => [0.4, 0.0, 0.6, 1.0],
             EasingLabel::Bounce => [0.68, -0.55, 0.27, 1.55],
+            // back.out — overshoots ~10% then settles. Hero entrance.
+            EasingLabel::SpringSoft => [0.34, 1.56, 0.64, 1.0],
+            // back.in — anticipates by pulling back ~28% first.
+            // Emphasis pre-beat.
+            EasingLabel::Anticipate => [0.6, -0.28, 0.735, 0.045],
         }
     }
 }
@@ -109,6 +127,8 @@ mod tests {
             EasingLabel::Accelerate,
             EasingLabel::Sharp,
             EasingLabel::Bounce,
+            EasingLabel::SpringSoft,
+            EasingLabel::Anticipate,
         ] {
             let b = label.canonical_bezier();
             let key = format!("{:?}", b.map(|f| (f * 1000.0) as i32));

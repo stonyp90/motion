@@ -303,9 +303,13 @@ pub fn attach_to_timeline(timeline: &mut LottieTimeline, bundle: &SceneAssetsBun
     timeline.image_assets.extend(to_add);
 
     // 2. Prepend a background image layer to every shot whose
-    //    description carries a recognized `[scene_id]` tag.
+    //    description carries a recognized `[scene_id]` tag. Each shot
+    //    gets a Ken Burns camera move (slow zoom + pan) and a 0.3s
+    //    opacity ramp-in / ramp-out so back-to-back shots cross-fade
+    //    instead of hard-cutting. The Ken-Burns direction varies per
+    //    scene so the video doesn't read as mechanical.
     let mut attached = 0usize;
-    for shot in &mut timeline.shots {
+    for (shot_index, shot) in timeline.shots.iter_mut().enumerate() {
         let Some(scene_id) = extract_scene_id(&shot.description) else {
             continue;
         };
@@ -317,6 +321,7 @@ pub fn attach_to_timeline(timeline: &mut LottieTimeline, bundle: &SceneAssetsBun
             timeline.composition_width,
             timeline.composition_height,
             shot.duration_seconds,
+            shot_index,
         );
         shot.layers.insert(0, bg);
         attached += 1;
@@ -334,14 +339,68 @@ fn extract_scene_id(description: &str) -> Option<String> {
     Some(rest[..end].trim().to_string())
 }
 
-/// Build a full-frame Image layer that fills the composition and
-/// keeps the same opacity for the entire shot. Two keyframes so the
-/// renderer's `animated_transform` path is exercised (a single
-/// keyframe also works but the renderer prefers a span).
-fn background_image_layer(asset_id: &str, w: u32, h: u32, duration_sec: f32) -> Layer {
+/// Cross-fade duration at scene boundaries (seconds). Tuned to be
+/// short enough to feel snappy (not lazy) but long enough to read as
+/// an intentional transition rather than a frame drop. 0.3s matches
+/// Apple's standard view-controller transition pacing.
+const SCENE_CROSSFADE_SEC: f32 = 0.3;
+
+/// Ken-Burns zoom intensity. The image scales from `1.0 + KB_START`
+/// to `1.0 + KB_END` over the shot duration. Subtle enough to read
+/// as "alive" without becoming distracting (agency convention is
+/// ~3-8% scale travel; 6% lands in the middle).
+const KB_START_SCALE: f32 = 1.04;
+const KB_END_SCALE: f32 = 1.10;
+
+/// How far the camera pans across the shot, as a fraction of the
+/// composition width / height. Tiny — we don't want to reveal
+/// background edges. 2.5% of the shorter dimension is invisible on
+/// a still frame but legible as motion when animating.
+const KB_PAN_FRACTION: f32 = 0.025;
+
+/// Build a full-frame Image layer with a Ken-Burns camera move + a
+/// 0.3s cross-fade on both edges of the shot. `shot_index` picks the
+/// pan direction (deterministic round-robin across 4 diagonals) so
+/// consecutive shots feel varied without random jitter.
+///
+/// The opacity ramp turns back-to-back shots into a cross-fade
+/// automatically: each shot's window in the master timeline already
+/// covers its own duration, and since the Lottie renderer emits
+/// per-shot in/out frames, opacity ramping inside the shot is
+/// equivalent to a real transition without needing the renderer to
+/// know about transitions at all.
+fn background_image_layer(
+    asset_id: &str,
+    w: u32,
+    h: u32,
+    duration_sec: f32,
+    shot_index: usize,
+) -> Layer {
     let cx = w as f32 * 0.5;
     let cy = h as f32 * 0.5;
-    let size = [w as f32, h as f32];
+    let base_size = [w as f32, h as f32];
+    let duration = duration_sec.max(0.05);
+
+    // Ken-Burns: 4 diagonal directions, deterministic by shot index
+    // so the same brief replays the same way (good for diffing).
+    let (dx_sign, dy_sign) = match shot_index % 4 {
+        0 => (1.0, 1.0),   // → ↓
+        1 => (-1.0, 1.0),  // ← ↓
+        2 => (-1.0, -1.0), // ← ↑
+        _ => (1.0, -1.0),  // → ↑
+    };
+    let pan_x = (w as f32) * KB_PAN_FRACTION * dx_sign;
+    let pan_y = (h as f32) * KB_PAN_FRACTION * dy_sign;
+    let start_size = [base_size[0] * KB_START_SCALE, base_size[1] * KB_START_SCALE];
+    let end_size = [base_size[0] * KB_END_SCALE, base_size[1] * KB_END_SCALE];
+
+    // Opacity ramp: fade in 0.3s, hold, fade out 0.3s. If the shot is
+    // shorter than 2× the fade (rare — <0.6s), shrink both ramps so
+    // they stay symmetric and don't overlap.
+    let fade = SCENE_CROSSFADE_SEC.min(duration * 0.45);
+    let hold_in_end = fade;
+    let hold_out_start = duration - fade;
+
     Layer {
         name: format!("bg_{asset_id}"),
         kind: LayerKind::Image,
@@ -350,24 +409,56 @@ fn background_image_layer(asset_id: &str, w: u32, h: u32, duration_sec: f32) -> 
         text: None,
         image_asset_id: Some(asset_id.to_string()),
         keyframes: vec![
+            // Open: scale start, pan-start, opacity 0.
             Keyframe {
                 time_seconds: 0.0,
-                position: [cx, cy],
-                size,
+                position: [cx - pan_x, cy - pan_y],
+                size: start_size,
+                rotation_degrees: 0.0,
+                opacity: 0.0,
+                easing_label: EasingLabel::Decelerate,
+            },
+            // Fade-in complete; Ken-Burns continues.
+            Keyframe {
+                time_seconds: hold_in_end,
+                position: [
+                    cx - pan_x + (pan_x * 2.0 * (hold_in_end / duration)),
+                    cy - pan_y + (pan_y * 2.0 * (hold_in_end / duration)),
+                ],
+                size: lerp_size(start_size, end_size, hold_in_end / duration),
                 rotation_degrees: 0.0,
                 opacity: 1.0,
                 easing_label: EasingLabel::Standard,
             },
+            // Hold opacity to the start of the fade-out.
             Keyframe {
-                time_seconds: duration_sec.max(0.01),
-                position: [cx, cy],
-                size,
+                time_seconds: hold_out_start,
+                position: [
+                    cx - pan_x + (pan_x * 2.0 * (hold_out_start / duration)),
+                    cy - pan_y + (pan_y * 2.0 * (hold_out_start / duration)),
+                ],
+                size: lerp_size(start_size, end_size, hold_out_start / duration),
                 rotation_degrees: 0.0,
                 opacity: 1.0,
                 easing_label: EasingLabel::Standard,
+            },
+            // Close: end of pan + scale, opacity 0.
+            Keyframe {
+                time_seconds: duration,
+                position: [cx + pan_x, cy + pan_y],
+                size: end_size,
+                rotation_degrees: 0.0,
+                opacity: 0.0,
+                easing_label: EasingLabel::Accelerate,
             },
         ],
     }
+}
+
+/// Linear interpolation on a 2-element size array; `t` clamped to [0, 1].
+fn lerp_size(a: [f32; 2], b: [f32; 2], t: f32) -> [f32; 2] {
+    let t = t.clamp(0.0, 1.0);
+    [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]
 }
 
 #[cfg(test)]
@@ -554,6 +645,29 @@ mod tests {
         assert_eq!(attached, 1);
         assert_eq!(timeline.shots[0].layers.len(), 1); // got bg
         assert!(timeline.shots[1].layers.is_empty()); // no bg, degrades gracefully
+    }
+
+    #[test]
+    fn attach_to_timeline_animates_background_with_ken_burns_and_crossfade() {
+        let mut timeline = empty_timeline_with_shots(vec![shot_for("1.0")]);
+        let bundle = fake_bundle(&["1.0"]);
+        attach_to_timeline(&mut timeline, &bundle);
+        let bg = &timeline.shots[0].layers[0];
+        // 4 keyframes: opacity 0 → 1 → 1 → 0 (cross-fade in + out).
+        assert_eq!(bg.keyframes.len(), 4);
+        assert_eq!(bg.keyframes[0].opacity, 0.0, "open at opacity 0");
+        assert_eq!(bg.keyframes[1].opacity, 1.0, "fade-in complete");
+        assert_eq!(bg.keyframes[2].opacity, 1.0, "hold opacity 1");
+        assert_eq!(bg.keyframes[3].opacity, 0.0, "close at opacity 0");
+        // Size grows monotonically (Ken-Burns zoom-out).
+        let s0 = bg.keyframes[0].size[0];
+        let s3 = bg.keyframes[3].size[0];
+        assert!(s3 > s0, "scale should grow {s0} → {s3}");
+        // Position shifts (Ken-Burns pan): first and last positions differ.
+        assert_ne!(
+            bg.keyframes[0].position, bg.keyframes[3].position,
+            "Ken-Burns pan: position should shift across the shot"
+        );
     }
 
     #[test]

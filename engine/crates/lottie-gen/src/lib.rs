@@ -8,8 +8,12 @@
 //! - Background color via a full-frame rect layer at z-bottom
 //! - Cubic-bezier easing labels mapped to canonical Material 3 curves
 //!
-//! Text layers are scaffolded but currently render as a coloured
-//! rectangle so the timeline always plays end-to-end.
+//! Text layers with non-empty copy now emit a real Lottie text layer
+//! (`ty: 5`) carrying a text document with the font face + size + fill,
+//! plus a top-level `fonts.list` block so players can resolve the
+//! face. Default font is Inter (bundled on every modern OS; web
+//! players fall back to system sans-serif). Empty Text layers still
+//! fall through to the coloured rect placeholder.
 //!
 //! Image layers with an `image_asset_id` reference are emitted as
 //! proper Lottie `ty: 2` image layers, with the asset bytes embedded
@@ -133,6 +137,7 @@ fn build_lottie(t: &LottieTimeline, registry: &CharacterRegistry) -> Value {
         "nm": "motion-forge",
         "ddd": 0,
         "assets": assets,
+        "fonts": fonts_block_for(t),
         "layers": layers,
     })
 }
@@ -186,6 +191,17 @@ fn build_shape_layer(
         }
     }
 
+    // Real text layer (ty=5) when the layer is Text AND has actual
+    // copy. We render via Lottie's native text document so the
+    // glyphs scale + animate cleanly; players that can't resolve
+    // the font fall back to system fonts (Inter is bundled on most
+    // modern OSes; web players fall back to sans-serif gracefully).
+    if matches!(layer.kind, LayerKind::Text) {
+        if let Some(copy) = layer.text.as_deref().filter(|s| !s.is_empty()) {
+            return text_layer(layer, t, index, shot_in, shot_out, copy);
+        }
+    }
+
     let first = layer
         .keyframes
         .first()
@@ -196,8 +212,8 @@ fn build_shape_layer(
     let shape_bbox = first.size;
     let shape = match layer.kind {
         LayerKind::Ellipse => shape_group_ellipse(shape_bbox[0], shape_bbox[1], fill_hex),
-        // Text, Image-without-asset, and any unmatched variant fall
-        // through to a coloured rect placeholder.
+        // Text-without-copy, Image-without-asset, and any unmatched
+        // variant fall through to a coloured rect placeholder.
         _ => shape_group_rect(shape_bbox[0], shape_bbox[1], fill_hex),
     };
 
@@ -243,6 +259,108 @@ fn image_layer(
         "op": shot_out,
         "st": shot_in,
         "bm": 0,
+    })
+}
+
+/// The font face every text layer renders with. Hardcoded to Inter
+/// (the de-facto modern UI font: GitHub, Linear, Vercel, Stripe).
+/// Players that can't resolve "Inter" fall back to system sans-serif,
+/// which still reads better than the rect placeholder we used to ship.
+const DEFAULT_FONT_FAMILY: &str = "Inter";
+const DEFAULT_FONT_NAME: &str = "Inter-Bold";
+
+/// Emit a Lottie text layer (`ty: 5`). Renders the copy at the size
+/// derived from the layer's first keyframe (using the keyframe's
+/// height as the font pixel size — fits the "design a layer rectangle
+/// to fit the text" convention the LLM already follows). Color uses
+/// the layer's `fill_hex`, falling back to a soft white so text is
+/// always legible against typical dark backgrounds.
+fn text_layer(
+    layer: &Layer,
+    t: &LottieTimeline,
+    index: u32,
+    shot_in: u32,
+    shot_out: u32,
+    copy: &str,
+) -> Value {
+    let first = layer
+        .keyframes
+        .first()
+        .cloned()
+        .unwrap_or_else(|| default_keyframe(t));
+    // Font size: use the keyframe height directly. The LLM sizes the
+    // bounding box to "feel right" so reusing it for the glyph size
+    // produces consistent layouts without a separate field.
+    let font_size = first.size[1].clamp(16.0, 420.0);
+    let fill = layer.fill_hex.unwrap_or([0xf5, 0xf5, 0xf5]);
+    let fill_rgb_normalized = [
+        fill[0] as f32 / 255.0,
+        fill[1] as f32 / 255.0,
+        fill[2] as f32 / 255.0,
+    ];
+
+    json!({
+        "ddd": 0,
+        "ind": index,
+        "ty": 5,
+        "nm": layer.name,
+        "sr": 1,
+        "ks": animated_transform(&layer.keyframes, t.frame_rate),
+        "ao": 0,
+        "t": {
+            // Text document — single keyframe with the full string.
+            // For kinetic / word-by-word reveal (planned next) we'd
+            // emit multiple text documents over time.
+            "d": {
+                "k": [{
+                    "t": 0,
+                    "s": {
+                        "s": font_size,
+                        "f": DEFAULT_FONT_NAME,
+                        "t": copy,
+                        // 2 = center justify so the bounding box maths
+                        // already align by midpoint (matches the
+                        // existing `position` semantics).
+                        "j": 2,
+                        "tr": 0,
+                        "lh": font_size * 1.15,
+                        "ls": 0,
+                        "fc": fill_rgb_normalized,
+                        "ca": 0,
+                    }
+                }]
+            },
+            // No text path / per-character transforms / animator
+            // properties — keep the wire shape minimal.
+            "p": {},
+            "m": { "g": 1, "a": { "a": 0, "k": [0, 0] } },
+            "a": []
+        },
+        "ip": shot_in,
+        "op": shot_out,
+        "st": shot_in,
+        "bm": 0,
+    })
+}
+
+/// Registry block for the fonts every text layer references. Lottie
+/// players read this to resolve `f` (font name) in text documents to
+/// an actual face — when the font isn't bundled, web players fall
+/// through to system sans-serif, native players to the OS font.
+fn fonts_block_for(_t: &LottieTimeline) -> Value {
+    json!({
+        "list": [
+            {
+                "origin": 0,
+                "fPath": "",
+                "fClass": "",
+                "fFamily": DEFAULT_FONT_FAMILY,
+                "fWeight": "700",
+                "fStyle": "Bold",
+                "fName": DEFAULT_FONT_NAME,
+                "ascent": 60,
+            }
+        ]
     })
 }
 
@@ -445,6 +563,75 @@ mod tests {
         assert_eq!(v["v"].as_str(), Some("5.7.0"));
         assert_eq!(v["w"].as_u64(), Some(1920));
         assert!(v["layers"].as_array().unwrap().len() >= 2);
+    }
+
+    #[test]
+    fn text_layer_with_copy_renders_as_real_lottie_text() {
+        let layer = motion_forge_prompt_orchestrator::Layer {
+            name: "headline".into(),
+            kind: motion_forge_prompt_orchestrator::LayerKind::Text,
+            fill_hex: Some([0x10, 0xb9, 0x81]),
+            stroke_hex: None,
+            text: Some("Ship faster".into()),
+            image_asset_id: None,
+            keyframes: vec![Keyframe {
+                time_seconds: 0.0,
+                position: [960.0, 540.0],
+                size: [800.0, 96.0],
+                rotation_degrees: 0.0,
+                opacity: 1.0,
+                easing_label: EasingLabel::Standard,
+            }],
+        };
+        let shot = motion_forge_prompt_orchestrator::Shot {
+            start_seconds: 0.0,
+            duration_seconds: 2.0,
+            description: "headline".into(),
+            layers: vec![layer],
+        };
+        let timeline = motion_forge_prompt_orchestrator::LottieTimeline {
+            composition_width: 1920,
+            composition_height: 1080,
+            duration_seconds: 2.0,
+            frame_rate: 30.0,
+            background_hex: [0x0a, 0x0a, 0x0a],
+            shots: vec![shot],
+            image_assets: vec![],
+        };
+
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("out.json");
+        SerdeLottieGenerator::new().write(&timeline, &path).unwrap();
+        let raw = std::fs::read_to_string(&path).unwrap();
+        let v: Value = serde_json::from_str(&raw).unwrap();
+
+        // ty: 5 text layer landed (not the rect placeholder).
+        let layers = v["layers"].as_array().unwrap();
+        let text = layers
+            .iter()
+            .find(|l| l["ty"].as_u64() == Some(5))
+            .expect("text layer (ty=5) missing");
+        // Text document carries the actual copy.
+        assert_eq!(
+            text["t"]["d"]["k"][0]["s"]["t"].as_str(),
+            Some("Ship faster")
+        );
+        // Font face wired through.
+        assert_eq!(
+            text["t"]["d"]["k"][0]["s"]["f"].as_str(),
+            Some("Inter-Bold")
+        );
+        // Fill color normalized from rgb 0-255 → 0-1.
+        let fc = text["t"]["d"]["k"][0]["s"]["fc"].as_array().unwrap();
+        assert!((fc[0].as_f64().unwrap() - 0.0625).abs() < 0.01);
+
+        // Fonts block registered at the top level.
+        let fonts = v["fonts"]["list"].as_array().unwrap();
+        assert!(
+            fonts
+                .iter()
+                .any(|f| f["fName"].as_str() == Some("Inter-Bold"))
+        );
     }
 
     #[test]

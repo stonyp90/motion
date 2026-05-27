@@ -276,7 +276,8 @@ impl PromptOrchestrator {
              HARD CONSTRAINTS (every one must hold)\n\
              1. Composition: {w}×{h} at {fps} fps.\n\
              2. Total duration: exactly {dur:.2} seconds.\n\
-             3. Easing labels — use only: Linear, Standard, Decelerate, Accelerate, Sharp, Bounce.\n\
+             3. Easing labels — use only: Linear, Standard, Decelerate, Accelerate, Sharp, Bounce, SpringSoft, Anticipate.\n\
+                Prefer SpringSoft (subtle ~10% overshoot) for hero element ENTRANCES (logos landing, KPI cards arriving). Use Anticipate (pre-pullback) on the keyframe BEFORE an emphasis beat (e.g. a number that's about to count up). Default to Standard/Decelerate everywhere else; Linear only for steady camera moves. Bounce reads as cartoonish — reserve for playful themes.\n\
              4. Layer kinds — use only: Rect, Ellipse, Text, Image. Text layers MUST set the `text` field.\n\
              5. Every layer has ≥2 keyframes covering its shot.\n\
              6. All shot start_seconds + duration_seconds within [0, {dur:.2}].\n\n\
@@ -542,7 +543,7 @@ fn timeline_schema(w: u32, h: u32, fps: f32, duration: f32) -> serde_json::Value
                                                 "opacity": { "type": "number" },
                                                 "easing_label": {
                                                     "type": "string",
-                                                    "enum": ["Linear", "Standard", "Decelerate", "Accelerate", "Sharp", "Bounce"]
+                                                    "enum": ["Linear", "Standard", "Decelerate", "Accelerate", "Sharp", "Bounce", "SpringSoft", "Anticipate"]
                                                 }
                                             },
                                             "required": ["time_seconds", "position", "size", "rotation_degrees", "opacity", "easing_label"]
