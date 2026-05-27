@@ -77,8 +77,13 @@ export function SampleRunDemo() {
           <div className="mt-12 flex flex-col gap-5">
             <FormatRow value={controls} onChange={() => undefined} />
 
+            {/* No `readOnly` prop on PromptInput — the textarea is
+                controlled with a no-op `onChange`, which already
+                makes it effectively read-only (React itself flags
+                controlled inputs without a writable onChange as
+                read-only fields). The SampleRunOverlay click-shield
+                above catches taps before they reach the textarea. */}
             <PromptInput
-              readOnly
               value={sample.prompt}
               onChange={() => undefined}
               onGenerate={() => undefined}
