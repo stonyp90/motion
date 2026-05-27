@@ -29,6 +29,11 @@ engine/models/*
 engine/fixtures/*.mp4
 engine/fixtures/*.mov
 
+# --- Render output (local renders; never commit) ---
+render-out/
+**/render-out/*.mp4
+**/render-out/*.mov
+
 # --- Local environment + secrets ---
 .env
 .env.local
