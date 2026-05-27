@@ -306,6 +306,66 @@ fn validate_path(s: &str, label: &str) -> Result<PathBuf, ApiError> {
     Ok(p)
 }
 
+/// Sandbox a caller-supplied output path under a fresh per-call
+/// directory. Used by routes that take a user-controlled `out_lottie`
+/// (and similar) — defends against the "POST a path that overwrites
+/// a config file or the binary's source" attack class.
+///
+/// Rules:
+///   1. Anything starting with `/`, a Windows drive letter, or
+///      containing `..` is rejected outright.
+///   2. The (relative) path is joined under `$TMPDIR/mf-gen-<id>/`.
+///   3. The canonical resolution MUST stay under the sandbox dir;
+///      symlinks that point outside the box are rejected.
+///
+/// Returns the absolute sandboxed path the caller should write to,
+/// plus the sandbox root (so the caller can include it in the
+/// response for the client to read back). The sandbox dir is
+/// created here so the writer just has to `std::fs::write`.
+fn sandbox_output_path(
+    user_supplied: Option<&str>,
+    default_filename: &str,
+) -> Result<PathBuf, ApiError> {
+    let sandbox = std::env::temp_dir().join(format!("mf-gen-{}", short_id()));
+    std::fs::create_dir_all(&sandbox).map_err(ApiError::internal)?;
+    let rel = match user_supplied {
+        None => default_filename.to_string(),
+        Some(s) => {
+            if s.contains('\0') {
+                return Err(ApiError::bad_request("out_lottie contains NUL byte"));
+            }
+            let p = std::path::Path::new(s);
+            if p.is_absolute() {
+                return Err(ApiError::bad_request(
+                    "out_lottie must be a relative filename, not an absolute path",
+                ));
+            }
+            if p.components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
+            {
+                return Err(ApiError::bad_request(
+                    "out_lottie must not contain `..` components",
+                ));
+            }
+            // Only keep the bare filename — disallow nested dirs to
+            // keep the sandbox flat. Most callers want the default
+            // filename anyway; this just lets them rename it.
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .ok_or_else(|| ApiError::bad_request("out_lottie filename is empty"))?
+                .to_string()
+        }
+    };
+    let resolved = sandbox.join(&rel);
+    // Belt-and-braces: confirm the resolved path is still under the
+    // sandbox. (Defends against weird OS quirks with reserved
+    // filenames on Windows + double-canonicalization.)
+    if !resolved.starts_with(&sandbox) {
+        return Err(ApiError::bad_request("out_lottie escapes sandbox"));
+    }
+    Ok(resolved)
+}
+
 // ---- handlers ----
 
 async fn healthz() -> Json<serde_json::Value> {
@@ -1080,7 +1140,45 @@ async fn brief_parse(Json(req): Json<BriefParseRequest>) -> Result<Json<Brief>, 
     Ok(Json(brief))
 }
 
+/// Per-call clamp on how many scenes a brief is allowed to decompose
+/// into. The LLM fans out one image-gen call per scene at $0.04 each
+/// — without a cap a malicious request could mint a $200 invoice or
+/// burn through the Recraft 60-rpm quota for every other tenant.
+/// 20 scenes is comfortably above the 8-12 a real explainer uses.
+const MAX_BRIEF_SCENE_COUNT: u32 = 20;
+
+/// Per-call clamp on requested runtime in seconds. The orchestrator
+/// allocates per-scene budget from this; an unbounded value would
+/// either blow the LLM context window or run the renderer for hours.
+const MAX_BRIEF_DURATION_SEC: f32 = 180.0;
+
+/// Validate + clamp a brief request shape. Returns 400 on out-of-band
+/// values rather than silently saturating, so the caller learns about
+/// the limit instead of getting truncated output.
+fn validate_brief_bounds(brief: &str, duration: f32, scene_count: u32) -> Result<(), ApiError> {
+    if brief.trim().is_empty() {
+        return Err(ApiError::bad_request("brief is empty"));
+    }
+    if brief.len() > 8_000 {
+        return Err(ApiError::bad_request(
+            "brief too long (max 8 000 characters)",
+        ));
+    }
+    if !duration.is_finite() || duration <= 0.0 || duration > MAX_BRIEF_DURATION_SEC {
+        return Err(ApiError::bad_request(format!(
+            "duration must be 0 < d ≤ {MAX_BRIEF_DURATION_SEC} seconds"
+        )));
+    }
+    if scene_count == 0 || scene_count > MAX_BRIEF_SCENE_COUNT {
+        return Err(ApiError::bad_request(format!(
+            "scene_count must be 1 ≤ n ≤ {MAX_BRIEF_SCENE_COUNT}"
+        )));
+    }
+    Ok(())
+}
+
 async fn brief_synth(Json(req): Json<BriefSynthRequest>) -> Result<Json<Brief>, ApiError> {
+    validate_brief_bounds(&req.brief, req.duration, req.scene_count)?;
     let backend = llm::auto_local_first("{\"scenes\":[]}").await;
     let brief = synthesize_script(&*backend, &req.brief, req.duration, req.scene_count)
         .await
@@ -1134,6 +1232,10 @@ pub struct BriefGenerateResponse {
 async fn brief_generate(
     Json(req): Json<BriefGenerateRequest>,
 ) -> Result<Json<BriefGenerateResponse>, ApiError> {
+    // Guard the cost-bomb / quota-exhaustion vector before doing any
+    // upstream work (LLM tokens, image-gen calls, disk writes).
+    validate_brief_bounds(&req.brief, req.duration, req.scene_count)?;
+
     // 1. Free-form brief → structured Brief with per-scene illustration_prompt.
     let backend = llm::auto_local_first("{\"scenes\":[]}").await;
     let brief = synthesize_script(&*backend, &req.brief, req.duration, req.scene_count)
@@ -1176,11 +1278,11 @@ async fn brief_generate(
         }
     };
 
-    // 3. Write the Lottie JSON.
-    let out_path = match req.out_lottie.as_deref() {
-        Some(p) => validate_path(p, "out_lottie")?,
-        None => std::env::temp_dir().join(format!("mf-gen-{}.lottie.json", short_id())),
-    };
+    // 3. Write the Lottie JSON into a per-call sandbox dir. Caller
+    //    may rename via `out_lottie` but cannot escape the sandbox
+    //    or pick an absolute path (defends against the "POST a path
+    //    that overwrites the binary" attack class).
+    let out_path = sandbox_output_path(req.out_lottie.as_deref(), "out.lottie.json")?;
     SerdeLottieGenerator::new()
         .write(&timeline, &out_path)
         .map_err(ApiError::internal)?;

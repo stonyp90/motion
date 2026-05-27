@@ -156,13 +156,81 @@ pub async fn generate_scene_assets_with_concurrency(
     bundle
 }
 
+/// Maximum length of any prompt we send to the image-gen provider.
+/// Recraft truncates very long prompts and produces mediocre output;
+/// we also use this as a defense against a prompt-injection attack
+/// that nudges the LLM into emitting an enormous denylisted payload.
+const MAX_PROMPT_CHARS: usize = 500;
+
+/// Substring patterns we refuse to send upstream. Lowercased; matched
+/// case-insensitively. Catches the most common abuse vectors that
+/// would get the Recraft account banned (TOS violations: real-person
+/// likeness without consent, explicit content, recognizable competitor
+/// logos, weapons). Not exhaustive — adding real content moderation
+/// is on the SDK provider side; this is a cheap pre-filter.
+const ILLUSTRATION_DENYLIST: &[&str] = &[
+    "nude",
+    "naked",
+    "nsfw",
+    "explicit",
+    "porn",
+    "erotic",
+    "child",
+    "minor",
+    "underage",
+    "weapon",
+    "gun",
+    "firearm",
+    "rifle",
+    "pistol",
+    "bomb",
+    "explosive",
+    "ied",
+    "blood",
+    "gore",
+    "gory",
+    "decapitat",
+    "mutilat",
+    "swastika",
+    "nazi",
+    "isis",
+    "terrorist",
+];
+
+/// Scrub + validate an LLM-emitted prompt before it's sent to the
+/// image-gen provider. Returns `None` for prompts that should be
+/// dropped (denylist hit, empty after trim); returns a length-capped
+/// cleaned string otherwise.
+fn sanitize_prompt(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    for needle in ILLUSTRATION_DENYLIST {
+        if lower.contains(needle) {
+            tracing::warn!(
+                pattern = needle,
+                "illustration prompt hit denylist; dropping scene asset"
+            );
+            return None;
+        }
+    }
+    if trimmed.chars().count() <= MAX_PROMPT_CHARS {
+        return Some(trimmed.to_string());
+    }
+    // Truncate at a char boundary, not a byte boundary.
+    Some(trimmed.chars().take(MAX_PROMPT_CHARS).collect())
+}
+
 /// Build the per-scene image request. Prefers `illustration_prompt`
 /// (set by the scene decomposer); falls back to `visual` so legacy
 /// hand-authored briefs still get an asset even if the user never
 /// ran them through the LLM script synth path. Returns `None` if
-/// neither field has usable content.
+/// neither field has usable content, or if both fields fail the
+/// denylist check.
 fn build_request(scene: &SceneScript, comp_w: u32, comp_h: u32) -> Option<ImageRequest> {
-    let prompt = scene
+    let candidate = scene
         .illustration_prompt
         .as_deref()
         .map(str::trim)
@@ -171,7 +239,8 @@ fn build_request(scene: &SceneScript, comp_w: u32, comp_h: u32) -> Option<ImageR
             let v = scene.visual.trim();
             (!v.is_empty()).then_some(v)
         })?;
-    Some(ImageRequest::new(prompt).with_dims(comp_w, comp_h))
+    let cleaned = sanitize_prompt(candidate)?;
+    Some(ImageRequest::new(cleaned).with_dims(comp_w, comp_h))
 }
 
 /// Lottie asset ids must be valid JSON keys and cannot contain dots

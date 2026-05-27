@@ -77,6 +77,13 @@ pub struct KeycloakConfig {
 impl KeycloakConfig {
     /// Build from env, falling back to fields that allow auth-disabled
     /// operation if `KEYCLOAK_ISSUER` is unset.
+    ///
+    /// **Production safety**: when `MOTION_FORGE_ENV=production`, the
+    /// fallback shared key is refused outright — that key is a
+    /// dev-only convenience for the desktop sidecar + local CI, and
+    /// leaving it set in prod (e.g. by a copy-pasted env block) would
+    /// let anyone holding the string bypass Keycloak entirely. A
+    /// panic at boot is the safest failure mode for that misconfig.
     pub fn from_env() -> Self {
         let issuer = env::var(ENV_ISSUER).unwrap_or_default();
         let audiences = env::var(ENV_AUDIENCE)
@@ -88,7 +95,20 @@ impl KeycloakConfig {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_else(|| vec!["motion-forge-web".into(), "motion-forge-engine".into()]);
-        let fallback_key = env::var(ENV_FALLBACK_KEY).ok().filter(|s| !s.is_empty());
+        let env_kind = env::var("MOTION_FORGE_ENV").unwrap_or_default();
+        let raw_fallback = env::var(ENV_FALLBACK_KEY).ok().filter(|s| !s.is_empty());
+        let fallback_key = match (env_kind.as_str(), raw_fallback) {
+            ("production", Some(_)) => {
+                // Refuse to start with the dev bypass enabled in prod.
+                panic!(
+                    "{} must not be set when MOTION_FORGE_ENV=production. \
+                     Remove it from the production secret set; rely on \
+                     KEYCLOAK_ISSUER + API keys exclusively.",
+                    ENV_FALLBACK_KEY
+                );
+            }
+            (_, k) => k,
+        };
         Self {
             issuer,
             audiences,

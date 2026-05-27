@@ -19,8 +19,39 @@ import 'server-only';
 const ISSUER = process.env.KEYCLOAK_ISSUER ?? 'http://127.0.0.1:8080/realms/controlcraft';
 const CLIENT_ID = process.env.KEYCLOAK_CLIENT_ID ?? 'motion-forge-web';
 const CLIENT_SECRET = process.env.KEYCLOAK_CLIENT_SECRET ?? '';
-const ADMIN_USER = process.env.KEYCLOAK_ADMIN_USER ?? 'admin';
-const ADMIN_PASSWORD = process.env.KEYCLOAK_ADMIN_PASSWORD ?? 'admin';
+
+/**
+ * Master-realm admin creds. We refuse to use the well-known bootstrap
+ * `admin/admin` defaults at runtime in production: any Keycloak that
+ * still has those creds enabled would be fully compromised by an
+ * attacker who reached the master realm. Local dev still gets the
+ * convenience default because the docker-compose Keycloak isn't
+ * reachable from the public internet and is wiped on every restart.
+ *
+ * `IS_PRODUCTION` follows the standard `NODE_ENV` convention. The
+ * check fires lazily inside `requireSafeAdminCreds()` so Next.js's
+ * build-time page data collection doesn't trip it (build runs with
+ * `NODE_ENV=production` but no Azure secret block in scope).
+ */
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const ADMIN_USER = process.env.KEYCLOAK_ADMIN_USER ?? (IS_PRODUCTION ? '' : 'admin');
+const ADMIN_PASSWORD = process.env.KEYCLOAK_ADMIN_PASSWORD ?? (IS_PRODUCTION ? '' : 'admin');
+
+function requireSafeAdminCreds(): void {
+  if (!IS_PRODUCTION) return;
+  if (!ADMIN_USER || !ADMIN_PASSWORD) {
+    throw new Error(
+      'KEYCLOAK_ADMIN_USER and KEYCLOAK_ADMIN_PASSWORD must be set in production. ' +
+        'Refusing to authenticate with the well-known admin/admin defaults.',
+    );
+  }
+  if (ADMIN_USER === 'admin' && ADMIN_PASSWORD === 'admin') {
+    throw new Error(
+      'KEYCLOAK_ADMIN_PASSWORD is set to the well-known default "admin" in production. ' +
+        'Rotate the master realm bootstrap credentials before serving traffic.',
+    );
+  }
+}
 
 /** Derive the master-realm base URL from the realm-scoped issuer. */
 function masterBase(): string {
@@ -103,6 +134,11 @@ export async function refreshTokens(refreshToken: string): Promise<TokenSet> {
  */
 let adminTokenCache: { token: string; expiresAt: number } | null = null;
 async function adminToken(): Promise<string> {
+  // Lazy production-safety check: fires the first time a real request
+  // tries to hit the admin endpoint, NOT at module load (which would
+  // break Next.js's build-time page data collection).
+  requireSafeAdminCreds();
+
   const now = Date.now();
   if (adminTokenCache && adminTokenCache.expiresAt > now + 30_000) {
     return adminTokenCache.token;

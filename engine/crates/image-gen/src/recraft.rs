@@ -16,6 +16,7 @@
 //!
 //! Cost (2026): $0.04 per `recraftv3` image. Free tier 50 generations.
 
+use crate::svg_sanitize::sanitize as sanitize_svg;
 use crate::{GeneratedImage, ImageGen, ImageGenError, ImageRequest};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -156,16 +157,31 @@ impl ImageGen for RecraftBackend {
             "image/png".to_string()
         };
 
+        // Sanitize before returning — third-party providers can be
+        // compromised + a prompt-injection attack could nudge the
+        // model into emitting <script>/event-handler payloads that
+        // would otherwise execute when a customer previews the
+        // resulting Lottie. Raster bytes pass through unchanged.
+        let raw_len = bytes.len();
+        let sanitized = sanitize_svg(&bytes, &content_type);
+        if sanitized.len() != raw_len {
+            tracing::warn!(
+                raw_bytes = raw_len,
+                sanitized_bytes = sanitized.len(),
+                "recraft response contained dangerous markup; sanitized before return"
+            );
+        }
+
         tracing::info!(
             provider = "recraft",
             style = %self.style,
             size = %size,
-            bytes = bytes.len(),
+            bytes = sanitized.len(),
             "generated image"
         );
 
         Ok(GeneratedImage {
-            bytes,
+            bytes: sanitized,
             content_type,
             provider: "recraft".into(),
             cost_micros: COST_PER_IMAGE_MICROS,
