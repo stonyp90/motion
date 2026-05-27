@@ -212,19 +212,22 @@ jobs:
           RAW_TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           RAW_TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          # Tauri updater signing — only export the env vars when the
-          # secret value is a real minisign secret key (starts with
-          # `untrusted comment:`). A non-empty malformed value is the
-          # most common failure mode: someone pastes only the base64
-          # body from the .key file and drops the comment header, or
-          # accidentally pastes the .pub key.
+          # Tauri updater signing. The .tauri-keys/key file is a single
+          # base64-encoded blob (Tauri's canonical format). The secret
+          # value should be the file's contents as-is, in which case it
+          # starts with `dW50cnVzdGVkIGNvbW1lbnQ6` (the base64 encoding
+          # of "untrusted comment:"). Some setups instead paste the
+          # decoded raw text — accept that too. Reject anything else
+          # before burning 9 minutes on a `tauri build` that we know
+          # is going to fail with "Missing comment in secret key".
           if [ -n "$RAW_TAURI_SIGNING_PRIVATE_KEY" ]; then
-            if [[ "$RAW_TAURI_SIGNING_PRIVATE_KEY" == untrusted\ comment:* ]]; then
+            if [[ "$RAW_TAURI_SIGNING_PRIVATE_KEY" == dW50cnVzdGVkIGNvbW1lbnQ6* ]] \
+               || [[ "$RAW_TAURI_SIGNING_PRIVATE_KEY" == untrusted\ comment:* ]]; then
               export TAURI_SIGNING_PRIVATE_KEY="$RAW_TAURI_SIGNING_PRIVATE_KEY"
               export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$RAW_TAURI_SIGNING_PRIVATE_KEY_PASSWORD"
               echo "::notice::Tauri updater signing enabled"
             else
-              echo "::warning::TAURI_SIGNING_PRIVATE_KEY is set but missing the 'untrusted comment:' minisign header — building UNSIGNED. The full contents of desktop/.tauri-keys/key (including the first comment line) need to go in the secret."
+              echo "::warning::TAURI_SIGNING_PRIVATE_KEY is set but doesn't look like a tauri/rsign secret key (expected base64 prefix dW50cnVzdGVkIGNvbW1lbnQ6 or raw 'untrusted comment:'). Building UNSIGNED. Paste the full contents of desktop/.tauri-keys/key (single base64 line) as the secret value."
             fi
           else
             echo "::notice::TAURI_SIGNING_PRIVATE_KEY not set — building unsigned (no auto-update artifacts will be produced)"
