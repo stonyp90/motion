@@ -91,16 +91,19 @@ export function SignupForm({ searchParamsPromise }: Props) {
   };
 
   return (
-    <div className="animate-reveal-up rounded-2xl border border-border-light bg-bg-primary p-8 shadow-card sm:p-10">
+    <div className="animate-reveal-up rounded-2xl border border-border-light bg-bg-primary p-7 shadow-lift sm:p-9">
       <div
-        className="animate-reveal-up stagger-child flex flex-col gap-1.5"
+        className="animate-reveal-up stagger-child flex flex-col gap-2"
         style={{ '--i': 0 } as CSSProperties}
       >
+        <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.22em] text-accent-700 dark:text-accent-400">
+          New seat  ·  free during open beta
+        </p>
         <h1 className="text-[28px] font-bold tracking-tight text-text-primary">
           Create your account.
         </h1>
         <p className="text-sm text-text-secondary">
-          Free during the open beta. No card.
+          No card. No agency invoice. First reel in twenty minutes.
         </p>
       </div>
 
