@@ -153,24 +153,13 @@ export function PreviewFrame({
               </button>
             </>
           ) : (
-            // Alive empty state — Krea / Runway pattern. Shows the
-            // composition's intended aspect with a subtle grid + a
-            // typographic stand-in so the canvas doesn't read as a
-            // dead black void before the first generation lands.
-            <div className="grid h-full w-full place-items-center bg-[radial-gradient(circle_at_30%_30%,rgba(16,185,129,0.10),transparent_60%),radial-gradient(circle_at_70%_70%,rgba(110,231,183,0.08),transparent_55%)] text-text-inverse/60">
-              <div className="flex flex-col items-center gap-3 text-center">
-                <span
-                  aria-hidden
-                  className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent-400"
-                />
-                <p className="text-sm font-medium text-text-inverse/80">
-                  Your motion graphic will appear here
-                </p>
-                <p className="font-mono text-2xs uppercase tracking-[0.18em] text-text-inverse/40">
-                  Write a brief or pick a starter below
-                </p>
-              </div>
-            </div>
+            // Alive empty state — Midjourney/Runway pattern. A real
+            // sample Lottie plays in the background so users see
+            // "what does the product produce?" without having to
+            // submit a prompt first. Text overlay sits on a soft
+            // gradient scrim so it reads regardless of what the
+            // sample is currently drawing under it.
+            <DemoSamplePlayer />
           )}
         </div>
 
@@ -353,4 +342,82 @@ async function rasteriseSvgToPng(
       0.95,
     );
   });
+}
+
+/* ----------------------------------------------------------- */
+/* Demo sample player — the alive empty state                  */
+/* ----------------------------------------------------------- */
+
+/**
+ * Fetches one of the bundled `/lottie/*.json` demo files and plays it
+ * looped + muted as a watermark behind the empty-state text. Cycles
+ * across the three presets on each remount so repeat visitors see
+ * different samples.
+ */
+function DemoSamplePlayer() {
+  const samples = [
+    '/lottie/corporate.json',
+    '/lottie/playful.json',
+    '/lottie/minimalist.json',
+  ];
+  const [sample, setSample] = useState<unknown | null>(null);
+  const [pick] = useState(() => samples[Math.floor(Math.random() * samples.length)]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(pick, { cache: 'force-cache' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (!cancelled) setSample(j);
+      })
+      .catch(() => {
+        /* network glitch — fall through to text-only empty state */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pick]);
+
+  return (
+    <div className="relative h-full w-full bg-[radial-gradient(circle_at_30%_30%,rgba(16,185,129,0.10),transparent_60%),radial-gradient(circle_at_70%_70%,rgba(110,231,183,0.08),transparent_55%)]">
+      {/* The sample animation fills the canvas — full opacity so it
+          actually demonstrates the product. */}
+      {sample !== null && (
+        <Lottie
+          animationData={sample}
+          loop
+          autoplay
+          rendererSettings={{ preserveAspectRatio: 'xMidYMid meet' }}
+          style={{ width: '100%', height: '100%' }}
+        />
+      )}
+
+      {/* Top-left badge — distinguishes the demo from a real
+          generation so the user doesn't think it's THEIR output. */}
+      <div className="pointer-events-none absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-black/40 px-2.5 py-1 backdrop-blur-sm">
+        <span
+          aria-hidden
+          className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent-300"
+        />
+        <span className="font-mono text-2xs uppercase tracking-[0.16em] text-white/90">
+          Sample
+        </span>
+      </div>
+
+      {/* Bottom scrim + hint copy — sits on a real solid backdrop
+          so contrast is preserved regardless of what the sample is
+          drawing at that frame. White text @ 95% for legibility,
+          accent-300 underline on the call to action. */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center bg-gradient-to-t from-black/80 via-black/40 to-transparent px-4 pb-4 pt-12">
+        <div className="flex flex-col items-center gap-1 text-center">
+          <p className="text-sm font-medium text-white/95">
+            Your motion graphic will appear here
+          </p>
+          <p className="font-mono text-2xs uppercase tracking-[0.18em] text-accent-300">
+            Write a brief or pick a starter below ↓
+          </p>
+        </div>
+      </div>
+    </div>
+  );
 }
