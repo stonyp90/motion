@@ -11,7 +11,9 @@ WORKDIR /src
 
 # Cache the dependency layer. `cmake`, `clang`, and `build-essential` are
 # needed so `whisper-rs` can compile its bundled whisper.cpp from source.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Apply all pending security updates so Trivy doesn't flag fixable
+# CRITICAL/HIGH vulns from the stale base-image tag.
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     pkg-config ca-certificates curl \
     cmake clang build-essential libssl-dev libstdc++-12-dev \
  && rm -rf /var/lib/apt/lists/*
@@ -29,7 +31,9 @@ WORKDIR /app
 # Only the ffmpeg binary — no libav*-dev needed; we use ffmpeg-sidecar.
 # libstdc++ + libgomp are needed at runtime by the statically-bundled
 # whisper.cpp (it links the system C++ runtime + OpenMP).
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Apply pending security updates before installing runtime packages so
+# CVEs against base-image libs are patched.
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     ca-certificates ffmpeg tini libgomp1 libstdc++6 \
  && rm -rf /var/lib/apt/lists/*
 

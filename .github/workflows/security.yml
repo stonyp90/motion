@@ -74,6 +74,12 @@ jobs:
           exit-code: '1'
       - name: Upload Trivy SARIF
         uses: github/codeql-action/upload-sarif@v3
+        # SARIF upload only works once "Code scanning" is enabled in
+        # repo settings (Settings → Code security and analysis). Until
+        # then this step would fail with "Code scanning is not enabled".
+        # Best-effort so the job's pass/fail reflects the scan itself,
+        # not the upload pipe.
+        continue-on-error: true
         if: always()
         with:
           sarif_file: trivy-results.sarif
@@ -109,6 +115,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # gitleaks-action@v2 requires a paid license for private
+      # repositories (see gitleaks.io/products.html). The scanner
+      # binary itself is MIT-licensed and free — invoke it directly
+      # so secret scanning works on private repos without a license.
+      - name: Install gitleaks CLI
+        run: |
+          GL_VERSION=8.21.2
+          curl -fsSL -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GL_VERSION}/gitleaks_${GL_VERSION}_linux_x64.tar.gz"
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          sudo mv /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+      - name: Scan repo for secrets
+        run: gitleaks detect --no-banner --redact --verbose --exit-code 1
