@@ -1,11 +1,13 @@
 'use client';
 
-import { Download, ArrowRight, LogOut, User } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Download, ArrowRight, LogOut, Sparkles, User } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ThemeToggle } from './ThemeToggle';
 import { MotionLogo } from './MotionLogo';
 import { selectIsAuthenticated, useAuthStore } from '@/stores/auth-store';
+import { isDesktopMode } from '@/lib/runtime-config';
 
 /**
  * Slim app header: logo + (auth-gated) Download link + Sign in / account control.
@@ -38,6 +40,15 @@ export function Header() {
   const clear = useAuthStore((s) => s.clear);
   const initial = user?.initial ?? '';
 
+  // Hide the Download pill inside the desktop shell — the user is
+  // already in the app, so the link reads as a self-referential nag.
+  // SSR paints `false` to match the server output; the effect flips
+  // it to `true` post-hydration when running under Tauri.
+  const [desktop, setDesktop] = useState(false);
+  useEffect(() => {
+    setDesktop(isDesktopMode());
+  }, [hydrated]);
+
   const handleSignOut = () => {
     clear();
     router.push('/');
@@ -54,13 +65,23 @@ export function Header() {
           {hydrated && isAuthenticated && (
             <>
               <Link
-                href={"/download" as never}
+                href={"/studio" as never}
                 className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-text-primary"
-                aria-label="Download ControlCraft desktop"
+                aria-label="Open Studio — direct-edit + multi-format export"
               >
-                <Download className="h-4 w-4" />
-                <span className="hidden sm:inline">Download</span>
+                <Sparkles className="h-4 w-4" />
+                <span className="hidden sm:inline">Studio</span>
               </Link>
+              {!desktop && (
+                <Link
+                  href={"/download" as never}
+                  className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-text-primary"
+                  aria-label="Download ControlCraft desktop"
+                >
+                  <Download className="h-4 w-4" />
+                  <span className="hidden sm:inline">Download</span>
+                </Link>
+              )}
               <div className="mx-1 h-5 w-px bg-border-light" aria-hidden />
             </>
           )}

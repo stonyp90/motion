@@ -25,7 +25,7 @@ use anyhow::Result;
 use axum::{
     Json, Router,
     body::Bytes,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -457,6 +457,8 @@ async fn generate(
         output_video: out_video,
         reference_images,
         reference_documents,
+        temperature: req.temperature,
+        max_tokens: req.max_tokens,
     };
     let result = state
         .pipeline
@@ -520,6 +522,8 @@ async fn iterate(
         output_video: out_video,
         reference_images,
         reference_documents,
+        temperature: req.temperature,
+        max_tokens: req.max_tokens,
     };
     let result = state
         .pipeline
@@ -573,8 +577,22 @@ async fn web_export_handler(
 /// dotlottie, svg). Returns the encoded bytes inline with the right
 /// Content-Type and a Content-Disposition so curl -OJ writes
 /// `motion.<ext>` straight to disk.
+/// Optional query parameters for [`binary_export_handler`]. Lets the
+/// caller override the render dimensions and frame rate per-export
+/// without touching the Lottie JSON body. Bounds keep us out of pathological
+/// `--width 99999` territory that would OOM the rasterizer.
+#[derive(Debug, Default, Deserialize)]
+pub struct BinaryExportQuery {
+    #[serde(rename = "w")]
+    pub width: Option<u32>,
+    #[serde(rename = "h")]
+    pub height: Option<u32>,
+    pub fps: Option<f64>,
+}
+
 async fn binary_export_handler(
     Path(format): Path<String>,
+    Query(opts): Query<BinaryExportQuery>,
     body: Bytes,
 ) -> Result<Response, ApiError> {
     use motion_forge_render::python_sidecar_adapter::PythonLottieRenderer;
@@ -582,6 +600,15 @@ async fn binary_export_handler(
 
     let fmt = OutputFormat::from_str(&format)
         .map_err(|_| ApiError::bad_request(format!("unknown format `{format}`")))?;
+
+    // Clamp user-supplied dimensions: minimum 64x64 (smaller breaks the
+    // ffmpeg encoders for h264/vp9), maximum 4096 in either axis (8K+
+    // exports are not what this endpoint is for and they pin a CPU for
+    // 10+ minutes through the python rasterizer).
+    let default_cfg = RenderConfig::default();
+    let width = opts.width.unwrap_or(default_cfg.width).clamp(64, 4096);
+    let height = opts.height.unwrap_or(default_cfg.height).clamp(64, 4096);
+    let frame_rate = opts.fps.unwrap_or(default_cfg.frame_rate).clamp(6.0, 60.0);
 
     // 1. Stash the Lottie body to a scratch file (the renderer expects a path).
     let scratch = std::env::temp_dir().join(format!("mf-export-{}", short_id()));
@@ -598,6 +625,9 @@ async fn binary_export_handler(
         let mut renderer = PythonLottieRenderer::default_in_workspace();
         let config = RenderConfig {
             format: fmt,
+            width,
+            height,
+            frame_rate,
             ..RenderConfig::default()
         };
         render_to_format(&mut renderer, &lottie_path_cl, &out_path_cl, &config)
@@ -1326,6 +1356,18 @@ pub struct GenerateRequest {
     /// content is prepended to the user prompt.
     #[serde(default)]
     pub reference_documents: Vec<String>,
+    /// Optional sampler-temperature override (0.0–1.0). When provided
+    /// the engine forwards it verbatim to the LLM backend; when
+    /// omitted the orchestrator's default (0.2) wins. The web's
+    /// Quality/Balanced/Fast preset uses this to dial determinism vs.
+    /// creativity without owning a fork of the model picker.
+    #[serde(default)]
+    pub temperature: Option<f32>,
+    /// Optional `max_tokens`/`num_predict` cap. Default is 4096. The
+    /// Quality preset raises this to 6144 to give long briefs room to
+    /// breathe; Fast lowers it to 2048 for snappier iteration.
+    #[serde(default)]
+    pub max_tokens: Option<u32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1354,6 +1396,12 @@ pub struct IterateRequest {
     pub reference_images: Vec<String>,
     #[serde(default)]
     pub reference_documents: Vec<String>,
+    /// See [`GenerateRequest::temperature`].
+    #[serde(default)]
+    pub temperature: Option<f32>,
+    /// See [`GenerateRequest::max_tokens`].
+    #[serde(default)]
+    pub max_tokens: Option<u32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
