@@ -18,7 +18,7 @@ serde_json.workspace = true
 # tree (skia, harfbuzz). The .lottie format is just a zip with a JSON
 # manifest — we pack it directly with the `zip` crate instead. This keeps
 # the dep graph small and avoids the alpha-grade FFI churn.
-zip = { version = "4", default-features = false, features = ["deflate"] }
+zip = { version = "8", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 tempfile = "3"
