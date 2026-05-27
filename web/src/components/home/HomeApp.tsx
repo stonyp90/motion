@@ -17,7 +17,7 @@ import { ExamplePromptChips } from './ExamplePromptChips';
 import CastRow from './CastRow';
 import VoiceButton from './VoiceButton';
 import { KPIStrip } from './KPIStrip';
-import { ProcessDemo } from './ProcessDemo';
+import { SampleRunDemo } from './sample-run/SampleRunDemo';
 import { TrustStrip } from './TrustStrip';
 import {
   AttachButton,
@@ -372,8 +372,8 @@ export function HomeApp({ isAuthenticated: _ssrAuth = false }: HomeAppProps = {}
     // NO Generate, NO compute calls. Sign-in is the only CTA.
     //
     // Vertical rhythm: H1 + sub + CTA stack tight (gap-5), then a
-    // shorter gap to the ProcessDemo so the lottie reads as the
-    // hero visual — not as a separate section below the fold.
+    // shorter gap to the demo so it reads as the hero visual — not
+    // as a separate section below the fold.
     return (
       <div className="relative flex w-full flex-col gap-8 bg-hero-grid px-4 pt-6 pb-12 sm:px-6 sm:pt-8 sm:pb-16 lg:pt-10">
         <div className="mx-auto w-full max-w-3xl flex flex-col items-center gap-6 text-center">
@@ -401,7 +401,7 @@ export function HomeApp({ isAuthenticated: _ssrAuth = false }: HomeAppProps = {}
           </button>
         </div>
 
-        <ProcessDemo />
+        <SampleRunDemo />
 
         <TrustStrip />
 

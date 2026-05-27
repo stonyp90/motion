@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "generated_at": "2026-05-27T13:04:04.684Z",
+  "request": {
+    "prompt": "Animate our Q3 earnings: $2.4M revenue, 18% growth, three customer logos.",
+    "duration_seconds": 30,
+    "scene_count": 6,
+    "aspect": "16:9"
+  },
+  "response": {
+    "shots": 30,
+    "duration_seconds": 29.7,
+    "assets_generated": 0,
+    "assets_failed": 0,
+    "asset_cost_micros": 0,
+    "asset_provider": "none"
+  },
+  "stages": [
+    {
+      "id": "brief",
+      "label": "Reading the brief",
+      "ms": 5564
+    },
+    {
+      "id": "cast",
+      "label": "Casting characters",
+      "ms": 3710
+    },
+    {
+      "id": "compose",
+      "label": "Composing scenes",
+      "ms": 30141
+    },
+    {
+      "id": "render",
+      "label": "Polishing motion",
+      "ms": 6956
+    }
+  ],
+  "total_ms": 46370,
+  "cast": [
+    {
+      "id": "alex",
+      "name": "Alex · Founder",
+      "accent_hex": "#10b981"
+    }
+  ],
+  "animation_path": "/sample-run/animation.json"
+}

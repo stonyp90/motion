@@ -8,6 +8,7 @@
     "prebuild": "node scripts/sync-themes.mjs",
     "build": "next build",
     "sync-themes": "node scripts/sync-themes.mjs",
+    "capture-sample-run": "node scripts/capture-sample-run.mjs",
     "start": "next start -p 3001",
     "lint": "next lint",
     "type-check": "tsc --noEmit"
@@ -16,7 +17,6 @@
     "@auth/core": "^0.41.2",
     "@scalar/api-reference-react": "^0.9.41",
     "cmdk": "^1.1.1",
-    "framer-motion": "^11.18.2",
     "lottie-react": "^2.4.1",
     "lucide-react": "^0.400.0",
     "next": "^15.5.0",
