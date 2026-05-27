@@ -9,6 +9,8 @@ rust-version.workspace = true
 [dependencies]
 motion-forge-style-extract.workspace = true
 motion-forge-decompose.workspace = true
+motion-forge-image-gen.workspace = true
+futures = "0.3"
 anyhow.workspace = true
 thiserror.workspace = true
 tracing.workspace = true

@@ -51,6 +51,15 @@ pub struct SceneScript {
     /// Voice-over line. `None` for `N/A` beats and silent visuals.
     pub vo: Option<String>,
     pub visual: String,
+    /// Optional art-direction prompt tuned for a vector image generator
+    /// (Recraft v3 etc). Distinct from `visual` because `visual` is the
+    /// on-screen direction for motion ("camera dollies across icons"),
+    /// while this is the polished still-image art prompt ("isometric SaaS
+    /// dashboard, flat vector, dark navy + emerald accent, no text"). The
+    /// scene-decomposer LLM populates it; hand-authored scripts leave it
+    /// `None`, in which case the orchestrator may auto-derive one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub illustration_prompt: Option<String>,
     /// Sub-beats (`N.1`, `N.2`, …) keep the same framing as their
     /// parent `N.0` — they're stored nested so the orchestrator can
     /// decide whether to render them as one shot or several.
@@ -225,6 +234,7 @@ fn nest_sub_beats(raw: Vec<RawBeat>) -> Vec<SceneScript> {
             id: beat.id.clone(),
             vo,
             visual,
+            illustration_prompt: None,
             sub_beats: Vec::new(),
         };
         if is_sub_beat(&beat.id) {

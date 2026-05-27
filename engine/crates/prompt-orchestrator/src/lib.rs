@@ -10,6 +10,7 @@ pub mod brief;
 pub mod characters;
 pub mod llm;
 pub mod presets;
+pub mod scene_assets;
 pub mod script_synth;
 
 use anyhow::Result;
