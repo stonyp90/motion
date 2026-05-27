@@ -129,14 +129,15 @@ jobs:
         with:
           workspaces: engine
 
-      # Build the binary BEFORE docker compose. docker-compose.yml mounts
-      # `./target/ffmpeg-out:/out`, which has docker create `./target/` on
-      # the host as root if it doesn't exist yet — that then blocks cargo
-      # from writing `target/release/` (EACCES). Building first ensures
-      # target/ is owned by the runner user before docker touches it.
-      - name: Build motion-forge-http
+      # Build the actual binary BEFORE docker compose so target/ is
+      # runner-owned before docker can create paths inside it. The
+      # `motion-forge` binary lives in the motion-forge-cli crate;
+      # motion-forge-http is a library and produces no binary on its
+      # own — earlier attempts to build/run `motion-forge-http` directly
+      # failed with "No such file or directory" because of this.
+      - name: Build motion-forge CLI
         if: steps.gate.outputs.skip != 'true'
-        run: cargo build -p motion-forge-http --release
+        run: cargo build -p motion-forge-cli --release --bin motion-forge
 
       - name: Bring up dependency stack (postgres + keycloak)
         if: steps.gate.outputs.skip != 'true'
@@ -149,13 +150,13 @@ jobs:
             sleep 2
           done
 
-      - name: Start motion-forge-http
+      - name: Start motion-forge server
         if: steps.gate.outputs.skip != 'true'
         env:
-          MOTION_FORGE_BIND: 127.0.0.1:8080
           RUST_LOG: info
         run: |
-          nohup ./target/release/motion-forge-http > /tmp/motion-forge-http.log 2>&1 &
+          nohup ./target/release/motion-forge serve --bind 127.0.0.1:8080 \
+            > /tmp/motion-forge-http.log 2>&1 &
           echo $! > /tmp/motion-forge-http.pid
           for _i in $(seq 1 20); do
             if curl -sf http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
