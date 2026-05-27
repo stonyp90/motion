@@ -97,23 +97,25 @@ export function BrandMotionShowcase() {
       }
     >
       <style jsx>{`
+        /* Fixed dark surface — the showcase represents a "video
+           canvas" (the thing a user plays back), and video canvases
+           are always dark regardless of the surrounding theme. Same
+           convention as Stripe's hero demo + Apple's Mac mini page.
+           Hard-coded colors so the white text on top stays legible
+           in both light and dark page themes. */
         .bms-root {
           background-image:
             radial-gradient(
               circle at 25% 20%,
-              color-mix(in srgb, var(--bms-accent) 22%, transparent),
+              color-mix(in srgb, var(--bms-accent) 28%, transparent),
               transparent 55%
             ),
             radial-gradient(
               circle at 75% 80%,
-              color-mix(in srgb, var(--color-secondary-500) 12%, transparent),
+              color-mix(in srgb, #f59e0b 14%, transparent),
               transparent 55%
             ),
-            linear-gradient(
-              to bottom right,
-              var(--color-bg-secondary),
-              var(--color-bg-tertiary)
-            );
+            linear-gradient(to bottom right, #0e1014, #1a1e25);
         }
 
         /* Animation primitives — pure @keyframes, no JS library. */
