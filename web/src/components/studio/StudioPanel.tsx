@@ -95,6 +95,15 @@ type Toast =
   | { kind: 'success'; id: number; filename: string; size: number; elapsed: number }
   | { kind: 'error'; id: number; message: string; retry?: () => void };
 
+// Distributive Omit — required so each variant of the discriminated
+// union keeps its own keys. Plain `Omit<Toast, "id">` collapses to
+// `{ kind }` because TS only takes keys common to every variant.
+type ToastInput = Toast extends infer T
+  ? T extends Toast
+    ? Omit<T, 'id'>
+    : never
+  : never;
+
 /**
  * Direct-edit Studio surface — load a Lottie (preset or upload), tweak
  * colour + timing + dimensions locally, then export to any of 10 engine
@@ -195,7 +204,7 @@ export function StudioPanel() {
     return () => window.clearInterval(id);
   }, [pending]);
 
-  const pushToast = useCallback((toast: Omit<Toast, 'id'>) => {
+  const pushToast = useCallback((toast: ToastInput) => {
     const id = Date.now() + Math.random();
     const full = { ...toast, id } as Toast;
     setToasts((prev) => [...prev, full]);
