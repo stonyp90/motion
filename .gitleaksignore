@@ -1,0 +1,24 @@
+# Allowlist for `gitleaks detect` — one fingerprint per line.
+# Format: <commit-sha>:<path>:<rule-id>:<line>
+#
+# Each entry is reviewed: it must be a documented false positive
+# (test fixture, doc comment, public identifier). Real secrets do NOT
+# go here — they get rotated and removed from history.
+
+# auth.rs:413 — curl example inside a doc comment showing how a bearer
+# token would be passed. The token `mf_live_…` shown is a placeholder,
+# not a real credential.
+531cfa2ba0fd735528166fe0d4c0d0e68f505ba5:engine/crates/http/src/auth.rs:curl-auth-header:413
+
+# verify-e2e-local.sh:115 — local e2e smoke test that fires curl with
+# a stub bearer to assert the engine returns 401 for invalid auth. The
+# string is a fixture, not a real token.
+e9ae56acbea822e8459195d27786c8f49e8254a4:engine/scripts/verify-e2e-local.sh:curl-auth-header:115
+
+# figma/tests/url_parser.rs:17 and figma/src/url_parse.rs:183 — Figma
+# `file_key` URL components used as assertion fixtures. Figma file keys
+# are part of the public URL (`https://figma.com/file/<file_key>/…`)
+# and require auth on Figma's side to access the actual file. They are
+# identifiers, not credentials.
+6c8eac6e90cfc93d75f70caf987adb28ce19e45d:engine/crates/figma/tests/url_parser.rs:generic-api-key:17
+6c8eac6e90cfc93d75f70caf987adb28ce19e45d:engine/crates/figma/src/url_parse.rs:generic-api-key:183
