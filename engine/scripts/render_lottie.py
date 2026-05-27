@@ -18,6 +18,16 @@ from pathlib import Path
 
 from lottie.exporters.video import export_video
 from lottie.objects.animation import Animation
+from lottie.objects.text import TextDocument
+
+# python-lottie ships with an internal API mismatch: TextDocument stores its
+# fill colour on `fill_color`, but lottie/parsers/svg/builder.py:250 reads
+# `doc.color`. With any text-bearing Lottie this blows up the raster pipeline
+# (and therefore every video/raster export format) with
+# `AttributeError: 'TextDocument' object has no attribute 'color'`.
+# Alias `color` -> `fill_color` so the SVG path resolves cleanly.
+if not hasattr(TextDocument, "color"):
+    TextDocument.color = property(lambda self: self.fill_color)
 
 
 def main() -> int:
