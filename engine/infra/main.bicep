@@ -724,9 +724,16 @@ resource apiApp 'Microsoft.App/containerApps@2025-01-01' = {
 // app's ingress FQDN — once that's true, `domainControlValidation:
 // CNAME` lets ACA verify ownership without a separate TXT record.
 
+// Cert name matches the one CLI-issued during the first manual bind
+// (`az containerapp hostname bind --validation-method CNAME` auto-names
+// the cert `mc-<acaEnvName>-<hostname>-<suffix>`). Reusing the exact
+// name lets Bicep adopt the existing cert as part of its desired state
+// instead of trying to create a duplicate (which errors with
+// DuplicateManagedCertificateInEnvironment). The cert's subjectName +
+// validation method must match what was originally provisioned.
 resource webManagedCert 'Microsoft.App/managedEnvironments/managedCertificates@2025-01-01' = {
   parent: acaEnv
-  name: 'mc-www-controlcraft-io'
+  name: 'mc-cae-mf-dev-75m-www-controlcraft-9785'
   location: location
   tags: tags
   properties: {
