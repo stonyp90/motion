@@ -236,8 +236,13 @@ impl EmailService for SendgridEmailService {
     }
 }
 
-/// Azure Communication Services email. Will use the `azure_communication_email`
-/// SDK or REST API when implemented.
+/// Azure Communication Services email.
+///
+/// Signs the request with the ACS HMAC-SHA256 access-key scheme + POSTs
+/// the JSON envelope to `{endpoint}/emails:send?api-version=2023-03-31`.
+/// `endpoint` is the host name only (`<id>.communication.azure.com`),
+/// `access_key` is the base64-encoded primary key from
+/// `commsService.listKeys()`, `from` is the verified sender address.
 #[derive(Debug, Default, Clone)]
 pub struct AzureCommsEmailService {
     pub endpoint: String,
@@ -247,13 +252,102 @@ pub struct AzureCommsEmailService {
 
 #[async_trait::async_trait]
 impl EmailService for AzureCommsEmailService {
-    async fn send(&self, _to: &str, _subject: &str, _body: &str) -> Result<(), EmailError> {
-        // TODO(deploy): POST {endpoint}/emails:send?api-version=2023-03-31
-        // with HMAC-SHA256 signed Authorization header.
-        Err(EmailError::Transport(
-            "Azure Communication Services adapter not yet implemented".into(),
-        ))
+    async fn send(&self, to: &str, subject: &str, body: &str) -> Result<(), EmailError> {
+        use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
+        use hmac::{Hmac, Mac};
+        use sha2::{Digest, Sha256};
+
+        if self.endpoint.is_empty() || self.access_key.is_empty() {
+            return Err(EmailError::Transport(
+                "AZURE_COMMS_ENDPOINT/AZURE_COMMS_KEY not set".into(),
+            ));
+        }
+        // Body shape per ACS Email REST contract.
+        let payload = serde_json::json!({
+            "senderAddress": self.from,
+            "recipients": { "to": [{ "address": to }] },
+            "content": {
+                "subject": subject,
+                "plainText": strip_html(body),
+                "html": body,
+            },
+        });
+        let body_bytes = serde_json::to_vec(&payload)
+            .map_err(|e| EmailError::Transport(format!("serialize body: {e}")))?;
+
+        // Step 1: SHA-256 of the request body, base64-encoded.
+        let body_hash = B64.encode(Sha256::digest(&body_bytes));
+
+        // Step 2: RFC 7231 date (UTC, ends with "GMT").
+        let date_header = chrono::Utc::now()
+            .format("%a, %d %b %Y %H:%M:%S GMT")
+            .to_string();
+
+        // Step 3: Compose the string-to-sign.
+        // Format: VERB\nPATH_AND_QUERY\nDATE;HOST;BODY_HASH
+        let host = self.endpoint.trim_end_matches('/');
+        let path_and_query = "/emails:send?api-version=2023-03-31";
+        let string_to_sign = format!(
+            "POST\n{path_and_query}\n{date_header};{host};{body_hash}"
+        );
+
+        // Step 4: HMAC-SHA256 with the base64-decoded access key.
+        let key_bytes = B64
+            .decode(&self.access_key)
+            .map_err(|e| EmailError::Transport(format!("invalid base64 key: {e}")))?;
+        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&key_bytes)
+            .map_err(|e| EmailError::Transport(format!("hmac key: {e}")))?;
+        mac.update(string_to_sign.as_bytes());
+        let signature = B64.encode(mac.finalize().into_bytes());
+
+        // Step 5: POST with the signed Authorization header. ACS requires
+        // the exact `SignedHeaders=date;host;x-ms-content-sha256` order.
+        let url = format!("https://{host}{path_and_query}");
+        let client = reqwest::Client::new();
+        let resp = client
+            .post(&url)
+            .header("x-ms-date", &date_header)
+            .header("x-ms-content-sha256", &body_hash)
+            .header("Content-Type", "application/json")
+            .header(
+                "Authorization",
+                format!(
+                    "HMAC-SHA256 SignedHeaders=date;host;x-ms-content-sha256&Signature={signature}"
+                ),
+            )
+            .body(body_bytes)
+            .send()
+            .await
+            .map_err(|e| EmailError::Transport(format!("acs request: {e}")))?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(EmailError::Transport(format!(
+                "acs send failed: HTTP {status} {body}"
+            )));
+        }
+        tracing::info!(to, subject, "acs email queued");
+        Ok(())
     }
+}
+
+/// Cheap HTML→plaintext fallback. Just strips tags + collapses whitespace
+/// so the `plainText` field has something readable for mail clients that
+/// don't render HTML. Not a real sanitizer.
+fn strip_html(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut in_tag = false;
+    for c in html.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    // Collapse runs of whitespace.
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// Pick the email service at boot from env. Defaults to the stub so

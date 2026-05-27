@@ -35,6 +35,11 @@ sha2 = "0.10"
 rand = "0.8"
 dashmap = "6"
 async-trait = "0.1"
+# ACS email signing — HMAC-SHA256, base64-encoded.
+hmac = "0.12"
+base64 = "0.22"
+# RFC 7231 date format for the x-ms-date header.
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [dev-dependencies]
 reqwest = { workspace = true, features = ["blocking"] }

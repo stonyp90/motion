@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { KcError, adminCreateUser, passwordLogin } from '@/lib/server/keycloak';
+import { sendEmail, welcomeEmailHtml } from '@/lib/server/email';
 
 /**
  * POST /api/auth/register
@@ -48,6 +49,14 @@ export async function POST(req: NextRequest) {
   try {
     await adminCreateUser({ email, password, firstName, lastName });
     const t = await passwordLogin(email, password);
+    // Fire branded welcome email — fire-and-forget so a transient ACS
+    // hiccup doesn't block signup. `sendEmail` catches its own errors
+    // + returns false; we just kick it off and move on.
+    void sendEmail({
+      to: email,
+      subject: 'Welcome to ControlCraft',
+      html: welcomeEmailHtml({ firstName }),
+    });
     return NextResponse.json({
       access_token: t.access_token,
       refresh_token: t.refresh_token,

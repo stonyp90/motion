@@ -150,6 +150,9 @@ var names = {
   // ACA env storage definition that mounts it into the container.
   keycloakDataShare:   'keycloakdata'
   keycloakDataStorage: 'keycloak-data'
+  // Azure Communication Services (transactional email)
+  comms:        'acs-controlcraft-${env}-${take(suffix, 8)}'
+  emailService: 'aes-controlcraft-${env}-${take(suffix, 8)}'
   segmentJob:  'caj-mf-segment-${env}'
   renderJob:   'caj-mf-render-${env}'
   jobQueue:    'jobs'
@@ -462,6 +465,52 @@ resource cosmosDataContributor 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAss
 //      copy the JSON, run `kc.sh import` against the new PG-backed
 //      instance.
 
+// ---- Azure Communication Services + Email (transactional mail) -------
+//
+// Send transactional email (welcome, password reset, alerts) via ACS.
+// Uses an Azure-managed subdomain (*.azurecomm.net) so no DNS work is
+// required to start sending — the From: address will look like
+// `donotreply@<random>.azurecomm.net`. To swap to controlcraft.io as
+// the sender domain, add a `CustomerManaged` domain resource + add the
+// SPF/DKIM/DMARC records GoDaddy returns, then update the sender
+// address in the engine env (MOTION_FORGE_EMAIL_FROM).
+//
+// Communication Services lives in a `global` data-residency region by
+// default; we set `dataLocation: 'United States'` to match the rest of
+// the stack in eastus.
+
+resource commsService 'Microsoft.Communication/communicationServices@2023-06-01-preview' = {
+  name: names.comms
+  location: 'global'
+  tags: tags
+  properties: {
+    dataLocation: 'United States'
+    linkedDomains: [ emailDomain.id ]
+  }
+}
+
+resource emailService 'Microsoft.Communication/emailServices@2023-06-01-preview' = {
+  name: names.emailService
+  location: 'global'
+  tags: tags
+  properties: {
+    dataLocation: 'United States'
+  }
+}
+
+// Free Azure-managed subdomain (no DNS records required, ready to send
+// the moment provisioning completes). Pattern is `<random>.azurecomm.net`.
+resource emailDomain 'Microsoft.Communication/emailServices/domains@2023-06-01-preview' = {
+  parent: emailService
+  name: 'AzureManagedDomain'
+  location: 'global'
+  tags: tags
+  properties: {
+    domainManagement: 'AzureManaged'
+    userEngagementTracking: 'Disabled' // SOC 2 CC4: opt out of click tracking
+  }
+}
+
 // ---- Redis ----
 
 resource redis 'Microsoft.Cache/redis@2024-11-01' = {
@@ -648,7 +697,12 @@ resource apiApp 'Microsoft.App/containerApps@2025-01-01' = {
       registries: [
         { server: acr.properties.loginServer, identity: managedIdentity.id }
       ]
-      secrets: []
+      secrets: [
+        // ACS primary key — used by `AzureCommsEmailService` to HMAC-
+        // sign the REST API requests. Pulled from the live resource at
+        // deploy time so rotating the key only requires a redeploy.
+        { name: 'acs-key', value: commsService.listKeys().primaryKey }
+      ]
       maxInactiveRevisions: 2
     }
     template: {
@@ -675,6 +729,13 @@ resource apiApp 'Microsoft.App/containerApps@2025-01-01' = {
             // web frontend's `/api/auth/*` routes mint.
             { name: 'KEYCLOAK_ISSUER',   value: 'https://${names.keycloakApp}.${acaEnv.properties.defaultDomain}/realms/controlcraft' }
             { name: 'KEYCLOAK_AUDIENCE', value: 'motion-forge-web,motion-forge-engine' }
+            // Azure Communication Services for transactional email.
+            // The engine's `notifications` module reads these to pick
+            // the AzureCommsEmailService backend + sign + send.
+            { name: 'MOTION_FORGE_EMAIL_BACKEND', value: 'azure' }
+            { name: 'AZURE_COMMS_ENDPOINT',       value: commsService.properties.hostName }
+            { name: 'AZURE_COMMS_KEY',            secretRef: 'acs-key' }
+            { name: 'MOTION_FORGE_EMAIL_FROM',    value: 'donotreply@${emailDomain.properties.fromSenderDomain}' }
             { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
           ]
           volumeMounts: enableNfsModelMount ? [ { volumeName: 'models', mountPath: '/models' } ] : []
@@ -793,6 +854,10 @@ resource webApp 'Microsoft.App/containerApps@2025-01-01' = {
         // value showing up in the env directly.
         { name: 'kc-client-secret',  value: 'motion-forge-web-dev-secret' }
         { name: 'kc-admin-password', value: keycloakAdminPassword }
+        // ACS primary key — used by the web's /api/auth/register route
+        // (web/src/lib/server/email.ts) to sign + send the welcome
+        // email after a successful Keycloak adminCreateUser.
+        { name: 'acs-key',           value: commsService.listKeys().primaryKey }
       ]
       maxInactiveRevisions: 2
     }
@@ -817,6 +882,15 @@ resource webApp 'Microsoft.App/containerApps@2025-01-01' = {
             { name: 'KEYCLOAK_CLIENT_SECRET',  secretRef: 'kc-client-secret' }
             { name: 'KEYCLOAK_ADMIN_USER',     value: 'admin' }
             { name: 'KEYCLOAK_ADMIN_PASSWORD', secretRef: 'kc-admin-password' }
+            // ACS for transactional email — used by /api/auth/register
+            // to fire a branded welcome email after the Keycloak user
+            // is created. Same key as the engine uses, but resolved on
+            // the web container so the round-trip is web → ACS direct.
+            { name: 'AZURE_COMMS_ENDPOINT', value: commsService.properties.hostName }
+            { name: 'AZURE_COMMS_KEY',      secretRef: 'acs-key' }
+            { name: 'EMAIL_FROM',           value: 'donotreply@${emailDomain.properties.fromSenderDomain}' }
+            { name: 'EMAIL_FROM_NAME',      value: 'ControlCraft' }
+            { name: 'PUBLIC_APP_URL',       value: 'https://www.controlcraft.io' }
             // Server-side proxy in `app/api/engine/file/route.ts` calls
             // the engine via internal-ACA hostname. Using FQDN keeps
             // CORS off the critical path (same Front Door domain).
@@ -1184,6 +1258,8 @@ output webIngressFqdn string = webApp.properties.configuration.ingress.fqdn
 output keycloakIngressFqdn string = keycloakApp.properties.configuration.ingress.fqdn
 output keycloakIssuer string = 'https://${keycloakApp.properties.configuration.ingress.fqdn}/realms/controlcraft'
 // Postgres output removed — Keycloak runs on H2 / Azure Files now.
+output emailFromAddress string = 'donotreply@${emailDomain.properties.fromSenderDomain}'
+output acsHostname string = commsService.properties.hostName
 // After DNS is added (`CNAME motion → ca-controlcraft-web-{env}.<env-suffix>.azurecontainerapps.io`)
 // run:  az containerapp hostname add … --hostname motion.ursly.io --validation-method CNAME
 // then: az containerapp hostname bind … (provisions managed cert).
