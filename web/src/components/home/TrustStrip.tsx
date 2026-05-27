@@ -55,7 +55,11 @@ export function TrustStrip() {
     >
       <div className="container">
         <div className="flex flex-col items-center gap-2 text-center">
-          <p className="font-mono text-xs font-medium uppercase tracking-[0.18em] text-text-tertiary">
+          {/* Eyebrow — bumped from text-tertiary to a stronger
+              accent-600 / accent-400 split so it reads as a true
+              label in both themes (was sitting at ~5:1 contrast
+              and disappearing in dark mode). */}
+          <p className="font-mono text-xs font-semibold uppercase tracking-[0.18em] text-accent-700 dark:text-accent-400">
             Built for enterprise
           </p>
           <h2 id="trust-heading" className="text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">
@@ -69,7 +73,11 @@ export function TrustStrip() {
               key={cert.title}
               className="flex flex-col gap-2.5 rounded-2xl border border-border-light bg-bg-secondary p-5 transition hover:border-accent-300 hover:shadow-card"
             >
-              <span className="grid h-9 w-9 place-items-center rounded-xl bg-accent-50 text-accent-700 dark:bg-accent-950 dark:text-accent-300">
+              {/* Icon — no tinted background pill (was bg-accent-50 /
+                  bg-accent-950). The icon stroke carries the accent
+                  color directly; the card border + bg-secondary
+                  already provide enough chrome around it. */}
+              <span className="text-accent-600 dark:text-accent-400">
                 {cert.icon}
               </span>
               <div className="flex flex-col gap-0.5">

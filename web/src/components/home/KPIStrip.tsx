@@ -40,7 +40,7 @@ export function KPIStrip() {
               aria-label={kpi.label}
               className="flex flex-col gap-2"
             >
-              <dt className="font-mono text-xs font-medium uppercase tracking-[0.14em] text-text-tertiary">
+              <dt className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-accent-700 dark:text-accent-400">
                 {kpi.label}
               </dt>
               <dd className="flex items-baseline gap-1.5 text-4xl font-bold text-text-primary tabular-nums sm:text-5xl" style={{ letterSpacing: '-0.025em' }}>
