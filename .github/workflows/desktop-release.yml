@@ -82,7 +82,7 @@ jobs:
             bundles: deb,appimage
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Resolve release tag
         id: tag
@@ -382,7 +382,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           # Need the actual ref (main) so the push lands somewhere useful.
           ref: main

@@ -49,7 +49,7 @@ jobs:
       image_tag: ${{ env.IMAGE_TAG }}
       skip: ${{ steps.preflight.outputs.skip }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Pre-flight (AZURE_* secrets present)
         id: secrets
@@ -132,7 +132,7 @@ jobs:
       url: ${{ steps.summary.outputs.url }}
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: azure/login@v2
         with:
@@ -201,7 +201,7 @@ jobs:
       url: ${{ steps.summary.outputs.url }}
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: azure/login@v2
         with:
