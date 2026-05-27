@@ -148,6 +148,23 @@ export function DownloadHero() {
           <ArrowRight className="h-3 w-3" aria-hidden />
         </Link>
       </p>
+
+      {/* Codesign warning heads-up — while we ship before the Apple
+          Developer ID + Windows EV cert paperwork clears, the OS
+          will flag the installer. Telling buyers up front (with a
+          link to the exact bypass commands) is cheaper than support
+          tickets after the fact. */}
+      <p className="mx-auto mt-3 flex max-w-3xl items-center justify-center gap-1.5 text-center text-xs text-text-tertiary">
+        Your OS may warn that the installer is from an unidentified
+        developer.{' '}
+        <Link
+          href={"/install#bypass-codesign" as never}
+          className="font-medium text-text-secondary underline-offset-2 hover:text-text-accent hover:underline"
+        >
+          One-line fix per platform
+        </Link>
+        — until our notarization + EV cert land.
+      </p>
     </section>
   );
 }
