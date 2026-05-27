@@ -39,6 +39,9 @@ param segmentImageTag string = 'latest'
 @description('Image tag for the render job.')
 param renderImageTag string = 'latest'
 
+@description('Per-deploy timestamp salt for ACA revisionSuffix uniqueness. Defaults to utcNow() so every deployment produces fresh suffixes even when image tags are unchanged (otherwise web-deploy.yml — which only passes webImageTag — would collide with prior revisions of the api/keycloak apps whose tag stays at the default `latest`).')
+param deployTimestamp string = utcNow('yyyyMMddHHmmss')
+
 // NOTE: `postgresAdminLogin`, `postgresLocation`, `postgresAdminPassword`
 // were removed when Keycloak pivoted to H2-on-Azure-Files because the
 // personal-tier sub is offer-restricted for PG-FS in every region we
@@ -649,7 +652,7 @@ resource apiApp 'Microsoft.App/containerApps@2025-01-01' = {
       maxInactiveRevisions: 2
     }
     template: {
-      revisionSuffix: substring(uniqueString(apiImageTag), 0, 6)
+      revisionSuffix: substring(uniqueString(apiImageTag, deployTimestamp), 0, 6)
       containers: [
         {
           name: 'api'
@@ -755,7 +758,7 @@ resource webApp 'Microsoft.App/containerApps@2025-01-01' = {
       maxInactiveRevisions: 2
     }
     template: {
-      revisionSuffix: substring(uniqueString(webImageTag), 0, 6)
+      revisionSuffix: substring(uniqueString(webImageTag, deployTimestamp), 0, 6)
       containers: [
         {
           name: 'web'
@@ -859,7 +862,7 @@ resource keycloakApp 'Microsoft.App/containerApps@2025-01-01' = {
       maxInactiveRevisions: 2
     }
     template: {
-      revisionSuffix: substring(uniqueString(keycloakImageTag), 0, 6)
+      revisionSuffix: substring(uniqueString(keycloakImageTag, deployTimestamp), 0, 6)
       containers: [
         {
           name: 'keycloak'
