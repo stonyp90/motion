@@ -32,7 +32,8 @@
     "copyright": "Copyright (c) 2026 ControlCraft",
     "externalBin": [
       "binaries/motion-forge",
-      "binaries/ollama"
+      "binaries/ollama",
+      "binaries/ffmpeg"
     ],
     "icon": [
       "icons/32x32.png",

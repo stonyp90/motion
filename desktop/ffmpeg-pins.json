@@ -1,0 +1,29 @@
+{
+  "comment": "Pinned ffmpeg builds we bundle as Tauri externalBin sidecars. Sources: macOS = evermeet.cx (release, x86_64 — runs natively on Intel + via Rosetta on Apple silicon); Windows + Linux = BtbN/FFmpeg-Builds (LGPL master autobuilds). Bump SHAs in lockstep with URLs. fetch-ffmpeg.sh hard-fails on placeholder/mismatch.",
+  "targets": {
+    "aarch64-apple-darwin": {
+      "url": "https://evermeet.cx/ffmpeg/ffmpeg-8.1.1.zip",
+      "asset": "ffmpeg-8.1.1.zip",
+      "sha256": "4610988e2f54c243c50da73a09e4e2c36d9bb77546f9aa6c84cb328dcb1a98c1",
+      "extract_path": "ffmpeg"
+    },
+    "x86_64-apple-darwin": {
+      "url": "https://evermeet.cx/ffmpeg/ffmpeg-8.1.1.zip",
+      "asset": "ffmpeg-8.1.1.zip",
+      "sha256": "4610988e2f54c243c50da73a09e4e2c36d9bb77546f9aa6c84cb328dcb1a98c1",
+      "extract_path": "ffmpeg"
+    },
+    "x86_64-pc-windows-msvc": {
+      "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip",
+      "asset": "ffmpeg-master-latest-win64-lgpl.zip",
+      "sha256": "3ad1af8b35fc72763db0a88977327c88cff94aca0a56925be79a578304460401",
+      "extract_path": "ffmpeg-master-latest-win64-lgpl/bin/ffmpeg.exe"
+    },
+    "x86_64-unknown-linux-gnu": {
+      "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-lgpl.tar.xz",
+      "asset": "ffmpeg-master-latest-linux64-lgpl.tar.xz",
+      "sha256": "6c0ad58dae49d58c458d643e6f6d49f84beee0007f2d1d739aff8da83482d9a0",
+      "extract_path": "ffmpeg-master-latest-linux64-lgpl/bin/ffmpeg"
+    }
+  }
+}

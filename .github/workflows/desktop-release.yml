@@ -146,6 +146,19 @@ jobs:
         shell: bash
         run: scripts/fetch-ollama.sh ${{ matrix.target }}
 
+      # ----- Stage ffmpeg sidecar ---------------------------------------------
+      # Same pattern as Ollama: reads ffmpeg-pins.json, downloads the
+      # matching per-target build (evermeet on macOS, BtbN LGPL on
+      # Windows + Linux), SHA-256 verifies, and stages at
+      # binaries/ffmpeg-<target>(.exe). The Tauri shell prepends this
+      # dir to the engine's PATH so render/format.rs's
+      # Command::new("ffmpeg") resolves the bundled binary instead of
+      # whatever happens to be installed on the user's machine.
+      - name: Stage ffmpeg sidecar (${{ matrix.target }})
+        working-directory: desktop
+        shell: bash
+        run: scripts/fetch-ffmpeg.sh ${{ matrix.target }}
+
       # ----- Build + stage the engine sidecar (motion-forge) -----------------
       # Tauri externalBin convention: the binary lives at
       # desktop/src-tauri/binaries/motion-forge-<target>(.exe) and gets

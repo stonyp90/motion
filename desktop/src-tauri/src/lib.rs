@@ -177,6 +177,20 @@ fn spawn_engine(port: u16, secret: &str) -> std::io::Result<Child> {
         .env("MOTION_FORGE_DATA_DIR", default_data_dir())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    // Prepend the sidecar binaries directory to PATH so the engine's
+    // bare-name `Command::new("ffmpeg")` lookups in render/format.rs
+    // (and the ffmpeg-sidecar crate in video-io) hit our bundled
+    // ffmpeg before whatever happens to be on the user's host PATH.
+    // No-op in dev when the binaries dir doesn't exist (the engine
+    // falls back to homebrew/system ffmpeg as before).
+    if let Some(sidecar_dir) = bin.parent() {
+        let existing = std::env::var_os("PATH").unwrap_or_default();
+        let mut paths = vec![sidecar_dir.to_path_buf()];
+        paths.extend(std::env::split_paths(&existing));
+        if let Ok(joined) = std::env::join_paths(paths) {
+            cmd.env("PATH", joined);
+        }
+    }
     let mut child = cmd.spawn()?;
     pipe_to_log("engine", &mut child);
     Ok(child)
