@@ -1,0 +1,26 @@
+{
+  "version": "0.3.14",
+  "comment": "Pinned Ollama release we bundle as a Tauri externalBin sidecar. Bump this AND the per-target SHA-256 sums together. Source: https://github.com/ollama/ollama/releases/tag/v0.3.14",
+  "targets": {
+    "aarch64-apple-darwin": {
+      "asset": "Ollama-darwin.zip",
+      "extract_path": "Ollama.app/Contents/Resources/ollama",
+      "sha256": "TODO_FILL_IN_FROM_OLLAMA_RELEASE_PAGE"
+    },
+    "x86_64-apple-darwin": {
+      "asset": "Ollama-darwin.zip",
+      "extract_path": "Ollama.app/Contents/Resources/ollama",
+      "sha256": "TODO_FILL_IN_FROM_OLLAMA_RELEASE_PAGE"
+    },
+    "x86_64-pc-windows-msvc": {
+      "asset": "ollama-windows-amd64.zip",
+      "extract_path": "ollama-windows-amd64/ollama.exe",
+      "sha256": "TODO_FILL_IN_FROM_OLLAMA_RELEASE_PAGE"
+    },
+    "x86_64-unknown-linux-gnu": {
+      "asset": "ollama-linux-amd64.tgz",
+      "extract_path": "bin/ollama",
+      "sha256": "TODO_FILL_IN_FROM_OLLAMA_RELEASE_PAGE"
+    }
+  }
+}

@@ -35,6 +35,8 @@ use std::time::Duration;
 use rand::Rng;
 use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 
+mod setup;
+
 /// State shared with Tauri commands so the spawned processes are kept
 /// alive (and killed) for the app lifetime.
 #[derive(Default)]
@@ -67,6 +69,20 @@ pub fn run() {
         // tauri.conf.json. The frontend calls the JS API to check +
         // install; see web/src/components/UpdateBanner.tsx.
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // Process plugin — gives the frontend a `restart()` capability
+        // so the UpdateBanner can relaunch the app after a successful
+        // download_and_install.
+        .plugin(tauri_plugin_process::init())
+        // First-launch wizard commands — frontend invokes these to
+        // detect Ollama, probe hardware, recommend a model, and stream
+        // pull progress. See web/src/components/FirstRunWizard.tsx.
+        .invoke_handler(tauri::generate_handler![
+            setup::detect_ollama,
+            setup::hw_profile,
+            setup::pick_model,
+            setup::pull_model,
+            setup::first_run_status,
+        ])
         .manage(Sidecars::default())
         .setup(|app| {
             if cfg!(debug_assertions) {

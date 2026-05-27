@@ -20,10 +20,14 @@ name: desktop · release
 # Code-signing + macOS notarisation are wired but skipped when the
 # secrets aren't set (so a fresh fork can build unsigned binaries).
 #
-# Engine + Ollama sidecars are NOT bundled in this v0 release; the
-# Tauri shell's spawn_engine() + spawn_ollama_if_absent() fall back to
-# a PATH lookup. Folding the engine binary in is a follow-up once we
-# have a portable Python story for the segmentation + render sidecars.
+# Ollama is bundled as a Tauri `externalBin` sidecar (see
+# desktop/scripts/fetch-ollama.sh + desktop/ollama-pins.json). The
+# fetch step below stages the right binary per matrix leg into
+# desktop/src-tauri/binaries/ before `tauri build` co-signs it.
+#
+# Engine sidecar bundling is still pending (portable Python story for
+# segmentation + render). The Tauri shell's spawn_engine() falls back
+# to a PATH lookup until that lands.
 
 on:
   push:
@@ -117,6 +121,16 @@ jobs:
         working-directory: desktop
         run: npm ci
 
+      # ----- Stage Ollama sidecar ---------------------------------------------
+      # Reads desktop/ollama-pins.json, downloads the matching release
+      # asset from github.com/ollama/ollama/releases, verifies SHA-256,
+      # and drops the binary into desktop/src-tauri/binaries/ with the
+      # filename Tauri's externalBin resolution expects.
+      - name: Stage Ollama sidecar (${{ matrix.target }})
+        working-directory: desktop
+        shell: bash
+        run: scripts/fetch-ollama.sh ${{ matrix.target }}
+
       # ----- Build + bundle via tauri-action ----------------------------------
       # tauri-action is the canonical CI wrapper. It runs `tauri build`,
       # picks up our tauri.conf.json, and uploads the produced installers
@@ -176,12 +190,64 @@ jobs:
           BUNDLE_DIR="desktop/src-tauri/target/${{ matrix.target }}/release/bundle"
           echo "----- $BUNDLE_DIR -----"
           if [ -d "$BUNDLE_DIR" ]; then
-            find "$BUNDLE_DIR" -type f -name 'ControlCraft*' -o -name 'controlcraft*' | head -20
+            find "$BUNDLE_DIR" -type f \( -name 'ControlCraft*' -o -name 'controlcraft*' \) | head -20
+            echo "----- .sig files -----"
+            find "$BUNDLE_DIR" -type f -name '*.sig' | head -10
             echo "----- total size -----"
             du -sh "$BUNDLE_DIR" || true
           else
             echo "(no bundle directory)"
           fi
+
+      # ----- Stage updater manifest fragment for this matrix leg --------------
+      # The Tauri bundler emits a `.sig` file next to each updater artifact
+      # (it's a minisign signature over the file's contents, signed with
+      # TAURI_SIGNING_PRIVATE_KEY). We pick the right one per platform and
+      # write a tiny JSON fragment that the `merge-manifest` job picks up
+      # at the end to assemble the final updater manifest.
+      - name: Stage updater manifest fragment
+        if: success()
+        shell: bash
+        env:
+          TAG: ${{ steps.tag.outputs.value }}
+        run: |
+          BUNDLE_DIR="desktop/src-tauri/target/${{ matrix.target }}/release/bundle"
+          PLATFORM=""
+          ASSET=""
+          case "${{ matrix.target }}" in
+            aarch64-apple-darwin)        PLATFORM="darwin-aarch64";   ASSET=$(find "$BUNDLE_DIR" -name '*.app.tar.gz' | head -1);;
+            x86_64-apple-darwin)         PLATFORM="darwin-x86_64";    ASSET=$(find "$BUNDLE_DIR" -name '*.app.tar.gz' | head -1);;
+            x86_64-pc-windows-msvc)      PLATFORM="windows-x86_64";   ASSET=$(find "$BUNDLE_DIR" -name '*.nsis.zip' -o -name '*.msi.zip' | head -1);;
+            x86_64-unknown-linux-gnu)    PLATFORM="linux-x86_64";     ASSET=$(find "$BUNDLE_DIR" -name '*.AppImage.tar.gz' | head -1);;
+          esac
+          if [ -z "$ASSET" ] || [ ! -f "${ASSET}.sig" ]; then
+            echo "::warning::No signed updater artifact for ${{ matrix.target }} — skipping manifest fragment."
+            exit 0
+          fi
+          SIG=$(cat "${ASSET}.sig")
+          BASENAME=$(basename "$ASSET")
+          VERSION=$(echo "$TAG" | sed 's/^desktop-v//')
+          # GitHub Release asset URL pattern: github.com/<owner>/<repo>/releases/download/<tag>/<filename>
+          URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/${BASENAME}"
+          mkdir -p .updater-fragments
+          cat > ".updater-fragments/${PLATFORM}.json" <<EOF
+          {
+            "version": "${VERSION}",
+            "platform": "${PLATFORM}",
+            "url": "${URL}",
+            "signature": $(echo "$SIG" | jq -Rs .)
+          }
+          EOF
+          echo "Wrote .updater-fragments/${PLATFORM}.json"
+
+      - name: Upload updater fragment
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: updater-fragment-${{ matrix.target }}
+          path: .updater-fragments/*.json
+          if-no-files-found: ignore
+          retention-days: 7
 
       # ----- Upload to GitHub Release -----------------------------------------
       # Manual upload so the build + the upload are two distinct steps.
@@ -207,11 +273,13 @@ jobs:
             Pick the build for your platform. macOS users grab
             **`*_aarch64.dmg`** for Apple silicon or **`*_x64.dmg`** for Intel.
 
-            ### Local model requirement
+            ### Local model
 
-            Ollama isn't bundled yet — install it once from
-            <https://ollama.com/download>, then run `ollama pull llava`
-            so the desktop can talk to a vision model on first launch.
+            Ollama ships embedded in the installer — no separate
+            download. On first launch, ControlCraft picks a vision
+            model that fits your machine (hardware-detected) and
+            streams the download from Ollama's registry with a
+            progress bar. About 4–8 GB depending on tier.
 
             See `desktop/README.md` for the full workflow.
           files: |
@@ -220,3 +288,90 @@ jobs:
             desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.exe
             desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage
             desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
+            desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.app.tar.gz
+            desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.nsis.zip
+            desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi.zip
+            desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage.tar.gz
+            desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.sig
+
+  # ──────────────────────────────────────────────────────────────────────
+  # Manifest assembly — runs once after all 4 matrix legs.
+  # Pulls every leg's `updater-fragment-*` artifact, merges them into one
+  # JSON document at web/public/desktop-updates/manifest.json, and pushes
+  # the change back to main. The Next.js updater route (api/updater/...)
+  # reads from this file at runtime; auto-update goes live the moment
+  # this commit ships.
+  # ──────────────────────────────────────────────────────────────────────
+  merge-manifest:
+    name: Merge updater manifest
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need the actual ref (main) so the push lands somewhere useful.
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "value=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Pull all updater fragments
+        uses: actions/download-artifact@v4
+        with:
+          pattern: updater-fragment-*
+          path: .updater-fragments
+          merge-multiple: true
+
+      - name: Assemble manifest
+        shell: bash
+        env:
+          TAG: ${{ steps.tag.outputs.value }}
+        run: |
+          VERSION=$(echo "$TAG" | sed 's/^desktop-v//')
+          PUB_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          NOTES="ControlCraft Desktop ${TAG} — see https://github.com/${{ github.repository }}/releases/tag/${TAG} for the changelog."
+          # Each fragment is one platform; build a `platforms` map keyed
+          # on the Tauri target string the updater plugin sends us.
+          PLATFORMS=$(jq -s '
+            map({(.platform): {url: .url, signature: .signature}})
+            | add
+          ' .updater-fragments/*.json)
+          jq -n \
+            --arg version "$VERSION" \
+            --arg notes "$NOTES" \
+            --arg pub_date "$PUB_DATE" \
+            --argjson platforms "$PLATFORMS" \
+            '{
+              "$schema": "Tauri 2 updater manifest. Owned by .github/workflows/desktop-release.yml — CI rewrites this file on every desktop-v* tag.",
+              version: $version,
+              notes: $notes,
+              pub_date: $pub_date,
+              platforms: $platforms
+            }' > web/public/desktop-updates/manifest.json
+          echo "----- manifest -----"
+          cat web/public/desktop-updates/manifest.json
+
+      - name: Commit + push manifest
+        shell: bash
+        env:
+          TAG: ${{ steps.tag.outputs.value }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet web/public/desktop-updates/manifest.json; then
+            echo "(manifest unchanged — nothing to push)"
+            exit 0
+          fi
+          git add web/public/desktop-updates/manifest.json
+          git commit -m "chore(desktop): publish updater manifest for ${TAG}"
+          git push origin main

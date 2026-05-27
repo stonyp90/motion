@@ -18,7 +18,7 @@
       "endpoints": [
         "https://controlcraft.io/api/updater/{{target}}-{{arch}}/{{current_version}}"
       ],
-      "pubkey": "TODO_TAURI_PUBKEY_REPLACE_BEFORE_RELEASE",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYzNDMwRTJFOEEzQTA4RTkKUldUcENEcUtMZzVEOHdhVFBBcDJhWFlzYTlEY0wzQUlNZlJHclpMOVZKVWsxQlUxelFmZzJtNTYK",
       "windows": { "installMode": "passive" }
     }
   },
@@ -30,6 +30,9 @@
     "shortDescription": "Motion graphics from a prompt — local engine + local models",
     "longDescription": "ControlCraft runs the motion-forge prompt-to-Lottie pipeline on your machine with bundled engine and Ollama sidecars. No cloud round-trip required.",
     "copyright": "Copyright (c) 2026 ControlCraft",
+    "externalBin": [
+      "binaries/ollama"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -39,7 +42,9 @@
     ],
     "macOS": {
       "frameworks": [],
-      "minimumSystemVersion": "11.0"
+      "minimumSystemVersion": "11.0",
+      "entitlements": "entitlements.plist",
+      "hardenedRuntime": true
     },
     "windows": {
       "wix": {

@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened-runtime entitlements for the ControlCraft macOS bundle.
+
+  Apple notarization requires `--options runtime` on `codesign`, which
+  in turn requires this plist to declare the entitlements the app
+  legitimately needs. Tauri's bundler passes this file through when
+  the `entitlements` field is set in tauri.conf.json's macOS block.
+
+  Without this file the build still succeeds, but Gatekeeper rejects
+  the binary at launch with a hardened-runtime violation — even with
+  a valid Developer ID signature. Adding it now means: the day the
+  APPLE_SIGNING_IDENTITY secret lands in CI, releases auto-notarise
+  without further config changes.
+
+  The entitlements granted below are the minimum the Tauri shell +
+  engine sidecar + Ollama sidecar need:
+
+    - allow-jit              Tauri's WebView (WebKit) JITs JavaScript.
+    - allow-unsigned-executable-memory
+                             The engine + Ollama spawn child threads
+                             with executable memory pages (LLM inference,
+                             ffmpeg).
+    - allow-dyld-environment-variables
+                             Tauri's sidecar lookup honours
+                             DYLD_LIBRARY_PATH in dev builds.
+    - disable-library-validation
+                             Lets the bundled `ollama` binary load
+                             system libs (libllama.dylib, GGUF mmap)
+                             without each one being co-signed.
+    - cs.allow-jit-write-execute
+                             Required by Ollama's JIT-ed inference paths
+                             on Apple Silicon.
+
+  We deliberately do NOT request network entitlements — the App
+  Sandbox is not enabled (no `<key>com.apple.security.app-sandbox</key>`),
+  so all network traffic is permitted by default. Enabling the sandbox
+  would require enumerating every outbound host the app talks to
+  (Ollama registry, Keycloak, etc.), which churns on every release.
+-->
+<plist version="1.0">
+  <dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    <key>com.apple.security.cs.allow-jit-write-execute</key>
+    <true/>
+  </dict>
+</plist>

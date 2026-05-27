@@ -28,5 +28,17 @@ tauri-plugin-shell = "2"
 # and installs. Signing key is `TAURI_SIGNING_PRIVATE_KEY` (already
 # in GH secrets); generated artifacts get `.sig` siblings in CI.
 tauri-plugin-updater = "2"
+# Relaunch-after-update support. The updater plugin downloads + verifies
+# the new bundle; this plugin restarts the running process so the user
+# is back in the new build without having to quit + reopen manually.
+tauri-plugin-process = "2"
 tokio = { version = "1", features = ["full"] }
 rand = "0.8"
+# Hardware probe for the first-launch wizard's model picker. `sysinfo`
+# covers RAM + CPU + a coarse GPU read; we don't need exact VRAM, only
+# the brackets that setup::pick_model distinguishes.
+sysinfo = "0.32"
+# Native HTTP client for talking to the local Ollama daemon (`/api/tags`,
+# `/api/pull` NDJSON stream). `rustls-tls` keeps us off OpenSSL.
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+futures-util = "0.3"

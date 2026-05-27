@@ -58,28 +58,42 @@ Cross-platform builds are wired in `.github/workflows/desktop-release.yml`
 
 ## Sidecar bundling (production)
 
-For production builds we still need to ship `motion-forge` and `ollama`
-inside the installer rather than relying on the user having them
-installed. The mechanism is Tauri's `bundle.externalBin` config; the
-binaries land in `Resources/binaries/` (or `Contents/Resources/` on macOS)
-next to the app executable.
+`ollama` is bundled as a Tauri `externalBin`. The release CI fetches
+the pinned binary per platform via `scripts/fetch-ollama.sh`, drops it
+into `src-tauri/binaries/`, and `tauri build` co-signs it with the app.
+Local builds can do the same:
 
-The current `tauri.conf.json` does **not** include the `externalBin`
-entry — `tauri build` would otherwise fail if the binaries aren't there.
-To package:
+```bash
+./scripts/fetch-ollama.sh aarch64-apple-darwin    # or your target triple
+npm run build
+```
 
-1. Build the engine for the target triple:
-   `cargo build --release -p motion-forge-cli --bin motion-forge`
-2. Copy / symlink the binaries into `src-tauri/binaries/` with the
-   triple suffix Tauri expects, e.g.
-   `motion-forge-aarch64-apple-darwin` + `ollama-aarch64-apple-darwin`.
-3. Add the entry back to `tauri.conf.json`:
-   ```json
-   "externalBin": ["binaries/motion-forge", "binaries/ollama"]
-   ```
-4. `npm run build`.
+The pin lives at `desktop/ollama-pins.json` (version + per-platform
+SHA-256). Bump the version + checksums in one commit. The script
+refuses to proceed if the SHA is still the `TODO_…` placeholder, so a
+typo or registry compromise can't slip in unnoticed.
 
-The release CI workflow handles steps 1-3 automatically per platform.
+The engine sidecar (`motion-forge`) is still PATH-resolved. Folding it
+into the installer is pending a portable Python story for the
+segmentation + render sidecars.
+
+## First-launch wizard
+
+On the very first launch (no `?onboarded=1` URL flag, no
+`mf-desktop-onboarded` localStorage entry), `web/src/components/FirstRunWizard.tsx`
+shows a modal that:
+
+1. Probes the bundled Ollama via `tauri::invoke('first_run_status')`.
+2. Profiles the machine (RAM, CPU, Apple silicon flag) — see
+   `src-tauri/src/setup.rs::hw_profile`.
+3. Recommends a vision model sized to the hardware tier.
+4. Discloses the disk-space cost.
+5. Streams `POST /api/pull` NDJSON progress events from Ollama back
+   to a React progress bar.
+6. Marks `mf-desktop-onboarded` and dismisses; the model lives in
+   `~/.ollama/models` so a host Ollama install can share it.
+
+ESC closes without flagging — next launch will re-offer.
 
 ## Environment overrides
 
@@ -92,7 +106,9 @@ The release CI workflow handles steps 1-3 automatically per platform.
 
 - [ ] Web-side runtime override (read `?engine=` + `?token=` on first
       paint, persist to localStorage, swap the bearer)
-- [ ] First-launch Ollama auto-install (download if not on PATH)
-- [ ] Auto-update via Tauri Updater pointed at the GitHub Releases feed
+- [x] First-launch model setup (`scripts/fetch-ollama.sh` bundles
+      Ollama; `setup.rs` + `FirstRunWizard.tsx` handle the model pull)
+- [ ] Engine sidecar bundling — pending portable Python story
+- [x] Auto-update via Tauri Updater pointed at the GitHub Releases feed
 - [ ] Code-signing + macOS notarisation
 - [ ] System tray + status bar showing engine + Ollama health
