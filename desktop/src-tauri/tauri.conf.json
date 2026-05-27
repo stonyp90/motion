@@ -31,6 +31,7 @@
     "longDescription": "ControlCraft runs the motion-forge prompt-to-Lottie pipeline on your machine with bundled engine and Ollama sidecars. No cloud round-trip required.",
     "copyright": "Copyright (c) 2026 ControlCraft",
     "externalBin": [
+      "binaries/motion-forge",
       "binaries/ollama"
     ],
     "icon": [

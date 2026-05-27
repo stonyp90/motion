@@ -25,9 +25,16 @@ name: desktop · release
 # fetch step below stages the right binary per matrix leg into
 # desktop/src-tauri/binaries/ before `tauri build` co-signs it.
 #
-# Engine sidecar bundling is still pending (portable Python story for
-# segmentation + render). The Tauri shell's spawn_engine() falls back
-# to a PATH lookup until that lands.
+# Engine sidecar (`motion-forge`) is built from the engine/ workspace
+# in the matching matrix target and bundled via Tauri externalBin —
+# see "Build engine sidecar" step below. The engine binary alone gets
+# the desktop client to the empty-state Studio + zero-render exports
+# (Lottie / dotLottie / SVG). Raster + video formats also need a
+# Python venv (lottie+cairo) at runtime, which is NOT shipped — the
+# engine surfaces a clear "python interpreter not found" error and
+# desktop/README.md documents `scripts/setup-python.sh` as a one-time
+# prereq. Removing this prereq lands in a follow-up (dotlottie-rs
+# rasterizer replacing python-lottie).
 
 on:
   push:
@@ -94,8 +101,16 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: 'desktop/src-tauri -> target'
+          # Cache both Cargo workspaces touched by this job: the Tauri
+          # shell (desktop/src-tauri) and the engine sidecar (engine/).
+          # `key` is per-target so a Mac-arm cache never feeds a Linux
+          # job; `cache-on-failure` keeps a partial cache around so a
+          # half-broken release tag's next attempt isn't a cold build.
+          workspaces: |
+            desktop/src-tauri -> target
+            engine -> target
           key: ${{ matrix.target }}
+          cache-on-failure: true
 
       - uses: actions/setup-node@v4
         with:
@@ -130,6 +145,26 @@ jobs:
         working-directory: desktop
         shell: bash
         run: scripts/fetch-ollama.sh ${{ matrix.target }}
+
+      # ----- Build + stage the engine sidecar (motion-forge) -----------------
+      # Tauri externalBin convention: the binary lives at
+      # desktop/src-tauri/binaries/motion-forge-<target>(.exe) and gets
+      # renamed to motion-forge(.exe) next to the app bundle at build
+      # time. The Tauri shell's `sibling_binary("motion-forge")` lookup
+      # (see desktop/src-tauri/src/lib.rs) then resolves it at runtime.
+      - name: Build engine sidecar (${{ matrix.target }})
+        working-directory: engine
+        shell: bash
+        run: |
+          cargo build --release --target ${{ matrix.target }} --bin motion-forge
+          if [[ "${{ matrix.target }}" == *-windows-* ]]; then
+            cp "target/${{ matrix.target }}/release/motion-forge.exe" \
+               "../desktop/src-tauri/binaries/motion-forge-${{ matrix.target }}.exe"
+          else
+            cp "target/${{ matrix.target }}/release/motion-forge" \
+               "../desktop/src-tauri/binaries/motion-forge-${{ matrix.target }}"
+          fi
+          ls -la "../desktop/src-tauri/binaries/" | grep motion-forge
 
       # ----- Build + bundle via tauri-action ----------------------------------
       # tauri-action is the canonical CI wrapper. It runs `tauri build`,
