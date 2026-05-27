@@ -74,10 +74,14 @@ function Kpi({
   active: boolean;
   delayMs: number;
 }) {
+  // Note: no `role="group"` on this wrapper — axe-core's `dlitem` rule
+  // requires <dt>/<dd> to have a direct <dl> ancestor (or a plain <div>).
+  // Adding role="group" turns the wrapper into an ARIA grouping node
+  // that breaks the implicit dl chain and trips both `dlitem` and
+  // `definition-list` audits. The screen reader still hears each KPI
+  // as a named pair via the `aria-label` on the value <dd> below.
   return (
     <div
-      role="group"
-      aria-label={kpi.label}
       className="flex flex-col gap-2 transition-all duration-700"
       style={{
         opacity: active ? 1 : 0,

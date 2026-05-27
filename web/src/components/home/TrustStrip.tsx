@@ -158,7 +158,10 @@ export function TrustStrip() {
           For partnership, procurement, or investor conversations:{' '}
           <a
             href="mailto:partnerships@controlcraft.io"
-            className="font-medium text-text-accent underline-offset-2 hover:underline"
+            // accent-700 explicit instead of `text-text-accent` (which
+            // resolves to accent-600 in light mode and lands borderline
+            // on Lighthouse color-contrast). dark mode keeps the token.
+            className="font-medium text-accent-700 underline-offset-2 hover:underline dark:text-text-accent"
           >
             partnerships@controlcraft.io
           </a>

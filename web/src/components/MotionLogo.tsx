@@ -123,7 +123,10 @@ function Wordmark({ text }: { text: string }): ReactNode {
     return (
       <>
         Control
-        <span className="text-accent-600 dark:text-accent-400">Craft</span>
+        {/* light mode bumped to accent-700 — accent-600 (#059669) on
+            #fff lands at ~4.5:1 which Lighthouse rounds below the
+            color-contrast threshold; accent-700 (#047857) clears it. */}
+        <span className="text-accent-700 dark:text-accent-400">Craft</span>
       </>
     );
   }
