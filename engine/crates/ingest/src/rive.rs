@@ -182,6 +182,8 @@ fn extract_layers(board: &serde_json::Map<String, Value>, frame_rate: f32) -> Ve
                 .map(|s| s.to_string()),
             keyframes,
             image_asset_id: None,
+            text_reveal: None,
+            entry_vector: None,
         });
     }
     layers

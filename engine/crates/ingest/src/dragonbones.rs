@@ -265,6 +265,8 @@ pub fn ingest(bytes: &[u8]) -> Result<Composition> {
             text: None,
             keyframes,
             image_asset_id: None,
+            text_reveal: None,
+            entry_vector: None,
         });
     }
 

@@ -408,6 +408,8 @@ fn background_image_layer(
         stroke_hex: None,
         text: None,
         image_asset_id: Some(asset_id.to_string()),
+        text_reveal: None,
+        entry_vector: None,
         keyframes: vec![
             // Open: scale start, pan-start, opacity 0.
             Keyframe {

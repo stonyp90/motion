@@ -298,6 +298,8 @@ mod tests {
                     stroke_hex: None,
                     text: None,
                     image_asset_id: None,
+                    text_reveal: None,
+                    entry_vector: None,
                     keyframes: vec![kf(0.0), kf(4.0)],
                 }],
             }],
@@ -325,6 +327,8 @@ mod tests {
             stroke_hex: None,
             text: None,
             image_asset_id: None,
+            text_reveal: None,
+            entry_vector: None,
             keyframes: vec![kf(0.0), kf(1.0)],
         };
         assert!(build_character_layer(&reg, &l, &t, 1, 0, 30).is_none());
@@ -366,6 +370,8 @@ mod tests {
             stroke_hex: None,
             text: None,
             image_asset_id: None,
+            text_reveal: None,
+            entry_vector: None,
             keyframes: vec![kf(0.0), kf(1.0)],
         };
         let v = build_character_layer(&reg, &l, &t, 1, 0, 30).unwrap();

@@ -176,6 +176,8 @@ fn convert_layer(layer: &Value, frame_rate: f32) -> Option<Layer> {
         text,
         keyframes,
         image_asset_id: None,
+        text_reveal: None,
+        entry_vector: None,
     })
 }
 

@@ -223,7 +223,7 @@ fn build_shape_layer(
         "ty": 4,
         "nm": layer.name,
         "sr": 1,
-        "ks": animated_transform(&layer.keyframes, t.frame_rate),
+        "ks": animated_transform_with_entry(layer, t),
         "ao": 0,
         "shapes": [shape],
         "ip": shot_in,
@@ -275,6 +275,11 @@ const DEFAULT_FONT_NAME: &str = "Inter-Bold";
 /// to fit the text" convention the LLM already follows). Color uses
 /// the layer's `fill_hex`, falling back to a soft white so text is
 /// always legible against typical dark backgrounds.
+///
+/// When the layer carries a `text_reveal`, this emits a Lottie text
+/// range animator alongside the document so individual words /
+/// characters / lines stagger in — the agency convention for
+/// kinetic typography.
 fn text_layer(
     layer: &Layer,
     t: &LottieTimeline,
@@ -299,18 +304,18 @@ fn text_layer(
         fill[2] as f32 / 255.0,
     ];
 
+    let animators = build_text_animators(layer.text_reveal.as_ref(), copy, t.frame_rate, font_size);
+
     json!({
         "ddd": 0,
         "ind": index,
         "ty": 5,
         "nm": layer.name,
         "sr": 1,
-        "ks": animated_transform(&layer.keyframes, t.frame_rate),
+        "ks": animated_transform_with_entry(layer, t),
         "ao": 0,
         "t": {
             // Text document — single keyframe with the full string.
-            // For kinetic / word-by-word reveal (planned next) we'd
-            // emit multiple text documents over time.
             "d": {
                 "k": [{
                     "t": 0,
@@ -330,17 +335,122 @@ fn text_layer(
                     }
                 }]
             },
-            // No text path / per-character transforms / animator
-            // properties — keep the wire shape minimal.
             "p": {},
             "m": { "g": 1, "a": { "a": 0, "k": [0, 0] } },
-            "a": []
+            "a": animators
         },
         "ip": shot_in,
         "op": shot_out,
         "st": shot_in,
         "bm": 0,
     })
+}
+
+/// Build the Lottie text-animator block from a [`TextReveal`].
+/// Returns an empty array when no reveal is configured, which keeps
+/// the wire format identical to the pre-kinetic baseline.
+///
+/// Mechanics: a text range animator selects words / characters /
+/// lines based on a percentage range `[ne%, xe%]`. We animate the
+/// range start (`ne`) from 0 → 100 over `total_reveal_sec`, and
+/// attach an `a` (animator) block that sets opacity 0 + a Y-offset
+/// for whichever units are currently inside the range. As the
+/// range slides forward, each unit gets revealed in turn — the
+/// standard agency "rise + fade in" cadence.
+///
+/// `t: 0` = per-character, `t: 1` = per-word, `t: 2` = per-line.
+fn build_text_animators(
+    reveal: Option<&motion_forge_prompt_orchestrator::TextReveal>,
+    copy: &str,
+    fps: f32,
+    font_size: f32,
+) -> Value {
+    use motion_forge_prompt_orchestrator::TextReveal;
+    let (range_kind, unit_count, stagger_s) = match reveal {
+        None => return json!([]),
+        Some(TextReveal::WordByWord { stagger_s }) => {
+            (1u8, copy.split_whitespace().count().max(1), *stagger_s)
+        }
+        Some(TextReveal::CharByChar { stagger_s }) => (
+            0u8,
+            copy.chars().filter(|c| !c.is_whitespace()).count().max(1),
+            *stagger_s,
+        ),
+        Some(TextReveal::LineByLine { stagger_s }) => {
+            (2u8, copy.lines().count().max(1), *stagger_s)
+        }
+    };
+    // Total reveal time: stagger per unit, capped so very long copy
+    // doesn't take all day to land. Each unit also gets ~stagger time
+    // to fade in (so consecutive units overlap by ~50%, the natural
+    // "rolling wave" feel).
+    let total_reveal_sec = (unit_count as f32 * stagger_s).min(5.0);
+    let end_frame = (total_reveal_sec * fps).round() as i64;
+    // Range slides from -100% (everything still un-revealed) to 100%
+    // (everything past, fully visible). We move `ne` over time; `xe`
+    // stays parked at 100. The width of the range — the "moving
+    // window of in-progress units" — is implicit at 100%, which means
+    // exactly one stagger-width is animating at any moment.
+    json!([
+        {
+            "nm": "kinetic-reveal",
+            "s": {
+                "t": range_kind,
+                "xe": { "a": 0, "k": 100, "ix": 2 },
+                "ne": {
+                    "a": 1,
+                    "k": [
+                        {
+                            "t": 0,
+                            "s": [0],
+                            "h": 0,
+                            "o": { "x": [0.16], "y": [0.0] },
+                            "i": { "x": [0.84], "y": [1.0] },
+                        },
+                        { "t": end_frame, "s": [100] }
+                    ],
+                    "ix": 1
+                },
+                "a": { "a": 0, "k": 100, "ix": 4 },
+                "b": 1,
+                "rn": 0,
+                "sh": 1,
+                "sm": { "a": 0, "k": 100, "ix": 9 },
+                "ix": 1
+            },
+            // Properties applied to whatever's inside the active range.
+            // As the range slides, each unit transitions OUT of these
+            // values into the document defaults — i.e. fades in + slides
+            // up to its resting position.
+            "a": {
+                "p": { "a": 0, "k": [0, font_size * 0.35, 0], "ix": 2 },
+                "o": { "a": 0, "k": 0, "ix": 4 }
+            }
+        }
+    ])
+}
+
+/// Variant of `animated_transform` that bakes in an entry-vector
+/// offset on the first keyframe: the layer enters from `entry_vector
+/// × ENTRY_TRAVEL_PX` away from its authored position and slides to
+/// rest. None = no offset (same as `animated_transform`).
+fn animated_transform_with_entry(layer: &Layer, t: &LottieTimeline) -> Value {
+    const ENTRY_TRAVEL_PX: f32 = 180.0;
+    let Some(vec) = layer.entry_vector else {
+        return animated_transform(&layer.keyframes, t.frame_rate);
+    };
+    if layer.keyframes.is_empty() {
+        return animated_transform(&layer.keyframes, t.frame_rate);
+    }
+    // Clamp magnitude to 1.0 so the LLM can't fling layers off-screen.
+    let mag = (vec[0] * vec[0] + vec[1] * vec[1]).sqrt().max(0.001);
+    let unit = [vec[0] / mag, vec[1] / mag];
+    let mut frames = layer.keyframes.clone();
+    if let Some(first) = frames.first_mut() {
+        first.position[0] += unit[0] * ENTRY_TRAVEL_PX;
+        first.position[1] += unit[1] * ENTRY_TRAVEL_PX;
+    }
+    animated_transform(&frames, t.frame_rate)
 }
 
 /// Registry block for the fonts every text layer references. Lottie
@@ -566,6 +676,152 @@ mod tests {
     }
 
     #[test]
+    fn text_layer_with_word_by_word_reveal_emits_text_animator() {
+        let layer = motion_forge_prompt_orchestrator::Layer {
+            name: "hero".into(),
+            kind: motion_forge_prompt_orchestrator::LayerKind::Text,
+            fill_hex: Some([0xff, 0xff, 0xff]),
+            stroke_hex: None,
+            text: Some("Ship faster every quarter".into()),
+            image_asset_id: None,
+            text_reveal: Some(motion_forge_prompt_orchestrator::TextReveal::WordByWord {
+                stagger_s: 0.1,
+            }),
+            entry_vector: None,
+            keyframes: vec![Keyframe {
+                time_seconds: 0.0,
+                position: [960.0, 540.0],
+                size: [800.0, 96.0],
+                rotation_degrees: 0.0,
+                opacity: 1.0,
+                easing_label: EasingLabel::Standard,
+            }],
+        };
+        let shot = motion_forge_prompt_orchestrator::Shot {
+            start_seconds: 0.0,
+            duration_seconds: 3.0,
+            description: "hero".into(),
+            layers: vec![layer],
+        };
+        let timeline = motion_forge_prompt_orchestrator::LottieTimeline {
+            composition_width: 1920,
+            composition_height: 1080,
+            duration_seconds: 3.0,
+            frame_rate: 30.0,
+            background_hex: [0x0a, 0x0a, 0x0a],
+            shots: vec![shot],
+            image_assets: vec![],
+        };
+
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("out.json");
+        SerdeLottieGenerator::new().write(&timeline, &path).unwrap();
+        let raw = std::fs::read_to_string(&path).unwrap();
+        let v: Value = serde_json::from_str(&raw).unwrap();
+
+        // Text layer landed.
+        let text = v["layers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|l| l["ty"].as_u64() == Some(5))
+            .expect("text layer missing");
+
+        // Animator block present with range type 1 = per-word.
+        let animators = text["t"]["a"]
+            .as_array()
+            .expect("animators must be an array");
+        assert_eq!(animators.len(), 1, "expected one kinetic animator");
+        let an = &animators[0];
+        assert_eq!(
+            an["s"]["t"].as_u64(),
+            Some(1),
+            "range type should be per-word (1)"
+        );
+        // Selector range start animates (i.e. is a keyframe array).
+        assert!(an["s"]["ne"]["a"].as_u64() == Some(1));
+        // The "a" sub-object animates opacity (to 0) + Y position offset.
+        assert_eq!(an["a"]["o"]["k"].as_f64(), Some(0.0));
+        let p_offset = an["a"]["p"]["k"].as_array().unwrap();
+        assert!(
+            p_offset[1].as_f64().unwrap() > 0.0,
+            "y-offset should rise into place"
+        );
+    }
+
+    #[test]
+    fn rect_layer_with_entry_vector_offsets_first_keyframe() {
+        // Layer authored at center; entry_vector [-1, 0] means it
+        // enters from the left. First keyframe's x should be < the
+        // authored x by ENTRY_TRAVEL_PX (180).
+        let layer = motion_forge_prompt_orchestrator::Layer {
+            name: "card".into(),
+            kind: motion_forge_prompt_orchestrator::LayerKind::Rect,
+            fill_hex: Some([0x10, 0xb9, 0x81]),
+            stroke_hex: None,
+            text: None,
+            image_asset_id: None,
+            text_reveal: None,
+            entry_vector: Some([-1.0, 0.0]),
+            keyframes: vec![
+                Keyframe {
+                    time_seconds: 0.0,
+                    position: [960.0, 540.0],
+                    size: [400.0, 200.0],
+                    rotation_degrees: 0.0,
+                    opacity: 0.0,
+                    easing_label: EasingLabel::Decelerate,
+                },
+                Keyframe {
+                    time_seconds: 0.6,
+                    position: [960.0, 540.0],
+                    size: [400.0, 200.0],
+                    rotation_degrees: 0.0,
+                    opacity: 1.0,
+                    easing_label: EasingLabel::Standard,
+                },
+            ],
+        };
+        let shot = motion_forge_prompt_orchestrator::Shot {
+            start_seconds: 0.0,
+            duration_seconds: 1.5,
+            description: "card".into(),
+            layers: vec![layer],
+        };
+        let timeline = motion_forge_prompt_orchestrator::LottieTimeline {
+            composition_width: 1920,
+            composition_height: 1080,
+            duration_seconds: 1.5,
+            frame_rate: 30.0,
+            background_hex: [0x0a, 0x0a, 0x0a],
+            shots: vec![shot],
+            image_assets: vec![],
+        };
+
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("out.json");
+        SerdeLottieGenerator::new().write(&timeline, &path).unwrap();
+        let raw = std::fs::read_to_string(&path).unwrap();
+        let v: Value = serde_json::from_str(&raw).unwrap();
+
+        // Find the card layer (ty=4) and inspect the first position
+        // keyframe — it should sit 180 px to the LEFT of the
+        // authored 960 (i.e. x ≈ 780).
+        let card = v["layers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|l| l["nm"].as_str() == Some("card"))
+            .expect("card layer");
+        let p_keyframes = card["ks"]["p"]["k"].as_array().unwrap();
+        let first_x = p_keyframes[0]["s"][0].as_f64().unwrap();
+        assert!(
+            (first_x - 780.0).abs() < 0.5,
+            "entry_vector [-1,0] should offset x to ~780, got {first_x}"
+        );
+    }
+
+    #[test]
     fn text_layer_with_copy_renders_as_real_lottie_text() {
         let layer = motion_forge_prompt_orchestrator::Layer {
             name: "headline".into(),
@@ -574,6 +830,8 @@ mod tests {
             stroke_hex: None,
             text: Some("Ship faster".into()),
             image_asset_id: None,
+            text_reveal: None,
+            entry_vector: None,
             keyframes: vec![Keyframe {
                 time_seconds: 0.0,
                 position: [960.0, 540.0],
@@ -654,6 +912,8 @@ mod tests {
             stroke_hex: None,
             text: None,
             image_asset_id: Some("scene_1_0".into()),
+            text_reveal: None,
+            entry_vector: None,
             keyframes: vec![Keyframe {
                 time_seconds: 0.0,
                 position: [512.0, 512.0],

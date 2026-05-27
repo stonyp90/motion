@@ -88,6 +88,58 @@ pub struct Layer {
     /// compatibility.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_asset_id: Option<String>,
+    /// Kinetic typography reveal animation for [`LayerKind::Text`]
+    /// layers. The renderer translates this into a native Lottie text
+    /// range animator so words / characters / lines stagger in. Set
+    /// it for headlines and hero copy where the type itself should
+    /// feel intentional; leave `None` for static labels. Ignored on
+    /// non-Text layers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_reveal: Option<TextReveal>,
+    /// Optional unit vector hint for the layer's entry — a 2D
+    /// direction (typically `[-1.0, 0.0]` for "enter from left",
+    /// `[0.0, -1.0]` for "enter from top", `[0.7, 0.7]` for diagonal
+    /// bottom-right). Magnitude is treated as 0..1; the renderer
+    /// applies a fixed pixel travel distance scaled by this vector
+    /// to the first keyframe's position, then animates back to the
+    /// authored position. None = no entry travel (current behaviour).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry_vector: Option<[f32; 2]>,
+}
+
+/// Kinetic typography reveal style. Translated to a Lottie text
+/// range animator by `lottie-gen::text_layer`. The serialized form
+/// is the variant name as a string (`"WordByWord"`, `"CharByChar"`,
+/// `"LineByLine"`) plus the variant's params.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum TextReveal {
+    /// Stagger reveal one word at a time. `stagger_s` is the delay
+    /// between word starts (0.08-0.12s is the agency-standard
+    /// cadence; 0.08 feels snappy, 0.12 feels deliberate).
+    WordByWord {
+        #[serde(default = "default_stagger")]
+        stagger_s: f32,
+    },
+    /// Stagger reveal one character at a time. Use sparingly — only
+    /// reads well on short hero text (3-5 words max), gets noisy on
+    /// longer copy.
+    CharByChar {
+        #[serde(default = "default_stagger")]
+        stagger_s: f32,
+    },
+    /// Stagger reveal one line at a time. For multi-line callouts.
+    LineByLine {
+        #[serde(default = "default_stagger_line")]
+        stagger_s: f32,
+    },
+}
+
+fn default_stagger() -> f32 {
+    0.1
+}
+
+fn default_stagger_line() -> f32 {
+    0.18
 }
 
 /// Type of a [`Layer`]. The four simple variants (Rect, Ellipse,
@@ -278,6 +330,8 @@ impl PromptOrchestrator {
              2. Total duration: exactly {dur:.2} seconds.\n\
              3. Easing labels — use only: Linear, Standard, Decelerate, Accelerate, Sharp, Bounce, SpringSoft, Anticipate.\n\
                 Prefer SpringSoft (subtle ~10% overshoot) for hero element ENTRANCES (logos landing, KPI cards arriving). Use Anticipate (pre-pullback) on the keyframe BEFORE an emphasis beat (e.g. a number that's about to count up). Default to Standard/Decelerate everywhere else; Linear only for steady camera moves. Bounce reads as cartoonish — reserve for playful themes.\n\
+             3a. Kinetic typography — for Text layers carrying a HEADLINE or HERO line, set `text_reveal: {{ \"WordByWord\": {{ \"stagger_s\": 0.1 }} }}` so words land one at a time. For short hero copy (3-5 words) you may use CharByChar with 0.04s stagger. For static labels (legend, timestamps) leave `text_reveal: null`.\n\
+             3b. Entry direction variance — DO NOT have every layer fade in from the same place. Use `entry_vector: [dx, dy]` (unit vector) to vary where layers come from: [-1, 0] for left, [1, 0] for right, [0, -1] for top, [0, 1] for bottom, or diagonals like [0.7, -0.7]. Reserve [0, 0] / null for the hero focal point only. Distribute across roughly 30% top, 30% left, 20% right, 20% scale-from-center.\n\
              4. Layer kinds — use only: Rect, Ellipse, Text, Image. Text layers MUST set the `text` field.\n\
              5. Every layer has ≥2 keyframes covering its shot.\n\
              6. All shot start_seconds + duration_seconds within [0, {dur:.2}].\n\n\
@@ -523,6 +577,16 @@ fn timeline_schema(w: u32, h: u32, fps: f32, duration: f32) -> serde_json::Value
                                         "minItems": 3, "maxItems": 3
                                     },
                                     "text": { "type": ["string", "null"] },
+                                    "text_reveal": {
+                                        "type": ["object", "null"],
+                                        "description": "Kinetic typography reveal. Only valid on Text layers. Pick ONE variant."
+                                    },
+                                    "entry_vector": {
+                                        "type": ["array", "null"],
+                                        "items": { "type": "number" },
+                                        "minItems": 2, "maxItems": 2,
+                                        "description": "Unit vector [-1..1, -1..1] for layer entry direction. [-1,0] = enter from left, [0,-1] = enter from top, etc. Null = no entry travel."
+                                    },
                                     "keyframes": {
                                         "type": "array",
                                         "items": {
@@ -614,6 +678,8 @@ pub fn fallback_timeline(
             stroke_hex: None,
             text: None,
             image_asset_id: None,
+            text_reveal: None,
+            entry_vector: None,
             keyframes: vec![
                 Keyframe {
                     time_seconds: start,
@@ -651,6 +717,11 @@ pub fn fallback_timeline(
                 stroke_hex: None,
                 text: Some(prompt.to_string()),
                 image_asset_id: None,
+                // Fallback outro gets kinetic word-by-word reveal so
+                // even the "we couldn't reach the LLM" path feels
+                // intentional rather than abrupt.
+                text_reveal: Some(TextReveal::WordByWord { stagger_s: 0.1 }),
+                entry_vector: None,
                 keyframes: vec![
                     Keyframe {
                         time_seconds: start + shot_dur * 0.5,
