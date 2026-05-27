@@ -14,7 +14,8 @@
     },
     "x86_64-pc-windows-msvc": {
       "asset": "ollama-windows-amd64.zip",
-      "extract_path": "ollama-windows-amd64/ollama.exe",
+      "extract_path": "ollama.exe",
+      "_note_libs": "v0.13.0+ Windows zips flatten ollama.exe to the root and ship CUDA/Vulkan DLLs under lib/ollama/. We only stage the bare .exe via Tauri externalBin (which expects a single file), so CPU inference works and GPU acceleration is a follow-up that needs Tauri resources/ for the DLL tree.",
       "sha256": "0fc913fc3763b8d2a490f2be90a51d474491ee22ea5a43ff31f1c58301a89656"
     },
     "x86_64-unknown-linux-gnu": {
