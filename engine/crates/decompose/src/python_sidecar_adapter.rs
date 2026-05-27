@@ -17,8 +17,16 @@ fn repo_root() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.."))
 }
 
+/// Resolve the venv python interpreter path for the host OS — Windows
+/// puts it under `.venv\\Scripts\\python.exe`, Unix under
+/// `.venv/bin/python`. Hardcoding Unix breaks the Windows build.
 fn default_python_bin() -> PathBuf {
-    repo_root().join(".venv/bin/python")
+    let venv = repo_root().join(".venv");
+    if cfg!(windows) {
+        venv.join("Scripts").join("python.exe")
+    } else {
+        venv.join("bin").join("python")
+    }
 }
 
 fn default_script() -> PathBuf {

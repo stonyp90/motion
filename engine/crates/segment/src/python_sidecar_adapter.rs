@@ -48,16 +48,25 @@ pub struct PythonSidecarSegmenter {
 
 impl PythonSidecarSegmenter {
     /// Default-path constructor: assumes the workspace layout
-    /// (`.venv/bin/python` + `scripts/segment_video.py`) relative to the
-    /// repository root. Resolves the repo root via `CARGO_MANIFEST_DIR`
-    /// at build time.
+    /// (venv + `scripts/segment_video.py`) relative to the repository
+    /// root. Resolves the repo root via `CARGO_MANIFEST_DIR` at build
+    /// time.
+    ///
+    /// venv python lives at `.venv/bin/python` on Unix and
+    /// `.venv\\Scripts\\python.exe` on Windows.
     pub fn default_in_workspace() -> Self {
         let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
             .canonicalize()
             .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.."));
+        let venv = repo.join(".venv");
+        let python_bin = if cfg!(windows) {
+            venv.join("Scripts").join("python.exe")
+        } else {
+            venv.join("bin").join("python")
+        };
         Self {
-            python_bin: repo.join(".venv/bin/python"),
+            python_bin,
             script_path: repo.join("scripts/segment_video.py"),
             backend: Backend::default(),
         }

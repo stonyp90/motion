@@ -24,9 +24,25 @@ impl PythonLottieRenderer {
     pub fn default_in_workspace() -> Self {
         let repo = repo_root();
         Self {
-            python_bin: repo.join(".venv/bin/python"),
+            python_bin: venv_python(&repo),
             script_path: repo.join("scripts/render_lottie.py"),
         }
+    }
+}
+
+/// Resolve the venv python interpreter path for the host OS.
+///
+/// Python's stdlib `venv` module lays files out differently on Windows
+/// (`Scripts\\python.exe`) than on Unix (`bin/python`). Hardcoding the
+/// Unix path means Windows CI / Windows users get
+/// `python interpreter not found at .venv/bin/python` even when the
+/// venv is healthy. cfg-gated branch fixes this without duplicating
+/// the constructor for every target.
+fn venv_python(repo: &Path) -> PathBuf {
+    if cfg!(windows) {
+        repo.join(".venv").join("Scripts").join("python.exe")
+    } else {
+        repo.join(".venv").join("bin").join("python")
     }
 }
 
