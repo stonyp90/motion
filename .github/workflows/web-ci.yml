@@ -37,7 +37,7 @@ jobs:
       # deprecated in Next 16.
       - run: npm run build
       - name: Upload .next bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: web-next-bundle
           path: web/.next/
@@ -166,7 +166,7 @@ jobs:
 
       - name: Upload Playwright report
         if: failure() || cancelled()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report-${{ matrix.browser }}
           path: |
@@ -264,7 +264,7 @@ jobs:
 
       - name: Upload Lighthouse report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: lighthouse-report
           path: web/.lighthouseci/
