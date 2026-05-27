@@ -778,6 +778,15 @@ pub async fn brief_to_timeline(
     let fps = orch.frame_rate;
     let bg = first_palette(&style);
 
+    // Cross-scene blend window: how much consecutive scenes overlap
+    // on the master timeline. The background image layer already
+    // ramps its opacity 0→1 over the first SCENE_CROSSFADE_SEC and
+    // 1→0 over the last SCENE_CROSSFADE_SEC of each shot (see
+    // `scene_assets::background_image_layer`). Overlapping the scene
+    // windows by the same amount turns those edge ramps into a real
+    // crossfade between consecutive plates rather than a hard cut.
+    const SCENE_OVERLAP_SEC: f32 = 0.3;
+
     let mut all_shots: Vec<Shot> = Vec::with_capacity(brief.scenes.len());
     let mut cursor = 0.0_f32;
     for (i, scene) in brief.scenes.iter().enumerate() {
@@ -813,7 +822,16 @@ pub async fn brief_to_timeline(
             shot.description = format!("[{}] {}", scene.id, shot.description);
             all_shots.push(shot);
         }
-        cursor += scene_dur;
+        // Advance cursor by the scene duration minus the crossfade
+        // window so the NEXT scene starts before this one's plate has
+        // fully faded out. Last scene gets the full duration (nothing
+        // to blend into).
+        let advance = if i + 1 < brief.scenes.len() {
+            (scene_dur - SCENE_OVERLAP_SEC).max(0.0)
+        } else {
+            scene_dur
+        };
+        cursor += advance;
     }
 
     Ok(LottieTimeline {
