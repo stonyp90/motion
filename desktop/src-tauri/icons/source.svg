@@ -1,12 +1,46 @@
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- ControlCraft desktop app icon — single source for every
+       platform-specific output (icns / ico / tile PNGs / launcher PNGs).
+       Re-render the bitmap variants via `desktop/scripts/generate-icons.sh`.
+
+       Composition follows Apple's Big Sur+ icon spec:
+         · 1024×1024 canvas
+         · Outer squircle base with rx = 230 (≈22.5% corner radius)
+         · Brand artwork inscribed inside an 800×800 safe area centered
+           in the canvas (≈11% inset). The previous source went
+           edge-to-edge horizontally, which made the dock icon read
+           visually larger than every neighbouring app — neighbours
+           respect Apple's safe-area convention. -->
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#ffffff"/>
-      <stop offset="1" stop-color="#ecfdf5"/>
+      <stop offset="1" stop-color="#d1fae5"/>
+    </linearGradient>
+    <linearGradient id="frame-shadow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.08"/>
     </linearGradient>
   </defs>
-  <rect width="1024" height="1024" rx="160" fill="url(#bg)"/>
-  <rect x="160" y="288" width="448" height="448" rx="100" fill="#6ee7b7"/>
-  <rect x="288" y="288" width="448" height="448" rx="100" fill="#10b981"/>
-  <rect x="416" y="288" width="448" height="448" rx="100" fill="#047857"/>
+
+  <!-- Big Sur squircle base. macOS uses this shape as the canvas;
+       Windows / Linux launchers see the rounded shape inside their
+       own slot, which is harmless (Win11 rounds taskbar icons; most
+       Linux DEs render PNGs as-is). -->
+  <rect width="1024" height="1024" rx="230" fill="url(#bg)"/>
+
+  <!-- Brand mark: three stacked motion frames, each offset to suggest
+       a kinetic pose-to-pose. Inscribed inside the 800×800 safe area
+       (left=112, right=912). Frame size 480×480 with 72-px offset
+       between frames; rightmost frame ends at 824, well inside the
+       safe rectangle. This sizing matches the ~50% canvas-occupancy
+       that mature dock icons use (Slack, Discord, Chrome). -->
+  <g>
+    <rect x="200" y="272" width="480" height="480" rx="120" fill="#6ee7b7"/>
+    <rect x="200" y="272" width="480" height="480" rx="120" fill="url(#frame-shadow)"/>
+
+    <rect x="272" y="272" width="480" height="480" rx="120" fill="#10b981"/>
+    <rect x="272" y="272" width="480" height="480" rx="120" fill="url(#frame-shadow)"/>
+
+    <rect x="344" y="272" width="480" height="480" rx="120" fill="#047857"/>
+  </g>
 </svg>
