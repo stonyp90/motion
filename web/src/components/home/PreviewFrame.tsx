@@ -15,6 +15,7 @@ import {
 import type { LottieJson } from '@/lib/lottie/transform';
 import { durationSeconds } from '@/lib/lottie/transform';
 import { PreviewFullscreen } from './PreviewFullscreen';
+import { BrandMotionShowcase } from './BrandMotionShowcase';
 
 const Lottie = dynamic(() => import('lottie-react').then((m) => m.default), {
   ssr: false,
@@ -153,13 +154,14 @@ export function PreviewFrame({
               </button>
             </>
           ) : (
-            // Alive empty state — Midjourney/Runway pattern. A real
-            // sample Lottie plays in the background so users see
-            // "what does the product produce?" without having to
-            // submit a prompt first. Text overlay sits on a soft
-            // gradient scrim so it reads regardless of what the
-            // sample is currently drawing under it.
-            <DemoSamplePlayer />
+            // Alive empty state — Midjourney/Runway pattern. Replaced
+            // the lottie-web sample player (it silently dropped our
+            // shape groups → blank square on most visitors) with a
+            // native CSS + Framer Motion showcase that demonstrates
+            // the same motion-design grammar the product produces:
+            // staggered shape entrances, kinetic typography, scene
+            // crossfades, all theme-aware via design tokens.
+            <BrandMotionShowcase />
           )}
         </div>
 
