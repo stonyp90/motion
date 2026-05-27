@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   Apple,
   ArrowRight,
@@ -12,15 +13,23 @@ import {
   Shield,
 } from 'lucide-react';
 import { ASSETS, VERSION, type DownloadAsset, type DownloadOs } from '@/lib/download-manifest';
+import { useAuthStore } from '@/stores/auth-store';
 
 /**
  * Download landing for the ControlCraft desktop app.
  *
  * Repo is private — we don't link to GitHub Releases. Every install
- * button hits `/api/download/<os>` which 302-redirects to the actual
- * installer URL hosted on our private storage origin. The URL is a
- * server-only env (`ControlCraft_DOWNLOAD_BASE`) so it's never in the HTML;
- * a 503 + "build pending" comes back when the CI hasn't uploaded yet.
+ * button hits `/api/download/<os>` which, for an authenticated browser
+ * caller, returns `{ url }` JSON pointing at the actual installer
+ * hosted on our private storage origin. The URL never appears in the
+ * page HTML; the server resolves it from `ControlCraft_DOWNLOAD_BASE`
+ * (a server-only env) on every request and a 503 + "build pending"
+ * comes back when the CI hasn't uploaded yet.
+ *
+ * Auth: the API route requires `Authorization: Bearer <jwt>` from the
+ * Keycloak realm — see `web/src/app/api/download/[os]/route.ts`. This
+ * component pulls the access token out of the zustand auth store and
+ * attaches it before the fetch. A 401 bounces the user to `/login`.
  *
  * UX pattern: Linear's per-OS card grid + Cursor's OS-detected
  * primary CTA. The detected card gets the green emphasis; the others
@@ -30,38 +39,77 @@ import { ASSETS, VERSION, type DownloadAsset, type DownloadOs } from '@/lib/down
 export function DownloadHero() {
   const [pendingOs, setPendingOs] = useState<DownloadOs | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const router = useRouter();
 
   const detectedOs = useMemo(() => detectOs(), []);
   const primary = ASSETS.find((a) => a.os === detectedOs) ?? ASSETS[0];
 
   /**
-   * Click handler — instead of a plain `<a download>`, we GET the API
-   * route ourselves so we can show a "build pending" toast inline
-   * when the release CI hasn't uploaded the asset for this version.
-   * On success the API returns 302; the browser follows it natively.
+   * Click handler — instead of a plain `<a download>` we GET the API
+   * route ourselves with the user's bearer token in the
+   * `Authorization` header. The server gate (see
+   * `web/src/app/api/download/[os]/route.ts`) demands a valid Keycloak
+   * JWT before handing back the upstream installer URL.
+   *
+   * Flow:
+   *   1. Pull the access token from the zustand auth store. No token
+   *      → bounce to `/login?next=/download` immediately.
+   *   2. Fetch the API route with `Accept: application/json` so the
+   *      server returns the upstream URL in the body instead of a 302.
+   *      We can't follow a same-origin 302 manually from `fetch` —
+   *      `redirect: 'manual'` produces an `opaqueredirect` whose
+   *      `Location` header is unreadable per the spec.
+   *   3. 200 → navigate the window to the `url` in the body. The
+   *      browser handles the actual binary download on that GET.
+   *   4. 401 → token expired/invalid (the auth-store refresh timer
+   *      missed). Bounce to `/login?next=/download`.
+   *   5. 503 → release CI hasn't uploaded the asset yet — show the
+   *      inline "build pending" toast.
    */
   const startDownload = async (asset: DownloadAsset) => {
+    const token = useAuthStore.getState().accessToken;
+    if (!token) {
+      router.replace((`/login?next=${encodeURIComponent('/download')}`) as never);
+      return;
+    }
+
     setPendingOs(asset.os);
     setErrorMsg(null);
     try {
       const res = await fetch(`/api/download/${asset.os}`, {
         method: 'GET',
-        redirect: 'manual',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
+        },
         cache: 'no-store',
       });
-      // 302 lands as `opaqueredirect` when `redirect: 'manual'`. Treat
-      // it as success and let the browser follow it natively.
-      if (res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400)) {
-        window.location.href = `/api/download/${asset.os}`;
+
+      if (res.status === 401) {
+        // Token expired or refused — kick the user through /login
+        // with a return URL so they land back here.
+        router.replace((`/login?next=${encodeURIComponent('/download')}`) as never);
         return;
       }
+
+      if (res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { url?: string };
+        if (body.url) {
+          window.location.href = body.url;
+          return;
+        }
+        setErrorMsg('Download failed (no upstream URL returned).');
+        return;
+      }
+
       if (res.status === 503) {
-        const body = await res.json().catch(() => ({}));
+        const body = (await res.json().catch(() => ({}))) as { detail?: string };
         setErrorMsg(
           body?.detail ?? 'Build pending — check back once the release CI finishes.',
         );
         return;
       }
+
       setErrorMsg(`Download failed (HTTP ${res.status}).`);
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : 'network error');
