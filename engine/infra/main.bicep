@@ -716,6 +716,25 @@ resource apiApp 'Microsoft.App/containerApps@2025-01-01' = {
   dependsOn: [ acrPullRoleAssignment, storageBlobDataContributor ]
 }
 
+// ---- managed cert for www.controlcraft.io (auto-issued by ACA) -------
+//
+// ACA's managed certificates use Let's Encrypt under the hood. Renewal
+// is automatic + lifecycle-managed (90-day cert, renewed ~30 days
+// before expiry). First provision requires DNS to already point at the
+// app's ingress FQDN — once that's true, `domainControlValidation:
+// CNAME` lets ACA verify ownership without a separate TXT record.
+
+resource webManagedCert 'Microsoft.App/managedEnvironments/managedCertificates@2025-01-01' = {
+  parent: acaEnv
+  name: 'mc-www-controlcraft-io'
+  location: location
+  tags: tags
+  properties: {
+    subjectName: 'www.controlcraft.io'
+    domainControlValidation: 'CNAME'
+  }
+}
+
 // ---- controlcraft-web: Next.js standalone server, public ingress ----
 //
 // Same Consumption workload profile as the API. The image is built by
@@ -742,6 +761,19 @@ resource webApp 'Microsoft.App/containerApps@2025-01-01' = {
         transport: 'auto'
         allowInsecure: false
         traffic: [ { latestRevision: true, weight: 100 } ]
+        // Custom-domain binding survives every Bicep apply. Without
+        // this declared in Bicep, each redeploy strips the binding +
+        // requires a manual `az containerapp hostname add` + `bind`.
+        // The managedCertificate resource below auto-renews the Let's
+        // Encrypt cert; first deploy needs DNS already in place
+        // (CNAME www → ACA FQDN + TXT asuid.www → env verificationId).
+        customDomains: [
+          {
+            name: 'www.controlcraft.io'
+            bindingType: 'SniEnabled'
+            certificateId: webManagedCert.id
+          }
+        ]
       }
       registries: [
         { server: acr.properties.loginServer, identity: managedIdentity.id }
