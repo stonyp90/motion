@@ -31,14 +31,18 @@ use axum::{
     routing::{get, post},
 };
 use motion_forge_figma::ImportKind;
+use motion_forge_image_gen::backend_from_env as image_backend_from_env;
+use motion_forge_lottie_gen::{LottieGenerator, SerdeLottieGenerator};
 use motion_forge_pipeline::{Composition, GenerateConfig, IterateConfig, Pipeline};
 use motion_forge_prompt_orchestrator::{
+    CharacterRef,
     brief::{Brief, parse_brief},
-    llm,
+    brief_to_timeline_with_assets, llm,
     presets::{self, Preset, PresetSummary},
     script_synth::synthesize_script,
 };
 use motion_forge_render::OutputFormat;
+use motion_forge_style_extract::StyleCard;
 use motion_forge_style_extract::Theme;
 use motion_forge_web_export::{WebExportFormat, export as web_export};
 use serde::{Deserialize, Serialize};
@@ -125,6 +129,7 @@ pub async fn serve(bind: &str) -> Result<()> {
         .route("/v1/presets/:id", get(get_preset))
         .route("/v1/brief/parse", post(brief_parse))
         .route("/v1/brief/synth", post(brief_synth))
+        .route("/v1/brief/generate", post(brief_generate))
         .route("/v1/web-export/:format", post(web_export_handler))
         .route("/v1/export/:format", post(binary_export_handler))
         .route("/v1/uploads", post(upload_handler))
@@ -1081,6 +1086,114 @@ async fn brief_synth(Json(req): Json<BriefSynthRequest>) -> Result<Json<Brief>, 
         .await
         .map_err(ApiError::internal)?;
     Ok(Json(brief))
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BriefGenerateRequest {
+    /// Free-form client brief — same shape as `/v1/brief/synth`.
+    pub brief: String,
+    pub duration: f32,
+    pub scene_count: u32,
+    /// Optional path the rendered Lottie JSON should land at. When
+    /// omitted, the server writes it to `$TMPDIR/mf-gen-<id>.lottie.json`
+    /// and returns the path in the response.
+    #[serde(default)]
+    pub out_lottie: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BriefGenerateResponse {
+    /// Where the rendered Lottie JSON landed on disk.
+    pub output_lottie: String,
+    /// Number of shots in the final timeline.
+    pub shots: u32,
+    /// Total rendered duration in seconds.
+    pub duration_seconds: f32,
+    /// Per-scene illustrations actually generated (≤ shots).
+    pub assets_generated: u32,
+    /// Per-scene illustrations that failed (image-gen 5xx / quota).
+    /// Affected scenes degrade to text-only rather than failing the
+    /// whole call.
+    pub assets_failed: u32,
+    /// Total scene-asset cost in USD micros (e.g. 240_000 → $0.24).
+    /// Zero when no image backend is configured.
+    pub asset_cost_micros: u64,
+    /// Image-gen provider that produced the assets, or `"none"`.
+    pub asset_provider: String,
+}
+
+/// POST /v1/brief/generate — drive the full generative pipeline:
+/// brief text → LLM scene-decomposer → per-scene Lottie shots → per-scene
+/// Recraft v3 illustrations → rendered Lottie JSON with the SVGs baked
+/// in as background image layers.
+///
+/// Requires `RECRAFT_API_KEY` (or `MOTION_FORGE_IMAGE_BACKEND`) for the
+/// generative path. Without it, the call still succeeds — the timeline
+/// just renders text-only (no illustrations) — so the client gets a
+/// useful preview either way.
+async fn brief_generate(
+    Json(req): Json<BriefGenerateRequest>,
+) -> Result<Json<BriefGenerateResponse>, ApiError> {
+    // 1. Free-form brief → structured Brief with per-scene illustration_prompt.
+    let backend = llm::auto_local_first("{\"scenes\":[]}").await;
+    let brief = synthesize_script(&*backend, &req.brief, req.duration, req.scene_count)
+        .await
+        .map_err(ApiError::internal)?;
+
+    // 2. Brief → timeline + scene assets (when image backend is available).
+    let style = StyleCard {
+        palette: vec![],
+        easing_presets: vec![],
+        shot_rhythm: motion_forge_style_extract::ShotRhythm {
+            shot_count: 0,
+            mean_seconds: 0.0,
+            stddev_seconds: 0.0,
+        },
+        transitions: vec![],
+        dominant_classes: vec![],
+    };
+    let cast: Vec<CharacterRef> = Vec::new();
+
+    let (timeline, bundle) = match image_backend_from_env() {
+        Ok(image_gen) => brief_to_timeline_with_assets(brief, cast, style, image_gen.as_ref())
+            .await
+            .map_err(ApiError::internal)?,
+        Err(e) => {
+            // No image backend → still build the text-only timeline so the
+            // client sees something. Caller learns "no provider" via the
+            // response.
+            tracing::warn!(error = %e, "no image backend configured; rendering text-only timeline");
+            let t = motion_forge_prompt_orchestrator::brief_to_timeline(brief, cast, style)
+                .await
+                .map_err(ApiError::internal)?;
+            (
+                t,
+                motion_forge_prompt_orchestrator::scene_assets::SceneAssetsBundle {
+                    provider: "none".into(),
+                    ..Default::default()
+                },
+            )
+        }
+    };
+
+    // 3. Write the Lottie JSON.
+    let out_path = match req.out_lottie.as_deref() {
+        Some(p) => validate_path(p, "out_lottie")?,
+        None => std::env::temp_dir().join(format!("mf-gen-{}.lottie.json", short_id())),
+    };
+    SerdeLottieGenerator::new()
+        .write(&timeline, &out_path)
+        .map_err(ApiError::internal)?;
+
+    Ok(Json(BriefGenerateResponse {
+        output_lottie: out_path.display().to_string(),
+        shots: timeline.shots.len() as u32,
+        duration_seconds: timeline.duration_seconds,
+        assets_generated: bundle.assets.len() as u32,
+        assets_failed: bundle.errors.len() as u32,
+        asset_cost_micros: bundle.total_cost_micros,
+        asset_provider: bundle.provider,
+    }))
 }
 
 // ---- types ----

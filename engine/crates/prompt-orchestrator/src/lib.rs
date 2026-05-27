@@ -811,6 +811,61 @@ pub async fn brief_to_timeline(
     })
 }
 
+/// One-call entrypoint for the generative pipeline: drive the LLM
+/// scene decomposition + per-scene Lottie generation + per-scene
+/// Recraft SVG illustration in a single sweep.
+///
+/// 1. [`brief_to_timeline`] composes the per-scene Lottie shots.
+/// 2. [`scene_assets::generate_scene_assets`] fans out one
+///    image-gen call per scene (concurrency 4).
+/// 3. [`scene_assets::attach_to_timeline`] bakes each generated
+///    image into the timeline as a background image layer +
+///    embedded `assets[]` entry.
+///
+/// Returns the timeline plus the asset bundle so the caller can
+/// log per-brief cost in micros and any per-scene failures. When
+/// the bundle has no successful assets (image-gen offline, every
+/// scene 5xx'd, brief had zero usable prompts), the timeline still
+/// renders cleanly via the existing text-only path.
+pub async fn brief_to_timeline_with_assets(
+    brief: brief::Brief,
+    cast: Vec<CharacterRef>,
+    style: StyleCard,
+    image_gen: &dyn motion_forge_image_gen::ImageGen,
+) -> Result<(LottieTimeline, scene_assets::SceneAssetsBundle)> {
+    // Reference the brief BEFORE handing ownership to brief_to_timeline
+    // (which consumes it) by cloning the scenes list shape. Cheaper than
+    // a full deep-clone since SceneScript is small.
+    let brief_for_assets = brief.clone();
+    let mut timeline = brief_to_timeline(brief, cast, style).await?;
+
+    let bundle = scene_assets::generate_scene_assets(
+        &brief_for_assets,
+        image_gen,
+        timeline.composition_width,
+        timeline.composition_height,
+    )
+    .await;
+
+    if bundle.has_any() {
+        let attached = scene_assets::attach_to_timeline(&mut timeline, &bundle);
+        tracing::info!(
+            shots_with_bg = attached,
+            assets = bundle.assets.len(),
+            cost_micros = bundle.total_cost_micros,
+            provider = %bundle.provider,
+            "generative timeline ready"
+        );
+    } else {
+        tracing::info!(
+            errors = bundle.errors.len(),
+            "no scene assets generated; rendering text-only timeline"
+        );
+    }
+
+    Ok((timeline, bundle))
+}
+
 fn build_scene_prompt(
     scene: &brief::SceneScript,
     brief_ctx: &brief::Brief,

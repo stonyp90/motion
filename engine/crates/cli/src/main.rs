@@ -200,6 +200,32 @@ enum Command {
         style: String,
     },
 
+    /// Run the full generative pipeline end-to-end: free-form brief →
+    /// LLM scene-decomposer → per-scene Recraft v3 illustrations →
+    /// rendered Lottie JSON with the SVGs baked in as background image
+    /// layers. Without RECRAFT_API_KEY set the pipeline still completes
+    /// — the timeline just renders text-only.
+    ///
+    /// Example:
+    ///   RECRAFT_API_KEY=… cargo run -p motion-forge-cli -- \\
+    ///     brief-generate "Explain Chrono SR&ED to first-time founders. \\
+    ///     60 seconds. Friendly, confident tone." \\
+    ///     --duration 60 --scene-count 8 --out /tmp/chrono.lottie.json
+    BriefGenerate {
+        /// Free-form client brief.
+        brief: String,
+        /// Target total runtime in seconds.
+        #[arg(long, default_value_t = 30.0)]
+        duration: f32,
+        /// Target scene count (the LLM may emit a few more or fewer).
+        #[arg(long, default_value_t = 8)]
+        scene_count: u32,
+        /// Where to write the rendered Lottie JSON. Default:
+        /// `$TMPDIR/mf-gen-<id>.lottie.json` (path printed on stdout).
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+
     /// Browse the starter preset library.
     #[command(subcommand)]
     Presets(PresetsCommand),
@@ -391,6 +417,12 @@ async fn main() -> Result<()> {
             height,
             style,
         } => cmd_image_gen(prompt, width, height, style).await,
+        Command::BriefGenerate {
+            brief,
+            duration,
+            scene_count,
+            out,
+        } => cmd_brief_generate(brief, duration, scene_count, out).await,
         Command::Presets(PresetsCommand::List) => cmd_presets_list(),
         Command::Presets(PresetsCommand::Show { id, with_preview }) => {
             cmd_presets_show(&id, with_preview)
@@ -937,4 +969,94 @@ async fn cmd_image_gen(prompt: String, width: u32, height: u32, style: String) -
         (img.cost_micros as f64) / 1_000_000.0
     );
     Ok(())
+}
+
+/// `motion-forge brief-generate "<brief>" --duration 60 --scene-count 8`
+///
+/// End-to-end generative pipeline: brief text → LLM scene-decomposer →
+/// per-scene Recraft illustrations → baked Lottie. Writes the Lottie
+/// JSON to disk; prints the result envelope (path + cost + counts) to
+/// stdout as JSON.
+async fn cmd_brief_generate(
+    brief: String,
+    duration: f32,
+    scene_count: u32,
+    out: Option<PathBuf>,
+) -> Result<()> {
+    use motion_forge_image_gen::backend_from_env as image_backend_from_env;
+    use motion_forge_lottie_gen::{LottieGenerator, SerdeLottieGenerator};
+    use motion_forge_prompt_orchestrator::{
+        brief_to_timeline, brief_to_timeline_with_assets, llm, scene_assets::SceneAssetsBundle,
+        script_synth::synthesize_script,
+    };
+    use motion_forge_style_extract::{ShotRhythm, StyleCard};
+
+    // 1. Brief text → structured Brief.
+    let backend = llm::auto_local_first("{\"scenes\":[]}").await;
+    let parsed = synthesize_script(&*backend, &brief, duration, scene_count).await?;
+    eprintln!("scenes: {} from {:?}", parsed.scenes.len(), parsed.language);
+
+    // 2. Brief → timeline (+ optional scene assets).
+    let style = StyleCard {
+        palette: vec![],
+        easing_presets: vec![],
+        shot_rhythm: ShotRhythm {
+            shot_count: 0,
+            mean_seconds: 0.0,
+            stddev_seconds: 0.0,
+        },
+        transitions: vec![],
+        dominant_classes: vec![],
+    };
+    let cast = Vec::new();
+
+    let (timeline, bundle) = match image_backend_from_env() {
+        Ok(image_gen) => {
+            eprintln!("image backend: {}", image_gen.name());
+            brief_to_timeline_with_assets(parsed, cast, style, image_gen.as_ref()).await?
+        }
+        Err(e) => {
+            eprintln!("no image backend ({e}); rendering text-only timeline");
+            let t = brief_to_timeline(parsed, cast, style).await?;
+            (
+                t,
+                SceneAssetsBundle {
+                    provider: "none".into(),
+                    ..Default::default()
+                },
+            )
+        }
+    };
+
+    // 3. Write the Lottie JSON.
+    let out_path = out.unwrap_or_else(|| {
+        std::env::temp_dir().join(format!("mf-gen-{}.lottie.json", short_id_local()))
+    });
+    SerdeLottieGenerator::new().write(&timeline, &out_path)?;
+
+    // 4. Print result envelope (machine-readable on stdout).
+    let envelope = serde_json::json!({
+        "output_lottie": out_path.display().to_string(),
+        "shots": timeline.shots.len(),
+        "duration_seconds": timeline.duration_seconds,
+        "assets_generated": bundle.assets.len(),
+        "assets_failed": bundle.errors.len(),
+        "asset_cost_micros": bundle.total_cost_micros,
+        "asset_cost_usd": (bundle.total_cost_micros as f64) / 1_000_000.0,
+        "asset_provider": bundle.provider,
+    });
+    println!("{}", serde_json::to_string_pretty(&envelope)?);
+    Ok(())
+}
+
+/// Tiny non-cryptographic id generator for local out-paths. The CLI
+/// avoids pulling rand just for this; using nanoseconds keeps the id
+/// monotonic + collision-free within a single tokio runtime.
+fn short_id_local() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("{nanos:x}")
 }
