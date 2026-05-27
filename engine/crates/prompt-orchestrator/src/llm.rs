@@ -80,6 +80,27 @@ impl<B: LlmBackend + ?Sized> LlmBackendExt for B {
     async fn complete_into<T: DeserializeOwned + Send>(&self, req: &LlmRequest) -> Result<T> {
         let raw = self.complete_json(req).await?;
         let cleaned = strip_code_fence(&raw);
+
+        // Strict parse first — handles the well-behaved-model case.
+        if let Ok(v) = serde_json::from_str::<T>(&cleaned) {
+            return Ok(v);
+        }
+
+        // Tolerant retry: small local models (llava, qwen2.5-7b) sometimes
+        // echo the JSON Schema definition we sent them — wrapping arrays
+        // inside `{"items": [...], "type": "array"}` and primitives inside
+        // `{"type": "string", "enum": [...]}`. We coerce that into the
+        // data-only shape and try again before giving up.
+        if let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&cleaned) {
+            coerce_schema_echo(&mut value);
+            if let Ok(v) = serde_json::from_value::<T>(value.clone()) {
+                tracing::warn!("LLM returned schema-wrapped output; recovered via tolerant parse");
+                return Ok(v);
+            }
+        }
+
+        // Both attempts failed — emit the original error with the raw
+        // payload for debugging.
         serde_json::from_str(&cleaned).with_context(|| format!("parsing LLM JSON: {cleaned}"))
     }
 }
@@ -94,6 +115,61 @@ fn strip_code_fence(s: &str) -> String {
         return stripped.trim_end_matches("```").trim().to_string();
     }
     t.to_string()
+}
+
+/// Recursively unwrap JSON-Schema-shaped envelopes that small local
+/// models occasionally emit instead of pure data. Two patterns we
+/// see in the wild:
+///
+///   - Object with `items: [...]` (+ sometimes `type: "array"`,
+///     `minItems`, `maxItems`) → unwrapped to the array itself.
+///   - Top-level `{"properties": {...}, "required": [...], "type": "object"}`
+///     where the *real* fields live under `properties` → lifted up so
+///     `properties.scenes` becomes top-level `scenes`.
+///
+/// Idempotent. Cheap (O(node count)). Doesn't touch shapes that
+/// already look like data, so it's safe to run unconditionally on
+/// every fallback path.
+pub(crate) fn coerce_schema_echo(value: &mut serde_json::Value) {
+    use serde_json::Value;
+
+    // 1. Lift `{"properties": {...}, "required": [...], "type": "object"}`
+    //    to its inner properties map. Done before the items unwrap so the
+    //    inner properties get a chance to be coerced too.
+    if let Value::Object(map) = value {
+        let looks_like_schema_object = map.contains_key("properties")
+            && map.get("type").and_then(|t| t.as_str()) == Some("object");
+        if looks_like_schema_object {
+            if let Some(Value::Object(props)) = map.remove("properties") {
+                *value = Value::Object(props);
+            }
+        }
+    }
+
+    // 2. Unwrap `{"items": [...], ...}` → the array.
+    if let Value::Object(map) = value {
+        if let Some(items) = map.get("items") {
+            if items.is_array() {
+                let arr = map.remove("items").unwrap();
+                *value = arr;
+            }
+        }
+    }
+
+    // 3. Recurse into whatever shape we now have.
+    match value {
+        Value::Object(map) => {
+            for v in map.values_mut() {
+                coerce_schema_echo(v);
+            }
+        }
+        Value::Array(arr) => {
+            for v in arr.iter_mut() {
+                coerce_schema_echo(v);
+            }
+        }
+        _ => {}
+    }
 }
 
 // -------------------------- Ollama ------------------------------
@@ -678,5 +754,96 @@ mod tests {
         assert_eq!(strip_code_fence("```json\n{}\n```"), "{}");
         assert_eq!(strip_code_fence("```\n{}\n```"), "{}");
         assert_eq!(strip_code_fence("{\"a\":1}"), "{\"a\":1}");
+    }
+
+    #[test]
+    fn coerce_unwraps_items_array_envelope() {
+        // The exact wire shape llava emitted in the wild — schema's
+        // `{items: [...]}` instead of data's `[...]`.
+        let raw = r#"{"scenes": {"items": [{"id":"1.0"},{"id":"2.0"}]}}"#;
+        let mut v: serde_json::Value = serde_json::from_str(raw).unwrap();
+        coerce_schema_echo(&mut v);
+        assert!(v["scenes"].is_array(), "scenes should be unwrapped: {v}");
+        assert_eq!(v["scenes"][0]["id"].as_str(), Some("1.0"));
+        assert_eq!(v["scenes"][1]["id"].as_str(), Some("2.0"));
+    }
+
+    #[test]
+    fn coerce_lifts_top_level_schema_envelope() {
+        // The full schema-echo: top-level "type":"object" + "properties"
+        // wrapping where the real data lives.
+        let raw = r#"{
+            "type": "object",
+            "required": ["scenes"],
+            "properties": {
+                "language": {"type": "string", "enum": ["english"]},
+                "scenes": {
+                    "type": "array",
+                    "items": [{"id":"1.0","visual":"x"}]
+                }
+            }
+        }"#;
+        let mut v: serde_json::Value = serde_json::from_str(raw).unwrap();
+        coerce_schema_echo(&mut v);
+        // Top-level should now have `language` + `scenes` (lifted out
+        // of properties); `scenes` should be an array (items unwrapped).
+        assert!(v.is_object());
+        assert!(v["scenes"].is_array());
+        assert_eq!(v["scenes"][0]["id"].as_str(), Some("1.0"));
+        // `language` is still a schema fragment — that's OK for our
+        // callers because `language` is `#[serde(default)]` and
+        // serde_json's deserializer will reject the fragment shape,
+        // returning None via the default. The important fix is that
+        // `scenes` parses.
+    }
+
+    #[test]
+    fn coerce_is_idempotent_on_already_clean_data() {
+        let raw = r#"{"scenes": [{"id":"1.0"}]}"#;
+        let mut v: serde_json::Value = serde_json::from_str(raw).unwrap();
+        let before = v.clone();
+        coerce_schema_echo(&mut v);
+        assert_eq!(v, before, "clean data must round-trip unchanged");
+    }
+
+    #[test]
+    fn coerce_recovers_synth_brief_shape() {
+        // End-to-end: the exact echo llava produced + the SynthBrief
+        // expected shape. After coercion, deserialization should
+        // succeed.
+        #[derive(serde::Deserialize)]
+        struct Scene {
+            id: Option<String>,
+            #[serde(default)]
+            visual: Option<String>,
+        }
+        #[derive(serde::Deserialize)]
+        struct SynthBrief {
+            scenes: Vec<Scene>,
+        }
+
+        let raw = r#"{
+            "properties": {
+                "language": {"type": "string", "enum": ["english","french","unknown"]},
+                "scenes": {"items": [
+                    {"id":"1.0","visual":"three accountants huddled"},
+                    {"id":"2.0","visual":"calendar pages fly"}
+                ]}
+            },
+            "required": ["scenes"],
+            "type": "object"
+        }"#;
+        let mut v: serde_json::Value = serde_json::from_str(raw).unwrap();
+        coerce_schema_echo(&mut v);
+        let brief: SynthBrief = serde_json::from_value(v).unwrap();
+        assert_eq!(brief.scenes.len(), 2);
+        assert_eq!(brief.scenes[0].id.as_deref(), Some("1.0"));
+        assert!(
+            brief.scenes[1]
+                .visual
+                .as_deref()
+                .unwrap()
+                .contains("calendar")
+        );
     }
 }

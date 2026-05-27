@@ -16,7 +16,7 @@
  * Visually a tight segmented pill, matching the .chip register already in
  * use across the home (rounded-full, border-border-light, bg-bg-secondary).
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Moon, Sun } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
 
@@ -36,6 +36,16 @@ const OPTIONS: ReadonlyArray<Option> = [
 export function ThemeToggle({ className = '' }: { className?: string }) {
   const { choice, resolved, setChoice } = useTheme();
   const groupRef = useRef<HTMLDivElement>(null);
+
+  // Defer `selected` styling until after the client hydrates. The
+  // server can't know whether the visitor's localStorage / OS pref
+  // resolves to light or dark, so an SSR-rendered selection state
+  // would always mismatch ~half of visits and produce React's
+  // "tree hydrated but some attributes don't match" warning. We
+  // render both buttons as un-selected on the server, then flip to
+  // the real state on mount.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   // Roving-focus keyboard nav: ArrowLeft / ArrowRight cycle focus through
   // the visible buttons. Enter / Space (native button behavior) activates.
@@ -65,10 +75,12 @@ export function ThemeToggle({ className = '' }: { className?: string }) {
       className={`inline-flex items-center gap-0.5 rounded-full border border-border-light bg-bg-secondary p-0.5 ${className}`}
     >
       {OPTIONS.map(({ value, label, Icon }) => {
-        // If the stored choice is 'system' (legacy), fall back to the
-        // resolved theme so exactly one button stays visually selected.
+        // Pre-hydration: nothing selected (avoids SSR/CSR mismatch).
+        // Post-hydration: stored choice OR legacy 'system' fallback
+        // resolves to whichever button matches the current theme.
         const selected =
-          choice === value || (choice === 'system' && resolved === value);
+          mounted &&
+          (choice === value || (choice === 'system' && resolved === value));
         return (
           <button
             key={value}

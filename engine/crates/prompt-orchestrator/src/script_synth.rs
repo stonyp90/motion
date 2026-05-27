@@ -54,7 +54,24 @@ pub async fn synthesize_script(
     let req = LlmRequest::new(system, user)
         .with_schema(schema)
         .with_temperature(0.6);
-    let raw: SynthBrief = LlmBackendExt::complete_into(llm, &req).await?;
+
+    // Small local models (llava, qwen2.5-7b) occasionally echo the
+    // schema definition itself instead of satisfying it. When that
+    // happens the tolerant parser in `llm.rs` recovers; when even
+    // THAT can't recover, we synthesize a deterministic fallback
+    // brief from the user's text so generation never hard-fails.
+    // The product's contract is "always produce a Lottie" — going
+    // 500 on a model quirk would break that.
+    let raw: SynthBrief = match LlmBackendExt::complete_into(llm, &req).await {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                "LLM script synthesis failed; falling back to a deterministic single-scene brief"
+            );
+            return Ok(fallback_brief(brief, d));
+        }
+    };
 
     let mut scenes: Vec<SceneScript> = raw
         .scenes
@@ -71,6 +88,15 @@ pub async fn synthesize_script(
             sub_beats: Vec::new(),
         })
         .collect();
+
+    // Empty scenes list from the LLM is just as bad as a parse
+    // failure — recover the same way.
+    if scenes.is_empty() {
+        tracing::warn!(
+            "LLM returned zero scenes; falling back to deterministic single-scene brief"
+        );
+        return Ok(fallback_brief(brief, d));
+    }
 
     // Post-process pass 1: enforce a consistent illustration style
     // across every scene by lifting the style modifiers from scene 1
@@ -217,6 +243,70 @@ pub fn pace_scenes(scenes: &[SceneScript], target_total_sec: f32) -> Vec<f32> {
 /// music bed — beats land on the half-second grid.
 fn snap_to_beat(sec: f32) -> f32 {
     (sec * 2.0).round() / 2.0
+}
+
+/// Deterministic single-scene brief used when LLM synthesis fails
+/// (small local model, schema-echo bug, network glitch). Splits the
+/// raw brief text into 3 beats by sentence so the timeline isn't a
+/// single flat plate — the user still gets a real motion graphic,
+/// just one generated from their text directly instead of through
+/// an art-direction LLM pass.
+///
+/// Detects French via accented characters so Quebec briefs get a
+/// French language tag (drives the TTS / kinetic-typo CTA).
+pub fn fallback_brief(raw: &str, duration_sec: f32) -> Brief {
+    let cleaned = raw.trim();
+    let language = if cleaned.chars().any(|c| {
+        matches!(
+            c,
+            'à' | 'â' | 'é' | 'è' | 'ê' | 'ë' | 'î' | 'ï' | 'ô' | 'ù' | 'û' | 'ç'
+        )
+    }) {
+        Lang::French
+    } else {
+        Lang::English
+    };
+
+    // Pull up to 3 sentences from the brief; pad with a CTA if short.
+    let sentences: Vec<String> = cleaned
+        .split(['.', '!', '?', '\n'])
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .take(3)
+        .collect();
+    let hooks = if sentences.is_empty() {
+        vec![cleaned.to_string()]
+    } else {
+        sentences
+    };
+
+    let style_anchor =
+        "flat vector illustration, deep navy + emerald accent, soft drop shadows, no text";
+    let scenes: Vec<SceneScript> = hooks
+        .iter()
+        .enumerate()
+        .map(|(i, body)| {
+            let id = format!("{}.0", i + 1);
+            // Truncate VO to keep TTS budget reasonable.
+            let vo_body: String = body.chars().take(180).collect();
+            SceneScript {
+                id,
+                vo: Some(vo_body.clone()),
+                visual: format!("text + supporting shapes for: {vo_body}"),
+                illustration_prompt: Some(format!(
+                    "isometric scene illustrating \"{}\", {style_anchor}",
+                    vo_body.chars().take(60).collect::<String>()
+                )),
+                sub_beats: Vec::new(),
+            }
+        })
+        .collect();
+
+    Brief {
+        scenes,
+        language,
+        total_duration_sec: Some(duration_sec.max(3.0)),
+    }
 }
 
 const SYSTEM_PROMPT: &str = "You are a B2B explainer-video scriptwriter AND an art director who has \

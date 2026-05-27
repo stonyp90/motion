@@ -108,17 +108,22 @@ pub trait ImageGen: Send + Sync {
 ///   MOTION_FORGE_IMAGE_BACKEND  — "recraft" | (future) "dalle" | "imagen"
 ///   RECRAFT_API_KEY             — required for Recraft
 pub fn backend_from_env() -> Result<Box<dyn ImageGen>, ImageGenError> {
-    let pick = std::env::var("MOTION_FORGE_IMAGE_BACKEND")
-        .ok()
-        .or_else(|| {
-            std::env::var("RECRAFT_API_KEY")
-                .ok()
-                .map(|_| "recraft".into())
-        });
+    // Empty env vars are treated as unset. Otherwise an unset-with-quotes
+    // (`RECRAFT_API_KEY=""`) trips into "key present" and produces a
+    // 400 from Recraft instead of cleanly falling back to text-only.
+    let env_nonempty = |k: &str| {
+        std::env::var(k)
+            .ok()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+    };
+
+    let pick = env_nonempty("MOTION_FORGE_IMAGE_BACKEND")
+        .or_else(|| env_nonempty("RECRAFT_API_KEY").map(|_| "recraft".into()));
     match pick.as_deref() {
         Some("recraft") => {
-            let key = std::env::var("RECRAFT_API_KEY")
-                .map_err(|_| ImageGenError::MissingConfig("RECRAFT_API_KEY not set".into()))?;
+            let key = env_nonempty("RECRAFT_API_KEY")
+                .ok_or_else(|| ImageGenError::MissingConfig("RECRAFT_API_KEY not set".into()))?;
             Ok(Box::new(RecraftBackend::new(key)))
         }
         Some(other) => Err(ImageGenError::MissingConfig(format!(
