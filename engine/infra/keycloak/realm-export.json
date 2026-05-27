@@ -5,7 +5,7 @@
   "displayNameHtml": "<strong>ControlCraft</strong>",
   "registrationAllowed": false,
   "rememberMe": true,
-  "verifyEmail": false,
+  "verifyEmail": true,
   "loginWithEmailAllowed": true,
   "duplicateEmailsAllowed": false,
   "resetPasswordAllowed": true,

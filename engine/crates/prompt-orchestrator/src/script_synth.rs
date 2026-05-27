@@ -51,9 +51,14 @@ pub async fn synthesize_script(
     );
 
     let schema = schema_for(n);
+    // Temperature 0.35 (was 0.6): scripting still needs creative
+    // latitude (concrete examples, customer-flavored language) but
+    // 0.6 was high enough to drift on JSON shape with smaller local
+    // models. 0.35 keeps voice variety while halving schema-echo
+    // failure rate on 7B-class Ollama backends (Jan 2026 .audit runs).
     let req = LlmRequest::new(system, user)
         .with_schema(schema)
-        .with_temperature(0.6);
+        .with_temperature(0.35);
 
     // Small local models (llava, qwen2.5-7b) occasionally echo the
     // schema definition itself instead of satisfying it. When that
@@ -341,8 +346,16 @@ NEVER\n\
 - Two scenes that say the same thing differently.\n\
 - Scenes that recap what was just shown.\n\
 - Text inside the illustration_prompt (no \"with the word 'fast' written on it\").\n\n\
-OUTPUT\n\
-Return ONLY a JSON object matching the schema. No prose, no markdown, no code fences.";
+OUTPUT (STRICT)\n\
+- Respond with ONE JSON object only — no prose, no markdown, no ```json fences, no \"Sure, here \
+is…\" preamble.\n\
+- The object must match the schema in the user message. Emit DATA matching the schema, NEVER the \
+schema definition itself (no `\"type\": \"object\"`, no `\"properties\"`, no `\"items\"` envelope).\n\
+- Your first character must be `{` and your last character must be `}`.\n\
+- Example shape (fill with brief-specific values; this is illustrative, not literal): {\"language\": \
+\"english\", \"scenes\": [{\"id\": \"1.0\", \"vo\": \"Your team spends days on SR&ED.\", \"visual\": \
+\"calendar pages flip fast across the frame\", \"illustration_prompt\": \"stack of calendar pages \
+mid-flight, flat vector illustration, deep navy + emerald accent, soft drop shadows, no text\"}]}";
 
 #[derive(Debug, Deserialize)]
 struct SynthBrief {

@@ -64,6 +64,14 @@ pub struct GenerateConfig {
     /// prompt before the LLM sees it. Heaviest documents truncated to
     /// keep the prompt under the model's context window.
     pub reference_documents: Vec<PathBuf>,
+    /// Optional sampler temperature override. `None` = engine default
+    /// (0.2). Surfaced through the HTTP API so the web's Quality/
+    /// Balanced/Fast preset can dial the tradeoff per-call without
+    /// duplicating the model picker plumbing.
+    pub temperature: Option<f32>,
+    /// Optional `max_tokens`/`num_predict` cap. `None` = engine default
+    /// (4096). Quality raises it; Fast lowers it.
+    pub max_tokens: Option<u32>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -79,6 +87,10 @@ pub struct IterateConfig {
     /// attached for this iteration.
     pub reference_images: Vec<PathBuf>,
     pub reference_documents: Vec<PathBuf>,
+    /// See `GenerateConfig::temperature`.
+    pub temperature: Option<f32>,
+    /// See `GenerateConfig::max_tokens`.
+    pub max_tokens: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -201,6 +213,8 @@ impl Pipeline {
                     .map(|t| t.system_prompt_addendum.clone()),
                 reference_images: config.reference_images.clone(),
                 reference_documents: config.reference_documents.clone(),
+                temperature: config.temperature,
+                max_tokens: config.max_tokens,
             },
         )
         .await?;
@@ -312,6 +326,8 @@ impl Pipeline {
                     .map(|t| t.system_prompt_addendum.clone()),
                 reference_images: config.reference_images.clone(),
                 reference_documents: config.reference_documents.clone(),
+                temperature: config.temperature,
+                max_tokens: config.max_tokens,
             },
         )
         .await?;
@@ -387,6 +403,11 @@ struct PromptParams {
     reference_images: Vec<PathBuf>,
     /// PDF / text doc paths to prepend to the prompt as context.
     reference_documents: Vec<PathBuf>,
+    /// Optional sampler-temperature override forwarded from the web's
+    /// Quality preset. `None` lets the orchestrator default win.
+    temperature: Option<f32>,
+    /// Optional `max_tokens`/`num_predict` cap from the same preset.
+    max_tokens: Option<u32>,
 }
 
 async fn orchestrate(
@@ -411,7 +432,9 @@ async fn orchestrate(
             p.composition.height,
             p.composition.frame_rate,
         )
-        .with_duration(p.duration_seconds);
+        .with_duration(p.duration_seconds)
+        .with_temperature(p.temperature)
+        .with_max_tokens(p.max_tokens);
     if let Some(addendum) = &p.theme_addendum {
         orch = orch.with_system_addendum(addendum);
     }

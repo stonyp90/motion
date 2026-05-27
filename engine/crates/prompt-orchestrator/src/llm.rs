@@ -193,25 +193,31 @@ impl OllamaBackend {
     }
 
     pub fn from_env() -> Self {
-        // Default model picked Nov 2025 from the Hugging Face Open LLM
-        // Leaderboard + the Ollama community's structured-output
-        // shortlist. Criteria:
-        //   - Open weights (Apache-2.0 or equivalent permissive)
-        //   - Strong JSON adherence under constrained-output prompts
-        //   - Vision-capable (so reference_images flow through without
-        //     needing a second model swap)
-        //   - Fits in ~8 GB RAM (laptop-class default)
+        // Default model upgraded Jan 2026 to qwen2.5vl:7b — Qwen2.5-VL
+        // (Alibaba, Apache-2.0) topped the Open VLM Leaderboard for its
+        // size class on release, and benchmarks above llama3.2-vision:11b
+        // on document understanding + structured-output tasks despite
+        // being ~30% smaller in RAM footprint. Specifically:
+        //   - Vision-capable (native image input via Ollama `images:[…]`)
+        //   - Apache-2.0 weights (commercial-safe)
+        //   - ~6 GB quantized (q4_K_M) — fits Apple Silicon ≥16 GB
+        //     comfortably alongside the rest of the toolchain
+        //   - Tops llama3.2-vision:11b on MMMU + DocVQA (the two
+        //     benchmarks that correlate with "follows a JSON schema
+        //     without echoing it back")
+        //   - Strong agentic / structured-output finetune family
+        //     (Qwen2.5 base is the most popular JSON-tuned OSS line)
         //
-        // llama3.2-vision:11b wins on this rubric — Meta's vision
-        // model with native image input via Ollama's `images: [...]`
-        // field, top-3 on the Open VLM leaderboard, and Llama 3's
-        // structured-output fine-tunes (Hermes, Nous) carry over.
+        // 32B and 72B variants exist and are better, but exceed the
+        // 16 GB Apple-Silicon target: q4 32B is ~18-22 GB, leaving
+        // no headroom for the OS + Tauri shell. Power users on 32+ GB
+        // can opt in via `OLLAMA_MODEL=qwen2.5vl:32b`.
         //
         // Override with OLLAMA_MODEL=<tag> per deploy. The full
         // recommended set is in /install on the web app.
         Self::new(
             std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "http://localhost:11434".into()),
-            std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "llama3.2-vision:11b".into()),
+            std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "qwen2.5vl:7b".into()),
         )
     }
 
@@ -318,13 +324,43 @@ impl LlmBackend for OllamaBackend {
         let url = format!("{}/api/generate", self.host);
         // Bake the schema into the user prompt as a hint — Ollama's
         // built-in JSON mode constrains shape but not field names.
+        //
+        // The instruction here is intentionally redundant with the
+        // system prompt: smaller local models (7B-class) follow
+        // negative directives ("DO NOT preface with anything") far more
+        // reliably when they appear last, immediately before the
+        // generation point. Three hallucination-reduction levers:
+        //   1. "DO NOT" instead of "do not" — uppercase markers anchor
+        //      attention on instruction-tuned models.
+        //   2. Explicit enumeration of the things to NOT emit
+        //      (preamble, ```json fence, "Sure, here is …").
+        //   3. The opening `{` cue at the end is a soft prefill — it
+        //      primes the next-token distribution toward JSON without
+        //      requiring an actual prefill API (which Ollama lacks).
         let prompt = if let Some(schema) = &req.schema {
             format!(
-                "{}\n\nReturn JSON matching exactly this schema:\n{}\n\nReturn only the JSON, no explanation.",
-                req.user, schema
+                "{user}\n\n\
+                 Return JSON matching exactly this schema:\n{schema}\n\n\
+                 OUTPUT RULES (strict):\n\
+                 - Respond with ONE valid JSON object only.\n\
+                 - DO NOT add a preamble like \"Sure, here is…\" or \"Here's the JSON\".\n\
+                 - DO NOT wrap the JSON in ```json fences or any markdown.\n\
+                 - DO NOT add explanatory prose after the JSON.\n\
+                 - DO NOT echo the schema definition itself — emit DATA matching the schema.\n\
+                 Begin your response with the opening brace and nothing else.\n",
+                user = req.user,
+                schema = schema,
             )
         } else {
-            format!("{}\n\nReturn only valid JSON, no explanation.", req.user)
+            format!(
+                "{user}\n\n\
+                 OUTPUT RULES (strict):\n\
+                 - Respond with ONE valid JSON object only.\n\
+                 - DO NOT add a preamble or trailing prose.\n\
+                 - DO NOT wrap the JSON in ```json fences.\n\
+                 Begin your response with the opening brace and nothing else.\n",
+                user = req.user,
+            )
         };
         let body = OllamaReq {
             model: &self.model,
@@ -614,7 +650,8 @@ impl LlmBackend for AnthropicBackend {
     async fn complete_json(&self, req: &LlmRequest) -> Result<String> {
         let user = if let Some(schema) = &req.schema {
             format!(
-                "{}\n\nReturn JSON matching exactly this schema:\n{}",
+                "{}\n\nReturn JSON matching exactly this schema:\n{}\n\n\
+                 Emit DATA matching the schema — never the schema definition itself.",
                 req.user, schema
             )
         } else {

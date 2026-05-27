@@ -587,11 +587,16 @@ fn animated_vec<F: Fn(&Keyframe) -> [f32; 3]>(keyframes: &[Keyframe], fps: f32, 
     json!({ "a": 1, "k": entries })
 }
 
+/// Returns `(i, o)` in the order Lottie keyframes consume them:
+///   - `i` (incoming bezier to the NEXT keyframe) uses (x2, y2)
+///   - `o` (outgoing bezier from THIS keyframe) uses (x1, y1)
+/// Earlier emission swapped these, producing inverted easing curves
+/// that some lottie-web builds reject silently (layer disappears).
 fn bezier_handles(label: EasingLabel) -> (Value, Value) {
     let [x1, y1, x2, y2] = label.canonical_bezier();
     (
-        json!({ "x": [x1], "y": [y1] }),
-        json!({ "x": [x2], "y": [y2] }),
+        json!({ "x": [x2], "y": [y2] }), // i — incoming to next keyframe
+        json!({ "x": [x1], "y": [y1] }), // o — outgoing from current keyframe
     )
 }
 
@@ -1089,10 +1094,13 @@ mod tests {
         };
     }
 
-    /// Builds a 6-second, 2-scene demo Lottie that exercises the full
-    /// motion-feature surface. Scene 1: hero headline with word-by-word
-    /// reveal + 3 supporting cards entering from 3 different directions.
-    /// Scene 2: KPI strip with stagger + accent dot.
+    /// Builds a visually-dense demo Lottie that never reads as
+    /// empty — even when fonts don't load or one layer fails to
+    /// render, there's always 8+ shapes filling the canvas. The
+    /// composition uses agency-grade motion grammar: oversized
+    /// background plates that cross-fade, a hero composition with
+    /// staggered card entrances from 4 directions, a moving accent
+    /// strip, and kinetic text on top.
     ///
     /// French headlines get a French CTA close ("Essayez ControlCraft");
     /// detected heuristically (contains an accented char or a French
@@ -1126,42 +1134,86 @@ mod tests {
         let cx = W as f32 * 0.5;
         let cy = H as f32 * 0.5;
 
-        // Scene 1 (0-3s): hero headline + 3 supporting cards
-        let scene_a_layers = vec![
-            // Hero headline — word-by-word kinetic reveal, springs into place.
-            Layer {
-                name: "hero_headline".into(),
-                kind: LayerKind::Text,
-                fill_hex: Some(p.text),
+        // Helper: a static-during-shot rect layer that animates in
+        // from `entry_dir` (unit vector) with a SpringSoft pop. Used
+        // for the supporting cards so the composition feels alive
+        // without any one layer doing too much.
+        let card = |name: &str,
+                    pos: [f32; 2],
+                    size: [f32; 2],
+                    fill: [u8; 3],
+                    delay_s: f32,
+                    entry_dir: [f32; 2],
+                    kind: motion_forge_prompt_orchestrator::LayerKind|
+         -> motion_forge_prompt_orchestrator::Layer {
+            motion_forge_prompt_orchestrator::Layer {
+                name: name.into(),
+                kind,
+                fill_hex: Some(fill),
                 stroke_hex: None,
-                text: Some(headline.to_string()),
+                text: None,
                 image_asset_id: None,
-                text_reveal: Some(TextReveal::WordByWord { stagger_s: 0.12 }),
-                entry_vector: None,
+                text_reveal: None,
+                entry_vector: Some(entry_dir),
                 keyframes: vec![
                     Keyframe {
-                        time_seconds: 0.0,
-                        position: [cx, cy - 60.0],
-                        size: [W as f32 * 0.7, 96.0],
+                        time_seconds: delay_s,
+                        position: pos,
+                        size,
                         rotation_degrees: 0.0,
-                        opacity: 1.0,
+                        opacity: 0.0,
                         easing_label: EasingLabel::SpringSoft,
                     },
                     Keyframe {
+                        time_seconds: delay_s + 0.6,
+                        position: pos,
+                        size,
+                        rotation_degrees: 0.0,
+                        opacity: 1.0,
+                        easing_label: EasingLabel::Standard,
+                    },
+                    Keyframe {
                         time_seconds: 3.0,
-                        position: [cx, cy - 60.0],
-                        size: [W as f32 * 0.7, 96.0],
+                        position: pos,
+                        size,
                         rotation_degrees: 0.0,
                         opacity: 1.0,
                         easing_label: EasingLabel::Standard,
                     },
                 ],
-            },
-            // Card from left with SpringSoft.
-            Layer {
-                name: "card_left".into(),
-                kind: LayerKind::Rect,
-                fill_hex: Some(p.card_a),
+            }
+        };
+        use motion_forge_prompt_orchestrator::LayerKind as LK;
+
+        // Scene 1 (0-3s): a busy composition that always reads as
+        // motion-graphic, never as a single blank rect. 9 layers:
+        //   1. Oversized background panel (off-bg color)
+        //   2. Accent diagonal strip (signature device)
+        //   3. Far-left tall column
+        //   4. Far-right tall column
+        //   5. Center hero card (large)
+        //   6. Top-left small badge
+        //   7. Bottom-right small badge
+        //   8. Center ellipse (accent dot, oversized)
+        //   9. Hero headline (text on top of everything)
+        let scene_a_layers = vec![
+            // 1. Off-bg gradient-evoking panel (slightly lighter than
+            //    bg, fills 90% of the canvas, slow scale-in).
+            card(
+                "scene_panel_a",
+                [cx, cy],
+                [W as f32 * 0.92, H as f32 * 0.86],
+                p.card_a,
+                0.0,
+                [0.0, 0.0],
+                LK::Rect,
+            ),
+            // 2. Diagonal accent strip (Tablix-signature device — a
+            //    long thin rect angled across the canvas).
+            motion_forge_prompt_orchestrator::Layer {
+                name: "accent_strip".into(),
+                kind: LK::Rect,
+                fill_hex: Some(p.accent),
                 stroke_hex: None,
                 text: None,
                 image_asset_id: None,
@@ -1169,99 +1221,116 @@ mod tests {
                 entry_vector: Some([-1.0, 0.0]),
                 keyframes: vec![
                     Keyframe {
-                        time_seconds: 0.4,
-                        position: [cx - 360.0, cy + 180.0],
-                        size: [220.0, 140.0],
-                        rotation_degrees: 0.0,
+                        time_seconds: 0.0,
+                        position: [cx - 200.0, cy + 360.0],
+                        size: [W as f32 * 1.1, 28.0],
+                        rotation_degrees: -8.0,
                         opacity: 0.0,
-                        easing_label: EasingLabel::SpringSoft,
+                        easing_label: EasingLabel::Decelerate,
                     },
-                    Keyframe {
-                        time_seconds: 1.0,
-                        position: [cx - 360.0, cy + 180.0],
-                        size: [220.0, 140.0],
-                        rotation_degrees: 0.0,
-                        opacity: 1.0,
-                        easing_label: EasingLabel::Standard,
-                    },
-                    Keyframe {
-                        time_seconds: 3.0,
-                        position: [cx - 360.0, cy + 180.0],
-                        size: [220.0, 140.0],
-                        rotation_degrees: 0.0,
-                        opacity: 1.0,
-                        easing_label: EasingLabel::Standard,
-                    },
-                ],
-            },
-            // Center card (accent ellipse) — drops in from top.
-            Layer {
-                name: "card_center".into(),
-                kind: LayerKind::Ellipse,
-                fill_hex: Some(p.accent),
-                stroke_hex: None,
-                text: None,
-                image_asset_id: None,
-                text_reveal: None,
-                entry_vector: Some([0.0, -1.0]),
-                keyframes: vec![
                     Keyframe {
                         time_seconds: 0.6,
-                        position: [cx, cy + 180.0],
-                        size: [180.0, 180.0],
-                        rotation_degrees: 0.0,
-                        opacity: 0.0,
-                        easing_label: EasingLabel::SpringSoft,
-                    },
-                    Keyframe {
-                        time_seconds: 1.2,
-                        position: [cx, cy + 180.0],
-                        size: [180.0, 180.0],
-                        rotation_degrees: 0.0,
+                        position: [cx, cy + 360.0],
+                        size: [W as f32 * 1.1, 28.0],
+                        rotation_degrees: -8.0,
                         opacity: 1.0,
                         easing_label: EasingLabel::Standard,
                     },
                     Keyframe {
                         time_seconds: 3.0,
-                        position: [cx, cy + 180.0],
-                        size: [180.0, 180.0],
-                        rotation_degrees: 0.0,
+                        position: [cx, cy + 360.0],
+                        size: [W as f32 * 1.1, 28.0],
+                        rotation_degrees: -8.0,
                         opacity: 1.0,
                         easing_label: EasingLabel::Standard,
                     },
                 ],
             },
-            // Right card from right.
-            Layer {
-                name: "card_right".into(),
-                kind: LayerKind::Rect,
-                fill_hex: Some(p.card_b),
+            // 3-4. Side columns (palette card_b — strong color blocks).
+            card(
+                "col_left",
+                [cx - 720.0, cy],
+                [120.0, H as f32 * 0.7],
+                p.card_b,
+                0.2,
+                [-1.0, 0.0],
+                LK::Rect,
+            ),
+            card(
+                "col_right",
+                [cx + 720.0, cy],
+                [120.0, H as f32 * 0.7],
+                p.card_b,
+                0.25,
+                [1.0, 0.0],
+                LK::Rect,
+            ),
+            // 5. Hero card center — the big visual anchor.
+            card(
+                "hero_card",
+                [cx, cy],
+                [560.0, 360.0],
+                p.accent,
+                0.35,
+                [0.0, 1.0],
+                LK::Rect,
+            ),
+            // 6-7. Diagonal badges top-left + bottom-right.
+            card(
+                "badge_tl",
+                [cx - 480.0, cy - 280.0],
+                [180.0, 180.0],
+                p.card_a,
+                0.45,
+                [0.0, -1.0],
+                LK::Ellipse,
+            ),
+            card(
+                "badge_br",
+                [cx + 480.0, cy + 240.0],
+                [140.0, 140.0],
+                p.card_b,
+                0.5,
+                [1.0, 1.0],
+                LK::Ellipse,
+            ),
+            // 8. Accent dot front-and-center (large).
+            card(
+                "hero_dot",
+                [cx + 180.0, cy - 120.0],
+                [80.0, 80.0],
+                p.accent,
+                0.6,
+                [0.7, -0.7],
+                LK::Ellipse,
+            ),
+            // 9. Hero headline — text on top. Even if the font
+            //    doesn't load, the 8 shapes below already fill the
+            //    canvas with motion.
+            motion_forge_prompt_orchestrator::Layer {
+                name: "hero_headline".into(),
+                kind: LK::Text,
+                fill_hex: Some(p.text),
                 stroke_hex: None,
-                text: None,
+                text: Some(headline.to_string()),
                 image_asset_id: None,
-                text_reveal: None,
-                entry_vector: Some([1.0, 0.0]),
+                text_reveal: Some(motion_forge_prompt_orchestrator::TextReveal::WordByWord {
+                    stagger_s: 0.1,
+                }),
+                entry_vector: None,
                 keyframes: vec![
                     Keyframe {
-                        time_seconds: 0.5,
-                        position: [cx + 360.0, cy + 180.0],
-                        size: [220.0, 140.0],
+                        time_seconds: 0.0,
+                        position: [cx, cy - 240.0],
+                        size: [W as f32 * 0.72, 96.0],
                         rotation_degrees: 0.0,
-                        opacity: 0.0,
+                        opacity: 1.0,
                         easing_label: EasingLabel::SpringSoft,
                     },
                     Keyframe {
-                        time_seconds: 1.1,
-                        position: [cx + 360.0, cy + 180.0],
-                        size: [220.0, 140.0],
-                        rotation_degrees: 0.0,
-                        opacity: 1.0,
-                        easing_label: EasingLabel::Standard,
-                    },
-                    Keyframe {
                         time_seconds: 3.0,
-                        position: [cx + 360.0, cy + 180.0],
-                        size: [220.0, 140.0],
+                        position: [cx, cy - 240.0],
+                        size: [W as f32 * 0.72, 96.0],
                         rotation_degrees: 0.0,
                         opacity: 1.0,
                         easing_label: EasingLabel::Standard,
@@ -1271,11 +1340,51 @@ mod tests {
         ];
 
         // Scene 2 (2.7s-6s, with crossfade overlap): CTA close.
+        // Also dense — accent panel + 3 corner badges + the text.
         let scene_b_layers = vec![
+            // 1. Big accent panel filling most of the canvas.
+            card(
+                "cta_panel",
+                [cx, cy],
+                [W as f32 * 0.86, H as f32 * 0.78],
+                p.accent,
+                0.0,
+                [0.0, 1.0],
+                LK::Rect,
+            ),
+            // 2-4. Three corner badges in palette.
+            card(
+                "cta_tl",
+                [cx - 600.0, cy - 280.0],
+                [180.0, 180.0],
+                p.card_a,
+                0.2,
+                [-1.0, -1.0],
+                LK::Ellipse,
+            ),
+            card(
+                "cta_tr",
+                [cx + 600.0, cy - 280.0],
+                [180.0, 180.0],
+                p.card_b,
+                0.25,
+                [1.0, -1.0],
+                LK::Ellipse,
+            ),
+            card(
+                "cta_bl",
+                [cx - 600.0, cy + 280.0],
+                [140.0, 140.0],
+                p.card_b,
+                0.3,
+                [-1.0, 1.0],
+                LK::Rect,
+            ),
+            // 5. CTA headline on top.
             Layer {
                 name: "cta_headline".into(),
                 kind: LayerKind::Text,
-                fill_hex: Some(p.accent),
+                fill_hex: Some(p.text),
                 stroke_hex: None,
                 text: Some(cta_copy.to_string()),
                 image_asset_id: None,
