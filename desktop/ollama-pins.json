@@ -1,26 +1,26 @@
 {
-  "version": "0.3.14",
-  "comment": "Pinned Ollama release we bundle as a Tauri externalBin sidecar. Bump this AND the per-target SHA-256 sums together. Source: https://github.com/ollama/ollama/releases/tag/v0.3.14",
+  "version": "0.13.0",
+  "comment": "Pinned Ollama release we bundle as a Tauri externalBin sidecar. Bump this AND the per-target SHA-256 sums together. Source: https://github.com/ollama/ollama/releases/download/v0.13.0/sha256sum.txt (signed by Ollama). v0.13.0 is the last release that still ships Linux as .tgz; v0.15.0+ switched to .tar.zst which fetch-ollama.sh doesn't decode yet.",
   "targets": {
     "aarch64-apple-darwin": {
       "asset": "Ollama-darwin.zip",
       "extract_path": "Ollama.app/Contents/Resources/ollama",
-      "sha256": "TODO_FILL_IN_FROM_OLLAMA_RELEASE_PAGE"
+      "sha256": "bbb88c0c5ebe8c331a9ba510ec9fa2e40eaa462582e788280c9b1cb7294facf3"
     },
     "x86_64-apple-darwin": {
       "asset": "Ollama-darwin.zip",
       "extract_path": "Ollama.app/Contents/Resources/ollama",
-      "sha256": "TODO_FILL_IN_FROM_OLLAMA_RELEASE_PAGE"
+      "sha256": "bbb88c0c5ebe8c331a9ba510ec9fa2e40eaa462582e788280c9b1cb7294facf3"
     },
     "x86_64-pc-windows-msvc": {
       "asset": "ollama-windows-amd64.zip",
       "extract_path": "ollama-windows-amd64/ollama.exe",
-      "sha256": "TODO_FILL_IN_FROM_OLLAMA_RELEASE_PAGE"
+      "sha256": "0fc913fc3763b8d2a490f2be90a51d474491ee22ea5a43ff31f1c58301a89656"
     },
     "x86_64-unknown-linux-gnu": {
       "asset": "ollama-linux-amd64.tgz",
       "extract_path": "bin/ollama",
-      "sha256": "TODO_FILL_IN_FROM_OLLAMA_RELEASE_PAGE"
+      "sha256": "c5e5b4840008d9c9bf955ec32c32b03afc57c986ac1c382d44c89c9f7dd2cc30"
     }
   }
 }
