@@ -277,7 +277,20 @@ jobs:
   # --------------------------------------------------------------------------
   publish:
     name: publish GitHub release
+    # SLSA `provenance` is listed in `needs` so we can pull its
+    # output name *if* it succeeded, but `if:` below lets us publish
+    # whenever the actual binary builds + checksums + cosign succeeded.
+    # The reusable slsa-framework workflow is brittle (it occasionally
+    # exits 27 on `Final outcome` even when generator + builds were
+    # fine) and we'd rather ship signed binaries without SLSA than
+    # block the whole release on a flaky upstream.
     needs: [plan, build, checksums, sign, provenance]
+    if: |
+      always() &&
+      needs.plan.result == 'success' &&
+      needs.build.result == 'success' &&
+      needs.checksums.result == 'success' &&
+      needs.sign.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -298,7 +311,9 @@ jobs:
           name: cosign-signatures
           path: dist
 
-      - name: Download SLSA provenance
+      - name: Download SLSA provenance (best-effort)
+        if: needs.provenance.result == 'success' && needs.provenance.outputs.provenance-name != ''
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: ${{ needs.provenance.outputs.provenance-name }}
