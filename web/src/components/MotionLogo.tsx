@@ -122,8 +122,8 @@ function Wordmark({ text }: { text: string }): ReactNode {
   if (text === 'ControlCraft') {
     return (
       <>
-        IMT
-        <span className="text-accent-600 dark:text-accent-400">N</span>
+        Control
+        <span className="text-accent-600 dark:text-accent-400">Craft</span>
       </>
     );
   }
