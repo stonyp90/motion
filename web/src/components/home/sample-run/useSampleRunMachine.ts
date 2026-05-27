@@ -80,13 +80,31 @@ export interface SampleRunOutput {
   length: number;
   cast: SampleCast[];
   isGenerating: boolean;
-  /** Becomes non-null in `rendering`; cleared on `looping-back`. */
+  /**
+   * The captured Lottie. Becomes available as soon as the run config
+   * resolves on mount and stays available for the entire loop — the
+   * preview canvas plays it continuously so the demo never reads as
+   * "between cycles."
+   */
   animation: LottieJson | null;
   /** True when the loop's clock is paused (offscreen / hidden tab). */
   isPaused: boolean;
   pausedReason: 'offscreen' | 'hidden' | null;
   /** The current generate stage label, when state === 'running'. */
   stageLabel: string;
+  /**
+   * 1-indexed "currently composing" scene number during the running
+   * phase. Clamped to `meta.scenes` once compose finishes; falls back
+   * to 0 in non-running states. Used to drive the scene-thumbnail
+   * strip below the preview canvas.
+   */
+  composingScene: number;
+  /**
+   * Real-time progress of the running phase, in [0, 1]. Drives the
+   * Generate-button progress fill and the top status bar's scrubber.
+   * Zero in non-running states.
+   */
+  runningProgress: number;
   /** Provenance + metadata about the cached real run, if any. */
   meta: SampleRunMeta;
 }
@@ -350,6 +368,8 @@ interface DerivedCore {
   isGenerating: boolean;
   animation: LottieJson | null;
   stageLabel: string;
+  composingScene: number;
+  runningProgress: number;
 }
 
 function deriveOutput(
@@ -358,6 +378,33 @@ function deriveOutput(
   timeline: TimelineBands,
   animation: LottieJson | null,
 ): DerivedCore {
+  // The Lottie plays throughout the entire loop now — once we have it,
+  // we never null it out. Earlier states had `animation: null` so the
+  // canvas would show a "Preview · 1920×1080" placeholder during
+  // typing/format/cast, but that left the canvas dead for ~half the
+  // loop. The brief, cast row, format chips, etc. are the staged-UI
+  // theatre on top; the Lottie underneath stays in motion as the
+  // "what we just generated, on loop" anchor.
+  const liveAnimation = animation;
+  const composeBand = timeline.stageBands.find(
+    (_b, i) => config.stages[i]?.id === 'compose',
+  );
+  const runningSpan = timeline.running[1] - timeline.running[0];
+  const runningProgress =
+    elapsed >= timeline.running[0] && elapsed < timeline.running[1]
+      ? Math.min(1, Math.max(0, (elapsed - timeline.running[0]) / Math.max(1, runningSpan)))
+      : 0;
+  const composingScene = (() => {
+    if (!composeBand || !config.meta.scenes) return 0;
+    if (elapsed < composeBand[0]) return 0;
+    if (elapsed >= composeBand[1]) return config.meta.scenes;
+    const t = (elapsed - composeBand[0]) / Math.max(1, composeBand[1] - composeBand[0]);
+    return Math.min(
+      config.meta.scenes,
+      Math.max(1, Math.floor(t * config.meta.scenes) + 1),
+    );
+  })();
+
   // Map elapsed → state + per-state outputs.
   if (elapsed < timeline.idle[1]) {
     return {
@@ -367,8 +414,10 @@ function deriveOutput(
       length: config.duration,
       cast: [],
       isGenerating: false,
-      animation: null,
+      animation: liveAnimation,
       stageLabel: '',
+      composingScene: 0,
+      runningProgress: 0,
     };
   }
   if (elapsed < timeline.typing[1]) {
@@ -383,8 +432,10 @@ function deriveOutput(
       length: config.duration,
       cast: [],
       isGenerating: false,
-      animation: null,
+      animation: liveAnimation,
       stageLabel: '',
+      composingScene: 0,
+      runningProgress: 0,
     };
   }
   if (elapsed < timeline.format[1]) {
@@ -402,8 +453,10 @@ function deriveOutput(
       length: config.duration,
       cast: [],
       isGenerating: false,
-      animation: null,
+      animation: liveAnimation,
       stageLabel: '',
+      composingScene: 0,
+      runningProgress: 0,
     };
   }
   if (elapsed < timeline.length[1]) {
@@ -414,8 +467,10 @@ function deriveOutput(
       length: config.duration,
       cast: [],
       isGenerating: false,
-      animation: null,
+      animation: liveAnimation,
       stageLabel: '',
+      composingScene: 0,
+      runningProgress: 0,
     };
   }
   if (elapsed < timeline.cast[1]) {
@@ -426,8 +481,10 @@ function deriveOutput(
       length: config.duration,
       cast: config.cast,
       isGenerating: false,
-      animation: null,
+      animation: liveAnimation,
       stageLabel: '',
+      composingScene: 0,
+      runningProgress: 0,
     };
   }
   if (elapsed < timeline.pulseGenerate[1]) {
@@ -438,8 +495,10 @@ function deriveOutput(
       length: config.duration,
       cast: config.cast,
       isGenerating: false,
-      animation: null,
+      animation: liveAnimation,
       stageLabel: '',
+      composingScene: 0,
+      runningProgress: 0,
     };
   }
   if (elapsed < timeline.running[1]) {
@@ -450,14 +509,7 @@ function deriveOutput(
       if (elapsed >= s && elapsed < e) {
         const stage = config.stages[i];
         if (stage?.id === 'compose' && config.meta.scenes) {
-          // Show "Composing scene k / N" by interpolating across the
-          // band — gives the same authentic feel the studio UI has.
-          const progress = (elapsed - s) / Math.max(1, e - s);
-          const sceneIdx = Math.min(
-            config.meta.scenes,
-            Math.max(1, Math.floor(progress * config.meta.scenes) + 1),
-          );
-          stageLabel = `Composing scene ${sceneIdx} / ${config.meta.scenes}`;
+          stageLabel = `Composing scene ${composingScene} / ${config.meta.scenes}`;
         } else if (stage) {
           stageLabel = stage.label;
         }
@@ -471,8 +523,10 @@ function deriveOutput(
       length: config.duration,
       cast: config.cast,
       isGenerating: true,
-      animation: null,
+      animation: liveAnimation,
       stageLabel,
+      composingScene,
+      runningProgress,
     };
   }
   if (elapsed < timeline.rendering[1]) {
@@ -483,8 +537,10 @@ function deriveOutput(
       length: config.duration,
       cast: config.cast,
       isGenerating: false,
-      animation,
+      animation: liveAnimation,
       stageLabel: '',
+      composingScene: config.meta.scenes ?? 0,
+      runningProgress: 1,
     };
   }
   if (elapsed < timeline.done[1]) {
@@ -495,8 +551,10 @@ function deriveOutput(
       length: config.duration,
       cast: config.cast,
       isGenerating: false,
-      animation,
+      animation: liveAnimation,
       stageLabel: '',
+      composingScene: config.meta.scenes ?? 0,
+      runningProgress: 1,
     };
   }
   return {
@@ -506,8 +564,10 @@ function deriveOutput(
     length: config.duration,
     cast: config.cast,
     isGenerating: false,
-    animation,
+    animation: liveAnimation,
     stageLabel: '',
+    composingScene: config.meta.scenes ?? 0,
+    runningProgress: 1,
   };
 }
 
@@ -526,6 +586,8 @@ export function useSampleRunMachine({
     isPaused: false,
     pausedReason: null,
     stageLabel: '',
+    composingScene: 0,
+    runningProgress: 0,
     meta: { isReal: false },
   });
   // The resolved config + timeline don't change after first load, so
@@ -707,7 +769,11 @@ export function useSampleRunMachine({
       }
 
       setOutput((prev) => {
-        // Reference-equality dedup on the heavy fields.
+        // Reference-equality dedup on every observable field. Note:
+        // including `runningProgress` here means React re-renders on
+        // every 80 ms tick during the running phase — that's
+        // intentional, the Generate-button progress fill and the
+        // top status scrubber both read it for smooth animation.
         if (
           prev.state === derived.state &&
           prev.prompt === derived.prompt &&
@@ -716,7 +782,9 @@ export function useSampleRunMachine({
           prev.cast === derived.cast &&
           prev.isGenerating === derived.isGenerating &&
           prev.animation === derived.animation &&
-          prev.stageLabel === derived.stageLabel
+          prev.stageLabel === derived.stageLabel &&
+          prev.composingScene === derived.composingScene &&
+          prev.runningProgress === derived.runningProgress
         ) {
           return prev;
         }
