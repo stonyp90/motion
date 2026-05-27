@@ -590,6 +590,7 @@ fn animated_vec<F: Fn(&Keyframe) -> [f32; 3]>(keyframes: &[Keyframe], fps: f32, 
 /// Returns `(i, o)` in the order Lottie keyframes consume them:
 ///   - `i` (incoming bezier to the NEXT keyframe) uses (x2, y2)
 ///   - `o` (outgoing bezier from THIS keyframe) uses (x1, y1)
+///
 /// Earlier emission swapped these, producing inverted easing curves
 /// that some lottie-web builds reject silently (layer disappears).
 fn bezier_handles(label: EasingLabel) -> (Value, Value) {
