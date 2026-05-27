@@ -264,6 +264,7 @@ pub fn ingest(bytes: &[u8]) -> Result<Composition> {
             stroke_hex: None,
             text: None,
             keyframes,
+            image_asset_id: None,
         });
     }
 
@@ -285,6 +286,7 @@ pub fn ingest(bytes: &[u8]) -> Result<Composition> {
         frame_rate,
         background_hex: [0x0a, 0x0a, 0x0a],
         shots,
+        image_assets: Vec::new(),
     })
 }
 

@@ -90,6 +90,7 @@ pub fn ingest(bytes: &[u8]) -> Result<Composition> {
         frame_rate,
         background_hex,
         shots,
+        image_assets: Vec::new(),
     })
 }
 
@@ -174,6 +175,7 @@ fn convert_layer(layer: &Value, frame_rate: f32) -> Option<Layer> {
         stroke_hex: None,
         text,
         keyframes,
+        image_asset_id: None,
     })
 }
 

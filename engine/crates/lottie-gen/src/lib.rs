@@ -8,8 +8,15 @@
 //! - Background color via a full-frame rect layer at z-bottom
 //! - Cubic-bezier easing labels mapped to canonical Material 3 curves
 //!
-//! Text and Image layers are scaffolded but currently render as a
-//! coloured rectangle so the timeline always plays end-to-end.
+//! Text layers are scaffolded but currently render as a coloured
+//! rectangle so the timeline always plays end-to-end.
+//!
+//! Image layers with an `image_asset_id` reference are emitted as
+//! proper Lottie `ty: 2` image layers, with the asset bytes embedded
+//! inline in `assets[]` as a base64 data-URI (`data:image/svg+xml;…`).
+//! This is what the generative pipeline uses to bake per-scene Recraft
+//! SVGs into the rendered Lottie. Image layers WITHOUT an asset id
+//! still fall through to the rect placeholder.
 
 #![recursion_limit = "256"]
 
@@ -104,7 +111,17 @@ fn build_lottie(t: &LottieTimeline, registry: &CharacterRegistry) -> Value {
     // Lottie wants the topmost layer first.
     layers.reverse();
 
-    let assets = character_layer::collect_character_assets(registry, t);
+    let mut assets = character_layer::collect_character_assets(registry, t);
+    for img in &t.image_assets {
+        assets.push(json!({
+            "id": img.id,
+            "w": img.width,
+            "h": img.height,
+            "u": "",
+            "p": format!("data:{};base64,{}", img.mime, img.data_b64),
+            "e": 1,
+        }));
+    }
 
     json!({
         "v": "5.7.0",
@@ -160,6 +177,15 @@ fn build_shape_layer(
         }
     }
 
+    // Generative image layer: when an Image layer has an attached
+    // asset id, emit a Lottie image layer (ty=2) referencing the
+    // base64 data-URI asset we appended in `build_lottie`.
+    if matches!(layer.kind, LayerKind::Image) {
+        if let Some(asset_id) = layer.image_asset_id.as_deref() {
+            return image_layer(layer, t, index, shot_in, shot_out, asset_id);
+        }
+    }
+
     let first = layer
         .keyframes
         .first()
@@ -170,8 +196,8 @@ fn build_shape_layer(
     let shape_bbox = first.size;
     let shape = match layer.kind {
         LayerKind::Ellipse => shape_group_ellipse(shape_bbox[0], shape_bbox[1], fill_hex),
-        // Text, Image, and any unmatched variant fall through to a
-        // coloured rect placeholder.
+        // Text, Image-without-asset, and any unmatched variant fall
+        // through to a coloured rect placeholder.
         _ => shape_group_rect(shape_bbox[0], shape_bbox[1], fill_hex),
     };
 
@@ -184,6 +210,35 @@ fn build_shape_layer(
         "ks": animated_transform(&layer.keyframes, t.frame_rate),
         "ao": 0,
         "shapes": [shape],
+        "ip": shot_in,
+        "op": shot_out,
+        "st": shot_in,
+        "bm": 0,
+    })
+}
+
+/// Emit a proper Lottie image layer (`ty: 2`) referencing an asset
+/// id appended to the timeline's `assets[]` array. The layer's
+/// keyframed transform animates the image — typical use is a slow
+/// Ken-Burns zoom over the scene's duration with the generated SVG
+/// as the background plate.
+fn image_layer(
+    layer: &Layer,
+    t: &LottieTimeline,
+    index: u32,
+    shot_in: u32,
+    shot_out: u32,
+    asset_id: &str,
+) -> Value {
+    json!({
+        "ddd": 0,
+        "ind": index,
+        "ty": 2,
+        "nm": layer.name,
+        "refId": asset_id,
+        "sr": 1,
+        "ks": animated_transform(&layer.keyframes, t.frame_rate),
+        "ao": 0,
         "ip": shot_in,
         "op": shot_out,
         "st": shot_in,
@@ -390,5 +445,79 @@ mod tests {
         assert_eq!(v["v"].as_str(), Some("5.7.0"));
         assert_eq!(v["w"].as_u64(), Some(1920));
         assert!(v["layers"].as_array().unwrap().len() >= 2);
+    }
+
+    #[test]
+    fn emits_image_layer_and_asset_entry_when_layer_has_asset_id() {
+        // Build a minimal timeline with a single shot containing an
+        // Image layer that references an asset; confirm the renderer
+        // outputs a `ty: 2` layer + a matching `assets[]` entry with
+        // an inline data-URI.
+        let asset = motion_forge_prompt_orchestrator::ImageAsset {
+            id: "scene_1_0".into(),
+            mime: "image/svg+xml".into(),
+            data_b64: "PHN2Zy8+".into(), // "<svg/>" base64
+            width: 1024,
+            height: 1024,
+        };
+        let layer = motion_forge_prompt_orchestrator::Layer {
+            name: "bg".into(),
+            kind: motion_forge_prompt_orchestrator::LayerKind::Image,
+            fill_hex: None,
+            stroke_hex: None,
+            text: None,
+            image_asset_id: Some("scene_1_0".into()),
+            keyframes: vec![Keyframe {
+                time_seconds: 0.0,
+                position: [512.0, 512.0],
+                size: [1024.0, 1024.0],
+                rotation_degrees: 0.0,
+                opacity: 1.0,
+                easing_label: EasingLabel::Standard,
+            }],
+        };
+        let shot = motion_forge_prompt_orchestrator::Shot {
+            start_seconds: 0.0,
+            duration_seconds: 3.0,
+            description: "[1.0] hero".into(),
+            layers: vec![layer],
+        };
+        let timeline = motion_forge_prompt_orchestrator::LottieTimeline {
+            composition_width: 1024,
+            composition_height: 1024,
+            duration_seconds: 3.0,
+            frame_rate: 30.0,
+            background_hex: [0x0a, 0x0a, 0x0a],
+            shots: vec![shot],
+            image_assets: vec![asset],
+        };
+
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("out.json");
+        SerdeLottieGenerator::new().write(&timeline, &path).unwrap();
+        let raw = std::fs::read_to_string(&path).unwrap();
+        let v: Value = serde_json::from_str(&raw).unwrap();
+
+        // Asset is present with the right data-URI prefix.
+        let assets = v["assets"].as_array().unwrap();
+        let img_asset = assets
+            .iter()
+            .find(|a| a["id"].as_str() == Some("scene_1_0"))
+            .expect("image asset missing");
+        assert!(
+            img_asset["p"]
+                .as_str()
+                .unwrap()
+                .starts_with("data:image/svg+xml;base64,")
+        );
+        assert_eq!(img_asset["e"].as_u64(), Some(1));
+
+        // The shot's image layer rendered as `ty: 2` with the right refId.
+        let layers = v["layers"].as_array().unwrap();
+        let image_layer = layers
+            .iter()
+            .find(|l| l["ty"].as_u64() == Some(2))
+            .expect("ty:2 image layer missing");
+        assert_eq!(image_layer["refId"].as_str(), Some("scene_1_0"));
     }
 }

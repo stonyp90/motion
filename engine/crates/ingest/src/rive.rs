@@ -101,6 +101,7 @@ pub fn ingest(bytes: &[u8]) -> Result<Composition> {
         frame_rate,
         background_hex: bg,
         shots,
+        image_assets: Vec::new(),
     })
 }
 
@@ -180,6 +181,7 @@ fn extract_layers(board: &serde_json::Map<String, Value>, frame_rate: f32) -> Ve
                 .and_then(|t| t.as_str())
                 .map(|s| s.to_string()),
             keyframes,
+            image_asset_id: None,
         });
     }
     layers

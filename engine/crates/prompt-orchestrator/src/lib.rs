@@ -34,6 +34,35 @@ pub struct LottieTimeline {
     pub frame_rate: f32,
     pub background_hex: [u8; 3],
     pub shots: Vec<Shot>,
+    /// Embedded image assets (one entry per generative scene
+    /// illustration). Populated by the generative pipeline from a
+    /// [`scene_assets::SceneAssetsBundle`]; the LLM never sets this.
+    /// Backward-compat: defaults to empty when missing on the wire.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub image_assets: Vec<ImageAsset>,
+}
+
+/// A single embedded image asset (SVG / PNG / JPG) referenced by an
+/// `Image` layer via [`Layer::image_asset_id`]. Lifted as a separate
+/// struct so the renderer can emit it once in the Lottie `assets[]`
+/// array and have multiple shots reference the same id.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ImageAsset {
+    /// Unique within a timeline. Conventionally `scene_<id>` (with
+    /// dots replaced by underscores so it's a valid Lottie ref).
+    pub id: String,
+    /// `image/svg+xml`, `image/png`, `image/jpeg`. Used to build the
+    /// data-URI prefix; the renderer trusts this verbatim.
+    pub mime: String,
+    /// Base64-encoded payload — embedded inline so the Lottie file
+    /// stays a single self-contained JSON document. For multi-MB
+    /// assets we'd switch to an external file + relative URL, but
+    /// vector SVGs are 5-20 kB so inline is fine.
+    pub data_b64: String,
+    /// Informational; the Lottie player uses the layer's transform
+    /// for actual sizing.
+    pub width: u32,
+    pub height: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,6 +81,13 @@ pub struct Layer {
     pub stroke_hex: Option<[u8; 3]>,
     pub text: Option<String>,
     pub keyframes: Vec<Keyframe>,
+    /// Set on [`LayerKind::Image`] layers to reference an entry in
+    /// [`LottieTimeline::image_assets`]. When set the renderer emits a
+    /// Lottie image layer (`ty: 2`) pointing at that asset; when None,
+    /// Image layers fall through to the rect placeholder for backward
+    /// compatibility.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_asset_id: Option<String>,
 }
 
 /// Type of a [`Layer`]. The four simple variants (Rect, Ellipse,
@@ -576,6 +612,7 @@ pub fn fallback_timeline(
             fill_hex: Some(fill),
             stroke_hex: None,
             text: None,
+            image_asset_id: None,
             keyframes: vec![
                 Keyframe {
                     time_seconds: start,
@@ -612,6 +649,7 @@ pub fn fallback_timeline(
                 fill_hex: Some(alt),
                 stroke_hex: None,
                 text: Some(prompt.to_string()),
+                image_asset_id: None,
                 keyframes: vec![
                     Keyframe {
                         time_seconds: start + shot_dur * 0.5,
@@ -648,6 +686,7 @@ pub fn fallback_timeline(
         frame_rate: fps,
         background_hex: bg,
         shots,
+        image_assets: Vec::new(),
     }
 }
 
@@ -768,6 +807,7 @@ pub async fn brief_to_timeline(
         frame_rate: fps,
         background_hex: bg,
         shots: all_shots,
+        image_assets: Vec::new(),
     })
 }
 

@@ -46,6 +46,8 @@
 //! backend).
 
 use crate::brief::{Brief, SceneScript};
+use crate::{EasingLabel, ImageAsset, Keyframe, Layer, LayerKind, LottieTimeline};
+use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
 use futures::stream::{self, StreamExt};
 use motion_forge_image_gen::{GeneratedImage, ImageGen, ImageGenError, ImageRequest};
 use std::collections::HashMap;
@@ -172,6 +174,133 @@ fn build_request(scene: &SceneScript, comp_w: u32, comp_h: u32) -> Option<ImageR
     Some(ImageRequest::new(prompt).with_dims(comp_w, comp_h))
 }
 
+/// Lottie asset ids must be valid JSON keys and cannot contain dots
+/// (Lottie players use dot-paths internally). Scene ids look like
+/// `"1.0"`, so we replace `.` with `_` to get `"scene_1_0"`.
+fn asset_id_for(scene_id: &str) -> String {
+    format!("scene_{}", scene_id.replace('.', "_"))
+}
+
+/// Attach a [`SceneAssetsBundle`] to an already-built [`LottieTimeline`]:
+///
+/// 1. Each `GeneratedImage` becomes an entry in `timeline.image_assets`
+///    so the lottie-gen renderer can embed it as a base64 data-URI.
+/// 2. Each shot tagged with a recognized scene id (matched on the
+///    `[scene_id] …` prefix that [`crate::generate_brief`] adds to
+///    every shot description) gets a full-frame Image background layer
+///    prepended at z-bottom. The Lottie player composites every other
+///    layer on top of it.
+///
+/// Idempotent on subsequent calls: re-applying the same bundle does
+/// not duplicate image_assets entries (matched by id), but a fresh
+/// background layer is still prepended each time — callers should
+/// apply at most once per timeline.
+///
+/// Returns the number of shots that successfully had a background
+/// layer attached. Shots whose scene id has no matching asset (LLM
+/// 5xx'd that scene; or the timeline wasn't produced from a brief)
+/// are skipped silently and degrade to text-only.
+pub fn attach_to_timeline(timeline: &mut LottieTimeline, bundle: &SceneAssetsBundle) -> usize {
+    if bundle.assets.is_empty() {
+        return 0;
+    }
+
+    // 1. Merge image assets (de-dup by id).
+    let existing_ids: std::collections::HashSet<&str> = timeline
+        .image_assets
+        .iter()
+        .map(|a| a.id.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    let mut to_add: Vec<ImageAsset> = Vec::new();
+    let mut scene_to_asset_id: HashMap<String, String> = HashMap::new();
+    for (scene_id, img) in &bundle.assets {
+        let id = asset_id_for(scene_id);
+        scene_to_asset_id.insert(scene_id.clone(), id.clone());
+        if existing_ids.contains(id.as_str()) {
+            continue;
+        }
+        // Base64-encode regardless of source: SVG bytes are UTF-8 text
+        // but Lottie data-URIs expect base64. The renderer trusts the
+        // mime type verbatim.
+        let data_b64 = B64.encode(&img.bytes);
+        to_add.push(ImageAsset {
+            id,
+            mime: img.content_type.clone(),
+            data_b64,
+            width: timeline.composition_width,
+            height: timeline.composition_height,
+        });
+    }
+    timeline.image_assets.extend(to_add);
+
+    // 2. Prepend a background image layer to every shot whose
+    //    description carries a recognized `[scene_id]` tag.
+    let mut attached = 0usize;
+    for shot in &mut timeline.shots {
+        let Some(scene_id) = extract_scene_id(&shot.description) else {
+            continue;
+        };
+        let Some(asset_id) = scene_to_asset_id.get(&scene_id) else {
+            continue;
+        };
+        let bg = background_image_layer(
+            asset_id,
+            timeline.composition_width,
+            timeline.composition_height,
+            shot.duration_seconds,
+        );
+        shot.layers.insert(0, bg);
+        attached += 1;
+    }
+    attached
+}
+
+/// Parse a `[scene_id] …` prefix from a shot description and return
+/// the bare scene id. Matches the format that
+/// [`crate::generate_brief`] uses to tag per-scene shots.
+fn extract_scene_id(description: &str) -> Option<String> {
+    let trimmed = description.trim_start();
+    let rest = trimmed.strip_prefix('[')?;
+    let end = rest.find(']')?;
+    Some(rest[..end].trim().to_string())
+}
+
+/// Build a full-frame Image layer that fills the composition and
+/// keeps the same opacity for the entire shot. Two keyframes so the
+/// renderer's `animated_transform` path is exercised (a single
+/// keyframe also works but the renderer prefers a span).
+fn background_image_layer(asset_id: &str, w: u32, h: u32, duration_sec: f32) -> Layer {
+    let cx = w as f32 * 0.5;
+    let cy = h as f32 * 0.5;
+    let size = [w as f32, h as f32];
+    Layer {
+        name: format!("bg_{asset_id}"),
+        kind: LayerKind::Image,
+        fill_hex: None,
+        stroke_hex: None,
+        text: None,
+        image_asset_id: Some(asset_id.to_string()),
+        keyframes: vec![
+            Keyframe {
+                time_seconds: 0.0,
+                position: [cx, cy],
+                size,
+                rotation_degrees: 0.0,
+                opacity: 1.0,
+                easing_label: EasingLabel::Standard,
+            },
+            Keyframe {
+                time_seconds: duration_sec.max(0.01),
+                position: [cx, cy],
+                size,
+                rotation_degrees: 0.0,
+                opacity: 1.0,
+                easing_label: EasingLabel::Standard,
+            },
+        ],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -279,6 +408,93 @@ mod tests {
         assert!(bundle.errors.is_empty());
         assert_eq!(bundle.total_cost_micros, 0);
         assert!(!bundle.has_any());
+    }
+
+    use crate::Shot;
+
+    fn empty_timeline_with_shots(shots: Vec<Shot>) -> LottieTimeline {
+        LottieTimeline {
+            composition_width: 1024,
+            composition_height: 1024,
+            duration_seconds: 6.0,
+            frame_rate: 30.0,
+            background_hex: [0x0a, 0x0a, 0x0a],
+            shots,
+            image_assets: Vec::new(),
+        }
+    }
+
+    fn shot_for(scene_id: &str) -> Shot {
+        Shot {
+            start_seconds: 0.0,
+            duration_seconds: 3.0,
+            description: format!("[{scene_id}] some motion direction"),
+            layers: Vec::new(),
+        }
+    }
+
+    fn fake_bundle(scene_ids: &[&str]) -> SceneAssetsBundle {
+        let mut b = SceneAssetsBundle {
+            provider: "stub".into(),
+            ..Default::default()
+        };
+        for id in scene_ids {
+            b.assets.insert(
+                id.to_string(),
+                GeneratedImage {
+                    bytes: format!("<svg id={id}/>").into_bytes(),
+                    content_type: "image/svg+xml".into(),
+                    provider: "stub".into(),
+                    cost_micros: 40_000,
+                },
+            );
+            b.total_cost_micros += 40_000;
+        }
+        b
+    }
+
+    #[test]
+    fn attach_to_timeline_appends_assets_and_prepends_background_layers() {
+        let mut timeline = empty_timeline_with_shots(vec![shot_for("1.0"), shot_for("2.0")]);
+        let bundle = fake_bundle(&["1.0", "2.0"]);
+        let attached = attach_to_timeline(&mut timeline, &bundle);
+        assert_eq!(attached, 2);
+        assert_eq!(timeline.image_assets.len(), 2);
+
+        // Each shot has one background layer prepended at index 0.
+        for shot in &timeline.shots {
+            assert_eq!(shot.layers.len(), 1);
+            let bg = &shot.layers[0];
+            assert!(matches!(bg.kind, LayerKind::Image));
+            assert!(bg.image_asset_id.as_ref().unwrap().starts_with("scene_"));
+            // Asset id matches the scene id with dots replaced.
+            let scene_id = extract_scene_id(&shot.description).unwrap();
+            assert_eq!(
+                bg.image_asset_id.as_deref().unwrap(),
+                &format!("scene_{}", scene_id.replace('.', "_"))
+            );
+        }
+    }
+
+    #[test]
+    fn attach_to_timeline_skips_shots_with_no_matching_asset() {
+        // Bundle has scene 1.0 only; shot 2.0 should be left untouched.
+        let mut timeline = empty_timeline_with_shots(vec![shot_for("1.0"), shot_for("2.0")]);
+        let bundle = fake_bundle(&["1.0"]);
+        let attached = attach_to_timeline(&mut timeline, &bundle);
+        assert_eq!(attached, 1);
+        assert_eq!(timeline.shots[0].layers.len(), 1); // got bg
+        assert!(timeline.shots[1].layers.is_empty()); // no bg, degrades gracefully
+    }
+
+    #[test]
+    fn attach_to_timeline_is_a_noop_on_empty_bundle() {
+        let mut timeline = empty_timeline_with_shots(vec![shot_for("1.0")]);
+        let bundle = SceneAssetsBundle::default();
+        let attached = attach_to_timeline(&mut timeline, &bundle);
+        assert_eq!(attached, 0);
+        assert!(timeline.image_assets.is_empty());
+        assert!(timeline.shots[0].layers.is_empty());
     }
 
     #[tokio::test]

@@ -297,9 +297,11 @@ mod tests {
                     fill_hex: None,
                     stroke_hex: None,
                     text: None,
+                    image_asset_id: None,
                     keyframes: vec![kf(0.0), kf(4.0)],
                 }],
             }],
+            image_assets: Vec::new(),
         };
         (reg, timeline)
     }
@@ -314,6 +316,7 @@ mod tests {
             frame_rate: 30.0,
             background_hex: [0, 0, 0],
             shots: vec![],
+            image_assets: Vec::new(),
         };
         let l = Layer {
             name: "x".into(),
@@ -321,6 +324,7 @@ mod tests {
             fill_hex: None,
             stroke_hex: None,
             text: None,
+            image_asset_id: None,
             keyframes: vec![kf(0.0), kf(1.0)],
         };
         assert!(build_character_layer(&reg, &l, &t, 1, 0, 30).is_none());
@@ -350,6 +354,7 @@ mod tests {
             frame_rate: 30.0,
             background_hex: [0, 0, 0],
             shots: vec![],
+            image_assets: Vec::new(),
         };
         let l = Layer {
             name: "ghost".into(),
@@ -360,6 +365,7 @@ mod tests {
             fill_hex: None,
             stroke_hex: None,
             text: None,
+            image_asset_id: None,
             keyframes: vec![kf(0.0), kf(1.0)],
         };
         let v = build_character_layer(&reg, &l, &t, 1, 0, 30).unwrap();
