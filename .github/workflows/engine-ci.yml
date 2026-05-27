@@ -120,6 +120,15 @@ jobs:
         with:
           workspaces: engine
 
+      # Build the binary BEFORE docker compose. docker-compose.yml mounts
+      # `./target/ffmpeg-out:/out`, which has docker create `./target/` on
+      # the host as root if it doesn't exist yet — that then blocks cargo
+      # from writing `target/release/` (EACCES). Building first ensures
+      # target/ is owned by the runner user before docker touches it.
+      - name: Build motion-forge-http
+        if: steps.gate.outputs.skip != 'true'
+        run: cargo build -p motion-forge-http --release
+
       - name: Bring up dependency stack (postgres + keycloak)
         if: steps.gate.outputs.skip != 'true'
         run: |
@@ -130,10 +139,6 @@ jobs:
             [[ "${status}" == "healthy" ]] && break
             sleep 2
           done
-
-      - name: Build motion-forge-http
-        if: steps.gate.outputs.skip != 'true'
-        run: cargo build -p motion-forge-http --release
 
       - name: Start motion-forge-http
         if: steps.gate.outputs.skip != 'true'
@@ -234,6 +239,11 @@ jobs:
           exit-code: '1'
 
       - name: Upload Trivy SARIF
+        # Best-effort: SARIF upload only works once Code Scanning is
+        # enabled in repo settings. Until then this fails with
+        # "Code scanning is not enabled". Don't block the job on the
+        # upload pipe — the scan itself is the gate.
+        continue-on-error: true
         if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:
