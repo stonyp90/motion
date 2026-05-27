@@ -154,18 +154,21 @@ jobs:
         if: steps.gate.outputs.skip != 'true'
         env:
           RUST_LOG: info
+        # NB: Keycloak in docker-compose maps host:8080 → container:8080,
+        # so motion-forge must bind a different port or it gets EADDRINUSE.
+        # Use the engine's documented default 7755.
         run: |
-          nohup ./target/release/motion-forge serve --bind 127.0.0.1:8080 \
+          nohup ./target/release/motion-forge serve --bind 127.0.0.1:7755 \
             > /tmp/motion-forge-http.log 2>&1 &
           echo $! > /tmp/motion-forge-http.pid
           for _i in $(seq 1 20); do
-            if curl -sf http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
+            if curl -sf http://127.0.0.1:7755/healthz >/dev/null 2>&1; then
               echo "engine up"
               break
             fi
             sleep 2
           done
-          curl -sf http://127.0.0.1:8080/healthz || (cat /tmp/motion-forge-http.log; exit 1)
+          curl -sf http://127.0.0.1:7755/healthz || (cat /tmp/motion-forge-http.log; exit 1)
 
       - name: Install hurl
         if: steps.gate.outputs.skip != 'true'
@@ -180,7 +183,7 @@ jobs:
       - name: Run hurl contract suite
         if: steps.gate.outputs.skip != 'true'
         env:
-          API_URL: http://127.0.0.1:8080
+          API_URL: http://127.0.0.1:7755
         run: |
           # The gate above already verified specs exist — at this point we
           # always have something to run.
