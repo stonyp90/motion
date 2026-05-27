@@ -17,13 +17,15 @@
  * we keep the brand without re-introducing the risk.
  */
 
+import type { ReactNode } from 'react';
+
 interface Step {
   id: string;
   index: string;
   chapter: string;
   title: string;
   sub: string;
-  Illustration: () => JSX.Element;
+  Illustration: () => ReactNode;
 }
 
 const STEPS: ReadonlyArray<Step> = [
