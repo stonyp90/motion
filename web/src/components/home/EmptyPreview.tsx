@@ -26,15 +26,15 @@ interface EmptyPreviewProps {
 }
 
 /**
- * Default example brief — Quebec-flavored SR&ED tax-credit explainer.
- * Anchors the product in the real-world bilingual use case our local
- * (Quebec / Canada) buyers know: cabinet-comptable pitching SR&ED
- * recovery to mid-market clients. The product's strength is turning
- * dense regulatory copy into something a CFO actually watches; this
- * brief makes that strength concrete the moment a visitor lands.
+ * Default example brief — animation-feature teaser. The product's
+ * sweet spot is exactly this: a studio with a finished animated short
+ * needs a festival-circuit promo cut, then a distributor pitch reel,
+ * then a market-specific version — same source, three deliverables,
+ * one afternoon. Reads as native to the product instead of a generic
+ * SaaS pitch.
  */
 const DEFAULT_EXAMPLE =
-  'Un explainer 60 secondes pour un cabinet comptable québécois qui aide les PME à récupérer leurs crédits SR&ED. Ton confiant, bilingue-friendly, palette deep navy + accent or.';
+  'A 60-second festival teaser for our animated short. Cinematic palette, kinetic typography, three-scene arc: cold open · hero shot · festival CTA.';
 
 export function EmptyPreview({
   exampleBrief = DEFAULT_EXAMPLE,

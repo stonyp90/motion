@@ -29,6 +29,11 @@ interface Cert {
   title: string;
   subtitle: string;
   detail: string;
+  /** Optional status pill shown next to the title (e.g. "In progress").
+   *  We use it on SOC 2 until the AICPA attestation lands — calling
+   *  ourselves SOC 2-certified without the report on file would be
+   *  misrepresentation. */
+  status?: { label: string; tone: 'in-progress' | 'shipped' };
 }
 
 const CERTS: ReadonlyArray<Cert> = [
@@ -37,7 +42,8 @@ const CERTS: ReadonlyArray<Cert> = [
     title: 'SOC 2 Type II',
     subtitle: 'Independent security audit',
     detail:
-      'Annual third-party attestation of how we handle your data, access, and uptime.',
+      'Annual third-party attestation of how we handle your data, access, and uptime. Audit in progress — controls implemented, evidence collection underway.',
+    status: { label: 'In progress', tone: 'in-progress' },
   },
   {
     icon: <Building2 className="h-5 w-5" aria-hidden />,
@@ -107,8 +113,30 @@ export function TrustStrip() {
                 {cert.icon}
               </span>
               <div className="flex flex-col gap-0.5">
-                <h3 className="font-display text-base font-bold tracking-tight text-text-primary">
+                <h3 className="flex items-center gap-2 font-display text-base font-bold tracking-tight text-text-primary">
                   {cert.title}
+                  {cert.status && (
+                    <span
+                      className={
+                        'inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.12em] ' +
+                        (cert.status.tone === 'in-progress'
+                          ? 'border-secondary-300 bg-secondary-50 text-secondary-800 dark:border-secondary-700 dark:bg-secondary-950 dark:text-secondary-200'
+                          : 'border-accent-300 bg-accent-50 text-accent-800 dark:border-accent-700 dark:bg-accent-950 dark:text-accent-200')
+                      }
+                      aria-label={`Status: ${cert.status.label}`}
+                    >
+                      <span
+                        aria-hidden
+                        className={
+                          'h-1.5 w-1.5 rounded-full ' +
+                          (cert.status.tone === 'in-progress'
+                            ? 'bg-secondary-500'
+                            : 'bg-accent-500')
+                        }
+                      />
+                      {cert.status.label}
+                    </span>
+                  )}
                 </h3>
                 <p className="text-xs font-medium text-text-secondary">
                   {cert.subtitle}

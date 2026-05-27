@@ -69,10 +69,15 @@ const PHASES: { id: Phase; label: string; icon: typeof Pencil }[] = [
   { id: 'export', label: 'Export', icon: Download },
 ];
 
+// Animation-feature teaser example. Replaced the prior Quebec /
+// SR&ED accounting pitch — animation studios are the canonical
+// motion-design buyer, so the example reads as native to the
+// product. Still shows the structured-script format the
+// orchestrator expects.
 const BRIEF_LINES = [
-  '1.0  Your company claims SR&ED credits every year.',
-  '2.0  What if it could be done in 20 minutes,',
-  '3.0  …and at one-tenth the cost?',
+  '1.0  Cold open on the hero in mid-flight, score swells.',
+  '2.0  Title card lands — bold, kinetic, brand-grade.',
+  '3.0  Cut to festival logos + a single CTA: see it premiere.',
 ];
 const BRIEF_FULL = BRIEF_LINES.join('\n');
 

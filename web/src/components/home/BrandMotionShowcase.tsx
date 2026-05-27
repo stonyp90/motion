@@ -45,12 +45,16 @@ const SCENES: ReadonlyArray<Scene> = [
     meta: 'corporate · 1920×1080',
   },
   {
-    id: 'quebec',
-    eyebrow: 'CAS D’USAGE QUÉBÉCOIS',
-    headline: 'Vos crédits SR&ED, expliqués en 60 secondes',
-    sub: 'Un explainer comptable bilingue, livré le jour même.',
+    // Animation-feature scene. Replaces the prior Quebec / SR&ED
+    // accounting use case — animation studios are the canonical
+    // motion-design buyer, so the example reads as native to the
+    // product instead of leaking a one-vertical pitch.
+    id: 'animation',
+    eyebrow: 'FESTIVAL TEASER',
+    headline: 'From storyboard to broadcast in twenty minutes.',
+    sub: 'Animated-feature teasers, festival cuts, distributor reels — every market, every format.',
     accent: 'var(--color-secondary-400)',
-    meta: 'quebec · 1920×1080',
+    meta: 'animation · 1920×1080',
   },
   {
     id: 'playful',
