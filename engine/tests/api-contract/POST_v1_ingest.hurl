@@ -4,8 +4,8 @@ POST {{ENGINE_URL}}/v1/ingest
 Authorization: Bearer {{token}}
 [MultipartFormData]
 kind: logo
-file: file,fixtures/logo_mark.svg; image/svg+xml
-metadata: file,fixtures/ingest_metadata.json; application/json
+file: file,fixtures/logo_mark.svg;
+metadata: file,fixtures/ingest_metadata.json;
 
 HTTP 201
 [Asserts]
@@ -23,7 +23,7 @@ asset_id: jsonpath "$.asset_id"
 POST {{ENGINE_URL}}/v1/ingest
 [MultipartFormData]
 kind: logo
-file: file,fixtures/logo_mark.svg; image/svg+xml
+file: file,fixtures/logo_mark.svg;
 HTTP 401
 
 
@@ -31,7 +31,7 @@ HTTP 401
 POST {{ENGINE_URL}}/v1/ingest
 Authorization: Bearer {{token}}
 [MultipartFormData]
-file: file,fixtures/logo_mark.svg; image/svg+xml
+file: file,fixtures/logo_mark.svg;
 HTTP 400
 
 
@@ -48,7 +48,7 @@ POST {{ENGINE_URL}}/v1/ingest
 Authorization: Bearer {{token}}
 [MultipartFormData]
 kind: logo
-file: file,fixtures/ingest_metadata.json; application/json
+file: file,fixtures/ingest_metadata.json;
 HTTP 422
 [Asserts]
 jsonpath "$.error.code" == "unsupported_media"

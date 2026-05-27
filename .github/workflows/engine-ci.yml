@@ -191,7 +191,7 @@ jobs:
           SPECS=(tests/api-contract/*.hurl)
           echo "Running ${#SPECS[@]} hurl spec(s)"
           hurl --test \
-            --variable "api_url=${API_URL}" \
+            --variable "ENGINE_URL=${API_URL}" \
             --report-junit /tmp/hurl-junit.xml \
             "${SPECS[@]}"
 
