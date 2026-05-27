@@ -177,6 +177,29 @@ enum Command {
     /// List bundled themes.
     Themes,
 
+    /// Generate a single illustration via the configured image backend
+    /// (default: Recraft v3). Writes raw bytes to stdout — pipe to a
+    /// file or to ImageMagick. Useful for prompt experimentation while
+    /// the new generative pipeline is being scaffolded.
+    ///
+    /// Example:
+    ///   RECRAFT_API_KEY=… cargo run -p motion-forge-cli -- \\
+    ///     image-gen "isometric SaaS dashboard, flat colors, mint+navy" \\
+    ///     > /tmp/dashboard.svg
+    ImageGen {
+        prompt: String,
+        /// Image width in pixels. Recraft snaps to its supported set
+        /// (1024×1024, 1820×1024, 1024×1820). Default 1024.
+        #[arg(long, default_value_t = 1024)]
+        width: u32,
+        #[arg(long, default_value_t = 1024)]
+        height: u32,
+        /// Recraft style. `vector_illustration` (default) returns SVG;
+        /// `digital_illustration` / `realistic_image` return PNG.
+        #[arg(long, default_value = "vector_illustration")]
+        style: String,
+    },
+
     /// Browse the starter preset library.
     #[command(subcommand)]
     Presets(PresetsCommand),
@@ -362,6 +385,12 @@ async fn main() -> Result<()> {
             out_video,
         }),
         Command::Themes => cmd_themes(),
+        Command::ImageGen {
+            prompt,
+            width,
+            height,
+            style,
+        } => cmd_image_gen(prompt, width, height, style).await,
         Command::Presets(PresetsCommand::List) => cmd_presets_list(),
         Command::Presets(PresetsCommand::Show { id, with_preview }) => {
             cmd_presets_show(&id, with_preview)
@@ -871,4 +900,41 @@ fn derive_work_dir(out: &std::path::Path, label: &str) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."));
     let stem = out.file_stem().and_then(|s| s.to_str()).unwrap_or(label);
     parent.join(format!("{stem}-work"))
+}
+
+/// `motion-forge image-gen "<prompt>" --style vector_illustration > out.svg`
+async fn cmd_image_gen(prompt: String, width: u32, height: u32, style: String) -> Result<()> {
+    use motion_forge_image_gen::{ImageGen, ImageRequest, RecraftBackend};
+    use std::io::Write;
+
+    let api_key = std::env::var("RECRAFT_API_KEY").map_err(|_| {
+        anyhow::anyhow!(
+            "RECRAFT_API_KEY env var required (sign up at recraft.ai — free tier 50 generations)"
+        )
+    })?;
+
+    let backend = RecraftBackend::new(api_key).with_style(style);
+    let req = ImageRequest::new(prompt).with_dims(width, height);
+
+    let img = backend
+        .generate(&req)
+        .await
+        .map_err(|e| anyhow::anyhow!("image-gen failed: {e}"))?;
+
+    // Write raw bytes to stdout — terminal will mangle SVG-as-text but
+    // shell redirect to a file or pipe to `display` works perfectly.
+    let mut stdout = std::io::stdout().lock();
+    stdout
+        .write_all(&img.bytes)
+        .map_err(|e| anyhow::anyhow!("write stdout: {e}"))?;
+
+    // Log to stderr so stdout stays pure binary.
+    eprintln!(
+        "ok: {} bytes · {} · {} · ${:.4}",
+        img.bytes.len(),
+        img.content_type,
+        img.provider,
+        (img.cost_micros as f64) / 1_000_000.0
+    );
+    Ok(())
 }

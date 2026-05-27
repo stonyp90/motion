@@ -287,9 +287,7 @@ impl EmailService for AzureCommsEmailService {
         // Format: VERB\nPATH_AND_QUERY\nDATE;HOST;BODY_HASH
         let host = self.endpoint.trim_end_matches('/');
         let path_and_query = "/emails:send?api-version=2023-03-31";
-        let string_to_sign = format!(
-            "POST\n{path_and_query}\n{date_header};{host};{body_hash}"
-        );
+        let string_to_sign = format!("POST\n{path_and_query}\n{date_header};{host};{body_hash}");
 
         // Step 4: HMAC-SHA256 with the base64-decoded access key.
         let key_bytes = B64

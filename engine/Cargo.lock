@@ -1251,6 +1251,7 @@ dependencies = [
  "motion-forge-decompose",
  "motion-forge-figma",
  "motion-forge-http",
+ "motion-forge-image-gen",
  "motion-forge-ingest",
  "motion-forge-lottie-gen",
  "motion-forge-pipeline",
@@ -1327,6 +1328,21 @@ dependencies = [
  "tokio",
  "tower",
  "tower-http",
+ "tracing",
+]
+
+[[package]]
+name = "motion-forge-image-gen"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
  "tracing",
 ]
 

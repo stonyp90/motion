@@ -23,6 +23,7 @@ motion-forge-http.workspace = true
 motion-forge-web-export.workspace = true
 motion-forge-figma.workspace = true
 motion-forge-ingest.workspace = true
+motion-forge-image-gen.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 tokio.workspace = true
