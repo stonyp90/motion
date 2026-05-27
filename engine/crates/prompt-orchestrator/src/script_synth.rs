@@ -56,7 +56,7 @@ pub async fn synthesize_script(
         .with_temperature(0.6);
     let raw: SynthBrief = LlmBackendExt::complete_into(llm, &req).await?;
 
-    let scenes: Vec<SceneScript> = raw
+    let mut scenes: Vec<SceneScript> = raw
         .scenes
         .into_iter()
         .enumerate()
@@ -72,11 +72,151 @@ pub async fn synthesize_script(
         })
         .collect();
 
+    // Post-process pass 1: enforce a consistent illustration style
+    // across every scene by lifting the style modifiers from scene 1
+    // and re-appending them to every subsequent scene's prompt. The
+    // LLM is told to be consistent in the system prompt but Recraft
+    // routinely drifts (scene 3 goes 3d after scenes 1-2 were flat) —
+    // this is a deterministic guarantee.
+    enforce_style_consistency(&mut scenes);
+
     Ok(Brief {
         scenes,
         language: raw.language.unwrap_or(Lang::English),
         total_duration_sec: Some(d),
     })
+}
+
+/// Style-modifier tokens we look for in scene 1's illustration_prompt
+/// and re-apply to every other scene. Lowercased; matched as
+/// substrings. Order matters — we preserve the original phrasing.
+const STYLE_MODIFIER_PHRASES: &[&str] = &[
+    "flat vector illustration",
+    "flat vector",
+    "vector illustration",
+    "isometric flat",
+    "isometric",
+    "line illustration",
+    "3d soft",
+    "modern flat illustration",
+    "minimal line art",
+    "monochrome",
+];
+
+/// Color-palette token patterns we lift to keep the palette stable.
+/// Looks for phrases like "deep navy + emerald", "warm grey + amber".
+const PALETTE_HINTS: &[&str] = &[
+    "deep navy",
+    "warm grey",
+    "warm gray",
+    "emerald accent",
+    "amber accent",
+    "mint accent",
+    "teal accent",
+    "monochrome with",
+];
+
+/// Lift style + palette modifiers from `scenes[0].illustration_prompt`
+/// and re-apply them to every other scene's prompt, so Recraft can't
+/// drift mid-video. Idempotent — a prompt that already contains the
+/// modifier isn't double-stamped.
+fn enforce_style_consistency(scenes: &mut [SceneScript]) {
+    let Some(first_prompt) = scenes
+        .first()
+        .and_then(|s| s.illustration_prompt.as_deref())
+    else {
+        return;
+    };
+    let style_anchor = extract_style_anchor(first_prompt);
+    if style_anchor.is_empty() {
+        return;
+    }
+    for scene in scenes.iter_mut().skip(1) {
+        let Some(prompt) = scene.illustration_prompt.as_mut() else {
+            continue;
+        };
+        let lower = prompt.to_ascii_lowercase();
+        let mut needs = Vec::new();
+        for token in &style_anchor {
+            if !lower.contains(&token.to_ascii_lowercase()) {
+                needs.push(token.clone());
+            }
+        }
+        if !needs.is_empty() {
+            // Append, separated from existing copy with a comma.
+            if !prompt.trim_end().ends_with(',') {
+                prompt.push(',');
+            }
+            prompt.push(' ');
+            prompt.push_str(&needs.join(", "));
+        }
+    }
+}
+
+/// Pull the distinctive style + palette tokens from a prompt. Returns
+/// the substrings in the order they appeared (so we preserve the
+/// art director's phrasing rather than a normalized re-write).
+fn extract_style_anchor(prompt: &str) -> Vec<String> {
+    let lower = prompt.to_ascii_lowercase();
+    let mut out: Vec<(usize, String)> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for token in STYLE_MODIFIER_PHRASES.iter().chain(PALETTE_HINTS.iter()) {
+        if let Some(pos) = lower.find(token) {
+            // Recover the original (cased) substring from the prompt.
+            let raw = &prompt[pos..pos + token.len()];
+            if seen.insert(token.to_ascii_lowercase()) {
+                out.push((pos, raw.to_string()));
+            }
+        }
+    }
+    out.sort_by_key(|(pos, _)| *pos);
+    out.into_iter().map(|(_, s)| s).collect()
+}
+
+/// Apply VO-weighted beat-grid pacing: estimate each scene's duration
+/// from the spoken word count (~2.6 words/sec at conversational pace)
+/// plus a small tail for breathing room, then scale proportionally to
+/// hit the target total. Scenes without VO get a fixed pillow time.
+/// Returns the per-scene durations in seconds, indexed parallel to
+/// `scenes`. The orchestrator (in `brief_to_timeline`) consumes
+/// these to size each scene's shot window.
+///
+/// Snaps each result to the nearest 0.5s so cuts land on a beat,
+/// the way a human editor would cut to a music bed.
+pub fn pace_scenes(scenes: &[SceneScript], target_total_sec: f32) -> Vec<f32> {
+    if scenes.is_empty() {
+        return Vec::new();
+    }
+    const WORDS_PER_SEC: f32 = 2.6;
+    const VO_TAIL_SEC: f32 = 0.5;
+    const SILENT_SCENE_SEC: f32 = 2.5;
+    const MIN_SCENE_SEC: f32 = 1.0;
+    let raw: Vec<f32> = scenes
+        .iter()
+        .map(|s| match s.vo.as_deref() {
+            Some(vo) if !vo.trim().is_empty() => {
+                let words = vo.split_whitespace().count().max(1) as f32;
+                (words / WORDS_PER_SEC + VO_TAIL_SEC).max(MIN_SCENE_SEC)
+            }
+            _ => SILENT_SCENE_SEC,
+        })
+        .collect();
+    let raw_total: f32 = raw.iter().sum();
+    let target = target_total_sec.max(MIN_SCENE_SEC * scenes.len() as f32);
+    let scale = if raw_total > 0.0 {
+        target / raw_total
+    } else {
+        1.0
+    };
+    raw.into_iter()
+        .map(|d| snap_to_beat((d * scale).max(MIN_SCENE_SEC)))
+        .collect()
+}
+
+/// Snap to the nearest 0.5s. Matches how a human editor cuts to a
+/// music bed — beats land on the half-second grid.
+fn snap_to_beat(sec: f32) -> f32 {
+    (sec * 2.0).round() / 2.0
 }
 
 const SYSTEM_PROMPT: &str = "You are a B2B explainer-video scriptwriter AND an art director who has \
@@ -246,5 +386,89 @@ mod tests {
         let backend = MockBackend::new(canned);
         let brief = synthesize_script(&backend, "x", 5.0, 1).await.unwrap();
         assert!(brief.scenes[0].vo.is_none());
+    }
+
+    #[tokio::test]
+    async fn enforce_style_consistency_appends_modifiers_from_scene_one() {
+        // Scene 1 sets the style; scene 2 has no style tokens; scene 3
+        // already has the same tokens — should not get them duplicated.
+        let canned = r#"{
+            "scenes": [
+                { "id": "1.0", "vo": "Open.",  "visual": "x", "illustration_prompt": "isometric SaaS dashboard, flat vector illustration, deep navy + emerald accent" },
+                { "id": "2.0", "vo": "Middle.", "visual": "y", "illustration_prompt": "three avatars in a half-circle huddle" },
+                { "id": "3.0", "vo": "Close.",  "visual": "z", "illustration_prompt": "Chrono logo lockup, flat vector illustration, deep navy + amber accent" }
+            ]
+        }"#;
+        let backend = MockBackend::new(canned);
+        let brief = synthesize_script(&backend, "x", 15.0, 3).await.unwrap();
+        // Scene 2 had no style tokens → modifiers from scene 1 appended.
+        let s2 = brief.scenes[1].illustration_prompt.as_deref().unwrap();
+        assert!(
+            s2.contains("flat vector illustration"),
+            "scene 2 should inherit scene 1's style: {s2}"
+        );
+        assert!(s2.contains("deep navy"));
+        // Scene 3 already has flat vector — not double-stamped.
+        let s3 = brief.scenes[2].illustration_prompt.as_deref().unwrap();
+        let occurrences = s3.matches("flat vector illustration").count();
+        assert_eq!(
+            occurrences, 1,
+            "scene 3 should not duplicate the style token: {s3}"
+        );
+    }
+
+    #[test]
+    fn pace_scenes_weights_by_vo_length_and_snaps_to_beat() {
+        use crate::brief::SceneScript;
+        let scenes = vec![
+            // 4 words → ~1.5s + 0.5 tail = ~2.0s raw
+            SceneScript {
+                id: "1.0".into(),
+                vo: Some("Quick punchy opener line.".into()),
+                visual: String::new(),
+                illustration_prompt: None,
+                sub_beats: Vec::new(),
+            },
+            // 26 words → ~10s + 0.5 tail = ~10.5s raw — gets the lion's share
+            SceneScript {
+                id: "2.0".into(),
+                vo: Some(
+                    "Here we walk through the long detailed explanation with all the customer evidence numbers and mechanism details that prove the claim is real."
+                        .into(),
+                ),
+                visual: String::new(),
+                illustration_prompt: None,
+                sub_beats: Vec::new(),
+            },
+            // No VO → fixed pillow time.
+            SceneScript {
+                id: "3.0".into(),
+                vo: None,
+                visual: String::new(),
+                illustration_prompt: None,
+                sub_beats: Vec::new(),
+            },
+        ];
+        let paced = pace_scenes(&scenes, 18.0);
+        assert_eq!(paced.len(), 3);
+        // Long-VO scene should be biggest.
+        assert!(
+            paced[1] > paced[0] && paced[1] > paced[2],
+            "long VO scene should get the most time: {paced:?}"
+        );
+        // Each value snaps to 0.5s grid.
+        for d in &paced {
+            assert_eq!(
+                (d * 2.0).round() as i32 as f32 / 2.0,
+                *d,
+                "{d} not on 0.5s beat grid"
+            );
+        }
+        // Total close to target (small drift OK from beat-snap).
+        let total: f32 = paced.iter().sum();
+        assert!(
+            (total - 18.0).abs() < 1.5,
+            "total {total} should be ~18s ± 1.5s"
+        );
     }
 }

@@ -741,7 +741,21 @@ pub async fn brief_to_timeline(
         .total_duration_sec
         .filter(|d| *d > 0.0)
         .unwrap_or(scene_count * 3.0);
-    let per_scene = (total / scene_count).max(0.5);
+    // Per-scene durations: VO-weighted beat-grid pacing instead of
+    // even division. A scene with a 4-word line gets ~1.5s; a scene
+    // with a 12-word line gets ~5s. Results snap to the nearest 0.5s
+    // so cuts land on a music-bed beat. Falls back to even division
+    // when the brief has no VO at all (empty raw_total).
+    let paced = script_synth::pace_scenes(&brief.scenes, total);
+    let even = (total / scene_count).max(0.5);
+    let per_scene_average = paced.iter().sum::<f32>() / paced.len().max(1) as f32;
+    // Use `per_scene_average` for the LLM prompt budget below; per-scene
+    // actual duration comes from `paced[i]` inside the loop.
+    let per_scene = if per_scene_average > 0.0 {
+        per_scene_average
+    } else {
+        even
+    };
 
     let cast_header = if cast.is_empty() {
         String::new()
@@ -767,10 +781,11 @@ pub async fn brief_to_timeline(
     let mut all_shots: Vec<Shot> = Vec::with_capacity(brief.scenes.len());
     let mut cursor = 0.0_f32;
     for (i, scene) in brief.scenes.iter().enumerate() {
+        let scene_dur = paced.get(i).copied().unwrap_or(per_scene);
         let prompt = build_scene_prompt(scene, &brief, &cast_header, i);
         let per = PromptOrchestrator::new(backend.clone())
             .with_composition(comp_w, comp_h, fps)
-            .with_duration(per_scene);
+            .with_duration(scene_dur);
 
         let scene_timeline = match per.orchestrate(&prompt, &style).await {
             Ok(t) => t,
@@ -780,7 +795,7 @@ pub async fn brief_to_timeline(
                     error = %e,
                     "scene generate failed; using fallback timeline for this beat"
                 );
-                fallback_timeline(&prompt, &style, comp_w, comp_h, fps, per_scene)
+                fallback_timeline(&prompt, &style, comp_w, comp_h, fps, scene_dur)
             }
         };
 
@@ -798,7 +813,7 @@ pub async fn brief_to_timeline(
             shot.description = format!("[{}] {}", scene.id, shot.description);
             all_shots.push(shot);
         }
-        cursor += per_scene;
+        cursor += scene_dur;
     }
 
     Ok(LottieTimeline {
