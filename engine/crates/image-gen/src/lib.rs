@@ -22,9 +22,11 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
+pub mod key_source;
 pub mod recraft;
 pub mod svg_sanitize;
 
+pub use key_source::{KeySource, KeyVaultKeySource, StaticKeySource, key_source_from_env};
 pub use recraft::RecraftBackend;
 
 /// What a caller wants generated. Stays minimal on purpose — anything
@@ -101,31 +103,42 @@ pub trait ImageGen: Send + Sync {
 }
 
 /// Boot the configured backend from env. Order: explicit env override
-/// first, then Recraft if its key is set, else a `NotImplemented` stub
-/// that errors out clearly.
+/// first, then Recraft if a key source is available
+/// (`RECRAFT_API_KEY` or Key Vault), else a `MissingConfig` error.
 ///
 /// Env:
 ///   MOTION_FORGE_IMAGE_BACKEND  — "recraft" | (future) "dalle" | "imagen"
-///   RECRAFT_API_KEY             — required for Recraft
+///   RECRAFT_API_KEY             — env-var key source (local dev, CI)
+///   AZURE_KEY_VAULT_URI         — Key Vault host (e.g. https://kv-mf-prod-….vault.azure.net)
+///   RECRAFT_KEY_SECRET_NAME     — secret name under the Key Vault
+///   AZURE_CLIENT_ID             — UAMI client id (only when >1 UAMI is attached)
+///
+/// The Key Vault path resolves the secret through IMDS using the
+/// container's User-Assigned Managed Identity and refreshes every 5
+/// minutes so a key rotation propagates without a redeploy.
 pub fn backend_from_env() -> Result<Box<dyn ImageGen>, ImageGenError> {
+    let key_source = key_source_from_env();
     let pick = std::env::var("MOTION_FORGE_IMAGE_BACKEND")
         .ok()
-        .or_else(|| {
-            std::env::var("RECRAFT_API_KEY")
-                .ok()
-                .map(|_| "recraft".into())
-        });
+        .or_else(|| key_source.as_ref().map(|_| "recraft".into()));
     match pick.as_deref() {
         Some("recraft") => {
-            let key = std::env::var("RECRAFT_API_KEY")
-                .map_err(|_| ImageGenError::MissingConfig("RECRAFT_API_KEY not set".into()))?;
-            Ok(Box::new(RecraftBackend::new(key)))
+            let src = key_source.ok_or_else(|| {
+                ImageGenError::MissingConfig(
+                    "no Recraft key configured; set RECRAFT_API_KEY or AZURE_KEY_VAULT_URI + \
+                     RECRAFT_KEY_SECRET_NAME"
+                        .into(),
+                )
+            })?;
+            Ok(Box::new(RecraftBackend::with_key_source(src)))
         }
         Some(other) => Err(ImageGenError::MissingConfig(format!(
             "unknown MOTION_FORGE_IMAGE_BACKEND={other} (supported: recraft)"
         ))),
         None => Err(ImageGenError::MissingConfig(
-            "no image backend configured; set MOTION_FORGE_IMAGE_BACKEND or RECRAFT_API_KEY".into(),
+            "no image backend configured; set MOTION_FORGE_IMAGE_BACKEND, RECRAFT_API_KEY, or \
+             AZURE_KEY_VAULT_URI + RECRAFT_KEY_SECRET_NAME"
+                .into(),
         )),
     }
 }

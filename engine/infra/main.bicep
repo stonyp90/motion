@@ -53,6 +53,10 @@ param deployTimestamp string = utcNow('yyyyMMddHHmmss')
 @description('Keycloak bootstrap admin password. Used for the initial /admin login on the master realm; rotate via Keycloak admin UI post-deploy. The Keycloak container reads this from a Container Apps secret reference.')
 param keycloakAdminPassword string = newGuid()
 
+@secure()
+@description('Recraft v3 API key. Stored as a Key Vault secret named `recraft-api-key`; the API container reads it at boot via the User-Assigned Managed Identity (no static env var, no ACA secret-ref). Empty default lets first-deploys succeed without it — set with `az keyvault secret set --vault-name <kv> --name recraft-api-key --value <key>` (or pass `--parameters recraftApiKey=<key>` on the next deploy). Empty value uses bicep guidance for @secure parameters (https://aka.ms/bicep/linter-diagnostics#secure-parameter-default).')
+param recraftApiKey string = ''
+
 @description('GPU workload-profile SKU for the segment job. Default NC8as-T4 (~$1.20/hr). Requires GPU quota.')
 param gpuProfileType string = 'Consumption-GPU-NC8as-T4'
 
@@ -553,6 +557,34 @@ resource kvSecretsUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
+// ---- Recraft v3 API key (Key Vault secret) ----
+//
+// The ACA `apiApp` resolves this at boot via IMDS using the UAMI; the
+// engine refreshes every 5 minutes so rotating the secret (either via
+// `az keyvault secret set` or by bumping the `recraftApiKey` param)
+// propagates without a redeploy. The kvSecretsUser role assignment
+// above grants the UAMI the `get` permission needed to read it.
+//
+// The secret is only created when `recraftApiKey` is non-empty. Key
+// Vault refuses to store an empty `value`, so seeding the param with
+// a placeholder would still break the deploy; better to skip secret
+// creation entirely on first-deploys and let the operator run
+// `az keyvault secret set` once before turning on image-gen.
+//
+// `attributes.enabled = true` is the default — left explicit so a future
+// operator hunting for the right knob doesn't have to read the API ref.
+var recraftKeySecretName = 'recraft-api-key'
+
+resource recraftKeySecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' = if (!empty(recraftApiKey)) {
+  parent: keyVault
+  name: recraftKeySecretName
+  properties: {
+    value: recraftApiKey
+    attributes: { enabled: true }
+    contentType: 'text/plain; provider=recraft-v3'
+  }
+}
+
 // ---- Azure OpenAI (optional) ----
 
 resource openAi 'Microsoft.CognitiveServices/accounts@2024-10-01' = if (enableOpenAi) {
@@ -729,6 +761,14 @@ resource apiApp 'Microsoft.App/containerApps@2025-01-01' = {
             // web frontend's `/api/auth/*` routes mint.
             { name: 'KEYCLOAK_ISSUER',   value: 'https://${names.keycloakApp}.${acaEnv.properties.defaultDomain}/realms/controlcraft' }
             { name: 'KEYCLOAK_AUDIENCE', value: 'motion-forge-web,motion-forge-engine' }
+            // Recraft v3 API key — resolved via Key Vault at boot using
+            // the UAMI (IMDS). The engine caches for 5 minutes so a
+            // rotation in Key Vault propagates without a redeploy. We
+            // deliberately do NOT plumb the key as a static env var or
+            // ACA secretref — that's the leak surface this whole module
+            // exists to close. See `image-gen/src/key_source.rs`.
+            { name: 'AZURE_KEY_VAULT_URI',      value: keyVault.properties.vaultUri }
+            { name: 'RECRAFT_KEY_SECRET_NAME',  value: recraftKeySecretName }
             // Azure Communication Services for transactional email.
             // The engine's `notifications` module reads these to pick
             // the AzureCommsEmailService backend + sign + send.
@@ -774,7 +814,15 @@ resource apiApp 'Microsoft.App/containerApps@2025-01-01' = {
       volumes: enableNfsModelMount ? [ { name: 'models', storageType: 'NfsAzureFile', storageName: 'models' } ] : []
     }
   }
-  dependsOn: [ acrPullRoleAssignment, storageBlobDataContributor ]
+  dependsOn: [
+    acrPullRoleAssignment
+    storageBlobDataContributor
+    // Container must not boot before the UAMI can read the secret it's
+    // about to GET from Key Vault — order both the role grant and the
+    // secret itself.
+    kvSecretsUser
+    recraftKeySecret
+  ]
 }
 
 // ---- managed cert for www.controlcraft.io (auto-issued by ACA) -------
@@ -1271,6 +1319,11 @@ output cosmosEndpoint string = enableCosmos ? cosmos.properties.documentEndpoint
 output managedIdentityClientId string = managedIdentity.properties.clientId
 output openAiEndpoint string = enableOpenAi ? openAi.properties.endpoint : ''
 output keyVaultUri string = keyVault.properties.vaultUri
+output keyVaultName string = keyVault.name
+// Name of the secret the engine looks up at boot (`RECRAFT_KEY_SECRET_NAME`).
+// Echoed as an output so a `az keyvault secret set` from the deploy log
+// can copy-paste the exact name without re-reading the template.
+output recraftKeySecretName string = recraftKeySecretName
 output workspaceId string = workspace.id
 
 // e2e-verify-1748102400

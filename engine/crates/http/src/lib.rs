@@ -17,6 +17,7 @@ pub mod api_keys;
 pub mod auth;
 pub mod notifications;
 pub mod rate_limit;
+pub mod spend_cap;
 pub mod stt_route;
 pub mod timefmt;
 pub mod usage;
@@ -54,6 +55,7 @@ use crate::api_keys::{ApiKeyStore, IssuedApiKey, Tier};
 use crate::auth::{Claims, KeycloakAuthLayer, KeycloakConfig, Principal, PrincipalKind};
 use crate::notifications::{EmailService, NotificationPrefs, NotificationPrefsStore};
 use crate::rate_limit::RateLimitLayer;
+use crate::spend_cap::{SpendDecision, UsageStore};
 use crate::usage::{UsageLog, UsageReport};
 use axum::Extension;
 use stt_route::{SttRouteConfig, stt_stream_handler};
@@ -65,6 +67,13 @@ struct AppState {
     notif_prefs: NotificationPrefsStore,
     email: Arc<dyn EmailService>,
     usage: UsageLog,
+    /// Per-principal rolling-24h image-gen spend tracker. Backs the
+    /// pre-flight 402 check in [`brief_generate`] and any other route
+    /// that fans out into Recraft v3 calls. In-memory `DashMap` is
+    /// fine for the single-replica ACA shape we run today; swapping in
+    /// a Cosmos- or Redis-backed implementation is a one-file change
+    /// behind the same `UsageStore` shape.
+    spend_cap: UsageStore,
 }
 
 pub async fn serve(bind: &str) -> Result<()> {
@@ -90,6 +99,7 @@ pub async fn serve(bind: &str) -> Result<()> {
         notif_prefs,
         email,
         usage,
+        spend_cap: UsageStore::new(),
     };
     let stt_state = Arc::new(SttRouteConfig::from_env());
     if stt_state.model_path.is_none() {
@@ -1225,16 +1235,57 @@ pub struct BriefGenerateResponse {
 /// Recraft v3 illustrations → rendered Lottie JSON with the SVGs baked
 /// in as background image layers.
 ///
-/// Requires `RECRAFT_API_KEY` (or `MOTION_FORGE_IMAGE_BACKEND`) for the
-/// generative path. Without it, the call still succeeds — the timeline
-/// just renders text-only (no illustrations) — so the client gets a
-/// useful preview either way.
+/// Requires `RECRAFT_API_KEY` (or Key Vault config — see
+/// [`motion_forge_image_gen::backend_from_env`]) for the generative
+/// path. Without it, the call still succeeds — the timeline just
+/// renders text-only (no illustrations) — so the client gets a useful
+/// preview either way.
+///
+/// ## Cost guard
+///
+/// Before fanning out into Recraft v3 we project the worst-case spend
+/// (`scene_count * COST_PER_IMAGE_MICROS`) and check it against the
+/// principal's rolling-24h ceiling in
+/// [`crate::spend_cap::UsageStore`]. If projected total spend would
+/// exceed the tier cap, the call returns `402 Payment Required` with
+/// a structured body — *no* LLM tokens, *no* image-gen calls are made.
+/// This is the second layer of defence behind
+/// [`MAX_BRIEF_SCENE_COUNT`] (which bounds a single call) and stops a
+/// compromised credential from running the monthly Recraft bill dry
+/// across many calls.
 async fn brief_generate(
+    State(state): State<AppState>,
+    principal: Option<Extension<Principal>>,
     Json(req): Json<BriefGenerateRequest>,
 ) -> Result<Json<BriefGenerateResponse>, ApiError> {
     // Guard the cost-bomb / quota-exhaustion vector before doing any
     // upstream work (LLM tokens, image-gen calls, disk writes).
     validate_brief_bounds(&req.brief, req.duration, req.scene_count)?;
+
+    // Per-principal pre-flight: would the worst-case fan-out push the
+    // principal over their rolling-24h spend cap? Skip when no
+    // principal is attached (open path / dev). The projection is
+    // intentionally pessimistic — `scene_count * cost_per_image` is
+    // what we'd spend if every scene's image-gen call succeeded.
+    let principal_for_cap = principal.as_ref().map(|e| e.0.clone());
+    let projected_max_micros = (req.scene_count as u64)
+        .saturating_mul(motion_forge_image_gen::recraft::COST_PER_IMAGE_MICROS);
+    if let Some(p) = principal_for_cap.as_ref() {
+        let decision = state
+            .spend_cap
+            .check_room(&p.id, &p.tier_label, projected_max_micros);
+        if !decision.allowed {
+            tracing::warn!(
+                principal_id = %p.id,
+                tier = %decision.tier_label,
+                current_micros = decision.current_micros,
+                projected_micros = decision.projected_micros,
+                cap_micros = decision.cap_micros,
+                "brief_generate rejected: spend cap would be exceeded"
+            );
+            return Err(ApiError::payment_required(&decision));
+        }
+    }
 
     // 1. Free-form brief → structured Brief with per-scene illustration_prompt.
     let backend = llm::auto_local_first("{\"scenes\":[]}").await;
@@ -1277,6 +1328,20 @@ async fn brief_generate(
             )
         }
     };
+
+    // Record the actual (post-fan-out) cost against the principal's
+    // 24-h window. Bundle's `total_cost_micros` is the sum of every
+    // successful Recraft call; failed scenes contribute zero so we
+    // don't over-charge a quota that the provider rejected.
+    if let Some(p) = principal_for_cap.as_ref() {
+        state.spend_cap.record(&p.id, bundle.total_cost_micros);
+        tracing::info!(
+            principal_id = %p.id,
+            tier = %p.tier_label,
+            cost_micros = bundle.total_cost_micros,
+            "image-gen spend recorded"
+        );
+    }
 
     // 3. Write the Lottie JSON into a per-call sandbox dir. Caller
     //    may rename via `out_lottie` but cannot escape the sandbox
@@ -1416,6 +1481,11 @@ pub struct ThemeEntry {
 struct ApiError {
     status: StatusCode,
     message: String,
+    /// Optional richer body — when set, replaces the default
+    /// `{"error": message}` shape. Used by the spend-cap 402 so
+    /// callers can read the per-principal numbers (current spend,
+    /// cap, etc.) directly off the response body.
+    body: Option<serde_json::Value>,
 }
 
 impl ApiError {
@@ -1423,32 +1493,68 @@ impl ApiError {
         Self {
             status: StatusCode::BAD_REQUEST,
             message: e.to_string(),
+            body: None,
         }
     }
     fn not_found<E: std::fmt::Display>(e: E) -> Self {
         Self {
             status: StatusCode::NOT_FOUND,
             message: e.to_string(),
+            body: None,
         }
     }
     fn forbidden<E: std::fmt::Display>(e: E) -> Self {
         Self {
             status: StatusCode::FORBIDDEN,
             message: e.to_string(),
+            body: None,
         }
     }
     fn internal<E: std::fmt::Display>(e: E) -> Self {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             message: e.to_string(),
+            body: None,
+        }
+    }
+
+    /// HTTP 402 with a structured body — emitted when a principal's
+    /// rolling-24h image-gen spend plus the projected max would
+    /// exceed the tier cap.
+    fn payment_required(decision: &SpendDecision) -> Self {
+        let body = serde_json::json!({
+            "error": "spend_cap_exceeded",
+            "detail": format!(
+                "24h image-gen spend cap reached for tier `{tier}`: \
+                 current={current} micros, projected_max={projected} micros, cap={cap} micros",
+                tier = decision.tier_label,
+                current = decision.current_micros,
+                projected = decision.projected_micros,
+                cap = decision.cap_micros,
+            ),
+            "tier": decision.tier_label,
+            "current_micros": decision.current_micros,
+            "projected_micros": decision.projected_micros,
+            "cap_micros": decision.cap_micros,
+            "window_hours": 24,
+        });
+        Self {
+            status: StatusCode::PAYMENT_REQUIRED,
+            message: "spend_cap_exceeded".into(),
+            body: Some(body),
         }
     }
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let body = Json(serde_json::json!({ "error": self.message }));
-        (self.status, body).into_response()
+        match self.body {
+            Some(b) => (self.status, Json(b)).into_response(),
+            None => {
+                let body = Json(serde_json::json!({ "error": self.message }));
+                (self.status, body).into_response()
+            }
+        }
     }
 }
 
@@ -1928,6 +2034,7 @@ mod tests {
             notif_prefs: NotificationPrefsStore::open_for_test(tmp.path().join("notifications")),
             email: std::sync::Arc::new(crate::notifications::StubEmailService),
             usage: UsageLog::open_for_test(tmp.path().join("usage.jsonl")),
+            spend_cap: UsageStore::new(),
         };
         let app = Router::new()
             .route("/healthz", get(healthz))

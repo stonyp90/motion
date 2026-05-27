@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.43.8.12551",
-      "templateHash": "6657414012564930553"
+      "templateHash": "5805519216951025846"
     }
   },
   "parameters": {
@@ -32,6 +32,20 @@
         "description": "Image tag for mf-api. The CI pipeline bumps this on every revision."
       }
     },
+    "webImageTag": {
+      "type": "string",
+      "defaultValue": "latest",
+      "metadata": {
+        "description": "Image tag for the ControlCraft web frontend (Next.js standalone). The CI pipeline bumps this on every web push."
+      }
+    },
+    "keycloakImageTag": {
+      "type": "string",
+      "defaultValue": "latest",
+      "metadata": {
+        "description": "Image tag for the Keycloak identity provider (custom build with the motion-forge realm baked in)."
+      }
+    },
     "segmentImageTag": {
       "type": "string",
       "defaultValue": "latest",
@@ -44,6 +58,27 @@
       "defaultValue": "latest",
       "metadata": {
         "description": "Image tag for the render job."
+      }
+    },
+    "deployTimestamp": {
+      "type": "string",
+      "defaultValue": "[utcNow('yyyyMMddHHmmss')]",
+      "metadata": {
+        "description": "Per-deploy timestamp salt for ACA revisionSuffix uniqueness. Defaults to utcNow() so every deployment produces fresh suffixes even when image tags are unchanged (otherwise web-deploy.yml — which only passes webImageTag — would collide with prior revisions of the api/keycloak apps whose tag stays at the default `latest`)."
+      }
+    },
+    "keycloakAdminPassword": {
+      "type": "securestring",
+      "defaultValue": "[newGuid()]",
+      "metadata": {
+        "description": "Keycloak bootstrap admin password. Used for the initial /admin login on the master realm; rotate via Keycloak admin UI post-deploy. The Keycloak container reads this from a Container Apps secret reference."
+      }
+    },
+    "recraftApiKey": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Recraft v3 API key. Stored as a Key Vault secret named `recraft-api-key`; the API container reads it at boot via the User-Assigned Managed Identity (no static env var, no ACA secret-ref). Empty default lets first-deploys succeed without it — set with `az keyvault secret set --vault-name <kv> --name recraft-api-key --value <key>` (or pass `--parameters recraftApiKey=<key>` on the next deploy). Empty value uses bicep guidance for @secure parameters (https://aka.ms/bicep/linter-diagnostics#secure-parameter-default)."
       }
     },
     "gpuProfileType": {
@@ -102,10 +137,13 @@
       "defaultValue": [
         "http://localhost:3001",
         "http://localhost:3007",
+        "https://controlcraft.io",
+        "https://www.controlcraft.io",
+        "https://app.controlcraft.io",
         "https://motion.ursly.io"
       ],
       "metadata": {
-        "description": "CORS allowed origins for the API container. Default locks to localhost + motion.ursly.io; set to [] to disable CORS entirely. Avoid ['*'] in production (SOC 2 CC6)."
+        "description": "CORS allowed origins for the API container. Default locks to localhost + the controlcraft.io public domain + the ursly subdomain (legacy). Set to [] to disable CORS entirely. Avoid ['*'] in production (SOC 2 CC6)."
       }
     },
     "openAiDeploymentName": {
@@ -158,6 +196,24 @@
         "description": "Max replicas for the API."
       }
     },
+    "webMinReplicas": {
+      "type": "int",
+      "defaultValue": 1,
+      "minValue": 0,
+      "maxValue": 10,
+      "metadata": {
+        "description": "Min replicas for the web app. 1 = warm; 0 saves $$ but adds cold-start."
+      }
+    },
+    "webMaxReplicas": {
+      "type": "int",
+      "defaultValue": 5,
+      "minValue": 1,
+      "maxValue": 100,
+      "metadata": {
+        "description": "Max replicas for the web app."
+      }
+    },
     "tags": {
       "type": "object",
       "defaultValue": {
@@ -185,6 +241,12 @@
       "openAi": "[format('oai-mf-{0}-{1}', parameters('env'), variables('suffix'))]",
       "acaEnv": "[format('cae-mf-{0}-{1}', parameters('env'), variables('suffix'))]",
       "apiApp": "[format('ca-mf-api-{0}', parameters('env'))]",
+      "webApp": "[format('ca-controlcraft-web-{0}', parameters('env'))]",
+      "keycloakApp": "[format('ca-controlcraft-keycloak-{0}', parameters('env'))]",
+      "keycloakDataShare": "keycloakdata",
+      "keycloakDataStorage": "keycloak-data",
+      "comms": "[format('acs-controlcraft-{0}-{1}', parameters('env'), take(variables('suffix'), 8))]",
+      "emailService": "[format('aes-controlcraft-{0}-{1}', parameters('env'), take(variables('suffix'), 8))]",
       "segmentJob": "[format('caj-mf-segment-{0}', parameters('env'))]",
       "renderJob": "[format('caj-mf-render-{0}', parameters('env'))]",
       "jobQueue": "jobs",
@@ -192,7 +254,8 @@
       "workdirContainer": "workdirs",
       "fdProfile": "[format('fd-mf-{0}-{1}', parameters('env'), variables('suffix'))]",
       "fdEndpoint": "[format('mf-{0}-{1}', parameters('env'), variables('suffix'))]"
-    }
+    },
+    "recraftKeySecretName": "recraft-api-key"
   },
   "resources": [
     {
@@ -486,6 +549,19 @@
       ]
     },
     {
+      "type": "Microsoft.Storage/storageAccounts/fileServices/shares",
+      "apiVersion": "2024-01-01",
+      "name": "[format('{0}/{1}/{2}', variables('names').files, 'default', 'keycloakdata')]",
+      "properties": {
+        "shareQuota": 100,
+        "enabledProtocols": "SMB",
+        "accessTier": "Premium"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/fileServices', variables('names').files, 'default')]"
+      ]
+    },
+    {
       "condition": "[parameters('enableCosmos')]",
       "type": "Microsoft.DocumentDB/databaseAccounts",
       "apiVersion": "2024-11-15",
@@ -593,6 +669,46 @@
       ]
     },
     {
+      "type": "Microsoft.Communication/communicationServices",
+      "apiVersion": "2023-06-01-preview",
+      "name": "[variables('names').comms]",
+      "location": "global",
+      "tags": "[parameters('tags')]",
+      "properties": {
+        "dataLocation": "United States",
+        "linkedDomains": [
+          "[resourceId('Microsoft.Communication/emailServices/domains', variables('names').emailService, 'AzureManagedDomain')]"
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Communication/emailServices/domains', variables('names').emailService, 'AzureManagedDomain')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Communication/emailServices",
+      "apiVersion": "2023-06-01-preview",
+      "name": "[variables('names').emailService]",
+      "location": "global",
+      "tags": "[parameters('tags')]",
+      "properties": {
+        "dataLocation": "United States"
+      }
+    },
+    {
+      "type": "Microsoft.Communication/emailServices/domains",
+      "apiVersion": "2023-06-01-preview",
+      "name": "[format('{0}/{1}', variables('names').emailService, 'AzureManagedDomain')]",
+      "location": "global",
+      "tags": "[parameters('tags')]",
+      "properties": {
+        "domainManagement": "AzureManaged",
+        "userEngagementTracking": "Disabled"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Communication/emailServices', variables('names').emailService)]"
+      ]
+    },
+    {
       "type": "Microsoft.Cache/redis",
       "apiVersion": "2024-11-01",
       "name": "[variables('names').redis]",
@@ -644,6 +760,22 @@
       "dependsOn": [
         "[resourceId('Microsoft.KeyVault/vaults', variables('names').keyVault)]",
         "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity)]"
+      ]
+    },
+    {
+      "condition": "[not(empty(parameters('recraftApiKey')))]",
+      "type": "Microsoft.KeyVault/vaults/secrets",
+      "apiVersion": "2024-11-01",
+      "name": "[format('{0}/{1}', variables('names').keyVault, variables('recraftKeySecretName'))]",
+      "properties": {
+        "value": "[parameters('recraftApiKey')]",
+        "attributes": {
+          "enabled": true
+        },
+        "contentType": "text/plain; provider=recraft-v3"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.KeyVault/vaults', variables('names').keyVault)]"
       ]
     },
     {
@@ -742,6 +874,24 @@
       ]
     },
     {
+      "type": "Microsoft.App/managedEnvironments/storages",
+      "apiVersion": "2025-01-01",
+      "name": "[format('{0}/{1}', variables('names').acaEnv, variables('names').keycloakDataStorage)]",
+      "properties": {
+        "azureFile": {
+          "accountName": "[variables('names').files]",
+          "accountKey": "[listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('names').files), '2024-01-01').keys[0].value]",
+          "shareName": "[variables('names').keycloakDataShare]",
+          "accessMode": "ReadWrite"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/managedEnvironments', variables('names').acaEnv)]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('names').files)]",
+        "[resourceId('Microsoft.Storage/storageAccounts/fileServices/shares', variables('names').files, 'default', 'keycloakdata')]"
+      ]
+    },
+    {
       "type": "Microsoft.App/containerApps",
       "apiVersion": "2025-01-01",
       "name": "[variables('names').apiApp]",
@@ -770,7 +920,7 @@
               }
             ],
             "corsPolicy": {
-              "allowedOrigins": "[parameters('corsAllowedOrigins')]",
+              "allowedOrigins": "[union(parameters('corsAllowedOrigins'), createArray(format('https://{0}.{1}', variables('names').webApp, reference(resourceId('Microsoft.App/managedEnvironments', variables('names').acaEnv), '2025-01-01').defaultDomain)))]",
               "allowedMethods": [
                 "GET",
                 "POST",
@@ -792,11 +942,16 @@
               "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity)]"
             }
           ],
-          "secrets": [],
+          "secrets": [
+            {
+              "name": "acs-key",
+              "value": "[listKeys(resourceId('Microsoft.Communication/communicationServices', variables('names').comms), '2023-06-01-preview').primaryKey]"
+            }
+          ],
           "maxInactiveRevisions": 2
         },
         "template": {
-          "revisionSuffix": "[substring(uniqueString(parameters('apiImageTag')), 0, 6)]",
+          "revisionSuffix": "[substring(uniqueString(parameters('apiImageTag'), parameters('deployTimestamp')), 0, 6)]",
           "containers": [
             {
               "name": "api",
@@ -849,6 +1004,38 @@
                 {
                   "name": "MOTION_FORGE_REDIS_HOST",
                   "value": "[format('{0}.redis.cache.windows.net', variables('names').redis)]"
+                },
+                {
+                  "name": "KEYCLOAK_ISSUER",
+                  "value": "[format('https://{0}.{1}/realms/controlcraft', variables('names').keycloakApp, reference(resourceId('Microsoft.App/managedEnvironments', variables('names').acaEnv), '2025-01-01').defaultDomain)]"
+                },
+                {
+                  "name": "KEYCLOAK_AUDIENCE",
+                  "value": "motion-forge-web,motion-forge-engine"
+                },
+                {
+                  "name": "AZURE_KEY_VAULT_URI",
+                  "value": "[reference(resourceId('Microsoft.KeyVault/vaults', variables('names').keyVault), '2024-11-01').vaultUri]"
+                },
+                {
+                  "name": "RECRAFT_KEY_SECRET_NAME",
+                  "value": "[variables('recraftKeySecretName')]"
+                },
+                {
+                  "name": "MOTION_FORGE_EMAIL_BACKEND",
+                  "value": "azure"
+                },
+                {
+                  "name": "AZURE_COMMS_ENDPOINT",
+                  "value": "[reference(resourceId('Microsoft.Communication/communicationServices', variables('names').comms), '2023-06-01-preview').hostName]"
+                },
+                {
+                  "name": "AZURE_COMMS_KEY",
+                  "secretRef": "acs-key"
+                },
+                {
+                  "name": "MOTION_FORGE_EMAIL_FROM",
+                  "value": "[format('donotreply@{0}', reference(resourceId('Microsoft.Communication/emailServices/domains', variables('names').emailService, 'AzureManagedDomain'), '2023-06-01-preview').fromSenderDomain)]"
                 },
                 {
                   "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
@@ -909,12 +1096,370 @@
         "[resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr)]",
         "[extensionResourceId(resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity), 'AcrPull'))]",
         "[resourceId('Microsoft.Insights/components', variables('names').appInsights)]",
+        "[resourceId('Microsoft.Communication/communicationServices', variables('names').comms)]",
         "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos)]",
+        "[resourceId('Microsoft.Communication/emailServices/domains', variables('names').emailService, 'AzureManagedDomain')]",
+        "[resourceId('Microsoft.KeyVault/vaults', variables('names').keyVault)]",
+        "[extensionResourceId(resourceId('Microsoft.KeyVault/vaults', variables('names').keyVault), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.KeyVault/vaults', variables('names').keyVault), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity), 'KeyVaultSecretsUser'))]",
         "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity)]",
         "[resourceId('Microsoft.CognitiveServices/accounts', variables('names').openAi)]",
+        "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('names').keyVault, variables('recraftKeySecretName'))]",
         "[resourceId('Microsoft.Cache/redis', variables('names').redis)]",
         "[resourceId('Microsoft.Storage/storageAccounts', variables('names').blob)]",
         "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', variables('names').blob), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', variables('names').blob), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity), 'StorageBlobDataContributor'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/managedEnvironments/managedCertificates",
+      "apiVersion": "2025-01-01",
+      "name": "[format('{0}/{1}', variables('names').acaEnv, 'mc-cae-mf-dev-75m-www-controlcraft-9785')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "properties": {
+        "subjectName": "www.controlcraft.io",
+        "domainControlValidation": "CNAME"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/managedEnvironments', variables('names').acaEnv)]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2025-01-01",
+      "name": "[variables('names').webApp]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "identity": {
+        "type": "UserAssigned",
+        "userAssignedIdentities": {
+          "[format('{0}', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity))]": {}
+        }
+      },
+      "properties": {
+        "managedEnvironmentId": "[resourceId('Microsoft.App/managedEnvironments', variables('names').acaEnv)]",
+        "workloadProfileName": "Consumption",
+        "configuration": {
+          "activeRevisionsMode": "Single",
+          "ingress": {
+            "external": true,
+            "targetPort": 3000,
+            "transport": "auto",
+            "allowInsecure": false,
+            "traffic": [
+              {
+                "latestRevision": true,
+                "weight": 100
+              }
+            ],
+            "customDomains": [
+              {
+                "name": "www.controlcraft.io",
+                "bindingType": "SniEnabled",
+                "certificateId": "[resourceId('Microsoft.App/managedEnvironments/managedCertificates', variables('names').acaEnv, 'mc-cae-mf-dev-75m-www-controlcraft-9785')]"
+              }
+            ]
+          },
+          "registries": [
+            {
+              "server": "[reference(resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr), '2024-11-01-preview').loginServer]",
+              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity)]"
+            }
+          ],
+          "secrets": [
+            {
+              "name": "kc-client-secret",
+              "value": "motion-forge-web-dev-secret"
+            },
+            {
+              "name": "kc-admin-password",
+              "value": "[parameters('keycloakAdminPassword')]"
+            },
+            {
+              "name": "acs-key",
+              "value": "[listKeys(resourceId('Microsoft.Communication/communicationServices', variables('names').comms), '2023-06-01-preview').primaryKey]"
+            }
+          ],
+          "maxInactiveRevisions": 2
+        },
+        "template": {
+          "revisionSuffix": "[substring(uniqueString(parameters('webImageTag'), parameters('deployTimestamp')), 0, 6)]",
+          "containers": [
+            {
+              "name": "web",
+              "image": "[format('{0}/controlcraft-web:{1}', reference(resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr), '2024-11-01-preview').loginServer, parameters('webImageTag'))]",
+              "resources": {
+                "cpu": "[json('0.25')]",
+                "memory": "0.5Gi"
+              },
+              "env": [
+                {
+                  "name": "NODE_ENV",
+                  "value": "production"
+                },
+                {
+                  "name": "PORT",
+                  "value": "3000"
+                },
+                {
+                  "name": "HOSTNAME",
+                  "value": "0.0.0.0"
+                },
+                {
+                  "name": "KEYCLOAK_ISSUER",
+                  "value": "[format('https://{0}.{1}/realms/controlcraft', variables('names').keycloakApp, reference(resourceId('Microsoft.App/managedEnvironments', variables('names').acaEnv), '2025-01-01').defaultDomain)]"
+                },
+                {
+                  "name": "KEYCLOAK_CLIENT_ID",
+                  "value": "motion-forge-web"
+                },
+                {
+                  "name": "KEYCLOAK_CLIENT_SECRET",
+                  "secretRef": "kc-client-secret"
+                },
+                {
+                  "name": "KEYCLOAK_ADMIN_USER",
+                  "value": "admin"
+                },
+                {
+                  "name": "KEYCLOAK_ADMIN_PASSWORD",
+                  "secretRef": "kc-admin-password"
+                },
+                {
+                  "name": "AZURE_COMMS_ENDPOINT",
+                  "value": "[reference(resourceId('Microsoft.Communication/communicationServices', variables('names').comms), '2023-06-01-preview').hostName]"
+                },
+                {
+                  "name": "AZURE_COMMS_KEY",
+                  "secretRef": "acs-key"
+                },
+                {
+                  "name": "EMAIL_FROM",
+                  "value": "[format('donotreply@{0}', reference(resourceId('Microsoft.Communication/emailServices/domains', variables('names').emailService, 'AzureManagedDomain'), '2023-06-01-preview').fromSenderDomain)]"
+                },
+                {
+                  "name": "EMAIL_FROM_NAME",
+                  "value": "ControlCraft"
+                },
+                {
+                  "name": "PUBLIC_APP_URL",
+                  "value": "https://www.controlcraft.io"
+                },
+                {
+                  "name": "ENGINE_BASE_URL",
+                  "value": "[format('https://{0}', reference(resourceId('Microsoft.App/containerApps', variables('names').apiApp), '2025-01-01').configuration.ingress.fqdn)]"
+                },
+                {
+                  "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+                  "value": "[reference(resourceId('Microsoft.Insights/components', variables('names').appInsights), '2020-02-02').ConnectionString]"
+                }
+              ],
+              "probes": [
+                {
+                  "type": "Liveness",
+                  "httpGet": {
+                    "path": "/",
+                    "port": 3000
+                  },
+                  "periodSeconds": 30,
+                  "failureThreshold": 3
+                },
+                {
+                  "type": "Readiness",
+                  "httpGet": {
+                    "path": "/",
+                    "port": 3000
+                  },
+                  "periodSeconds": 5,
+                  "failureThreshold": 3
+                },
+                {
+                  "type": "Startup",
+                  "httpGet": {
+                    "path": "/",
+                    "port": 3000
+                  },
+                  "periodSeconds": 5,
+                  "failureThreshold": 12
+                }
+              ]
+            }
+          ],
+          "scale": {
+            "minReplicas": "[parameters('webMinReplicas')]",
+            "maxReplicas": "[parameters('webMaxReplicas')]",
+            "rules": [
+              {
+                "name": "http-concurrency",
+                "http": {
+                  "metadata": {
+                    "concurrentRequests": "100"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/managedEnvironments', variables('names').acaEnv)]",
+        "[resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr)]",
+        "[extensionResourceId(resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity), 'AcrPull'))]",
+        "[resourceId('Microsoft.App/containerApps', variables('names').apiApp)]",
+        "[resourceId('Microsoft.Insights/components', variables('names').appInsights)]",
+        "[resourceId('Microsoft.Communication/communicationServices', variables('names').comms)]",
+        "[resourceId('Microsoft.Communication/emailServices/domains', variables('names').emailService, 'AzureManagedDomain')]",
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity)]",
+        "[resourceId('Microsoft.App/managedEnvironments/managedCertificates', variables('names').acaEnv, 'mc-cae-mf-dev-75m-www-controlcraft-9785')]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2025-01-01",
+      "name": "[variables('names').keycloakApp]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "identity": {
+        "type": "UserAssigned",
+        "userAssignedIdentities": {
+          "[format('{0}', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity))]": {}
+        }
+      },
+      "properties": {
+        "managedEnvironmentId": "[resourceId('Microsoft.App/managedEnvironments', variables('names').acaEnv)]",
+        "workloadProfileName": "Consumption",
+        "configuration": {
+          "activeRevisionsMode": "Single",
+          "ingress": {
+            "external": true,
+            "targetPort": 8080,
+            "transport": "auto",
+            "allowInsecure": false,
+            "traffic": [
+              {
+                "latestRevision": true,
+                "weight": 100
+              }
+            ]
+          },
+          "registries": [
+            {
+              "server": "[reference(resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr), '2024-11-01-preview').loginServer]",
+              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity)]"
+            }
+          ],
+          "secrets": [
+            {
+              "name": "kc-admin-pw",
+              "value": "[parameters('keycloakAdminPassword')]"
+            }
+          ],
+          "maxInactiveRevisions": 2
+        },
+        "template": {
+          "revisionSuffix": "[substring(uniqueString(parameters('keycloakImageTag'), parameters('deployTimestamp')), 0, 6)]",
+          "containers": [
+            {
+              "name": "keycloak",
+              "image": "[format('{0}/controlcraft-keycloak:{1}', reference(resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr), '2024-11-01-preview').loginServer, parameters('keycloakImageTag'))]",
+              "resources": {
+                "cpu": "[json('0.5')]",
+                "memory": "1Gi"
+              },
+              "env": [
+                {
+                  "name": "KC_DB",
+                  "value": "dev-file"
+                },
+                {
+                  "name": "KC_BOOTSTRAP_ADMIN_USERNAME",
+                  "value": "admin"
+                },
+                {
+                  "name": "KC_BOOTSTRAP_ADMIN_PASSWORD",
+                  "secretRef": "kc-admin-pw"
+                },
+                {
+                  "name": "KC_HOSTNAME",
+                  "value": "[format('{0}.{1}', variables('names').keycloakApp, reference(resourceId('Microsoft.App/managedEnvironments', variables('names').acaEnv), '2025-01-01').defaultDomain)]"
+                },
+                {
+                  "name": "KC_HOSTNAME_STRICT",
+                  "value": "false"
+                },
+                {
+                  "name": "KC_PROXY_HEADERS",
+                  "value": "xforwarded"
+                },
+                {
+                  "name": "KC_HTTP_ENABLED",
+                  "value": "true"
+                },
+                {
+                  "name": "KC_HEALTH_ENABLED",
+                  "value": "true"
+                },
+                {
+                  "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+                  "value": "[reference(resourceId('Microsoft.Insights/components', variables('names').appInsights), '2020-02-02').ConnectionString]"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "volumeName": "kcdata",
+                  "mountPath": "/opt/keycloak/data"
+                }
+              ],
+              "probes": [
+                {
+                  "type": "Liveness",
+                  "httpGet": {
+                    "path": "/health/live",
+                    "port": 9000
+                  },
+                  "periodSeconds": 30,
+                  "failureThreshold": 3
+                },
+                {
+                  "type": "Readiness",
+                  "httpGet": {
+                    "path": "/health/ready",
+                    "port": 9000
+                  },
+                  "periodSeconds": 10,
+                  "failureThreshold": 3
+                },
+                {
+                  "type": "Startup",
+                  "httpGet": {
+                    "path": "/health/started",
+                    "port": 9000
+                  },
+                  "periodSeconds": 10,
+                  "failureThreshold": 30
+                }
+              ]
+            }
+          ],
+          "scale": {
+            "minReplicas": 1,
+            "maxReplicas": 1
+          },
+          "volumes": [
+            {
+              "name": "kcdata",
+              "storageType": "AzureFile",
+              "storageName": "[variables('names').keycloakDataStorage]"
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/managedEnvironments', variables('names').acaEnv)]",
+        "[resourceId('Microsoft.App/managedEnvironments/storages', variables('names').acaEnv, variables('names').keycloakDataStorage)]",
+        "[resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr)]",
+        "[extensionResourceId(resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity), 'AcrPull'))]",
+        "[resourceId('Microsoft.Insights/components', variables('names').appInsights)]",
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity)]"
       ]
     },
     {
@@ -1207,6 +1752,26 @@
       "type": "string",
       "value": "[reference(resourceId('Microsoft.App/containerApps', variables('names').apiApp), '2025-01-01').configuration.ingress.fqdn]"
     },
+    "webIngressFqdn": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.App/containerApps', variables('names').webApp), '2025-01-01').configuration.ingress.fqdn]"
+    },
+    "keycloakIngressFqdn": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.App/containerApps', variables('names').keycloakApp), '2025-01-01').configuration.ingress.fqdn]"
+    },
+    "keycloakIssuer": {
+      "type": "string",
+      "value": "[format('https://{0}/realms/controlcraft', reference(resourceId('Microsoft.App/containerApps', variables('names').keycloakApp), '2025-01-01').configuration.ingress.fqdn)]"
+    },
+    "emailFromAddress": {
+      "type": "string",
+      "value": "[format('donotreply@{0}', reference(resourceId('Microsoft.Communication/emailServices/domains', variables('names').emailService, 'AzureManagedDomain'), '2023-06-01-preview').fromSenderDomain)]"
+    },
+    "acsHostname": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Communication/communicationServices', variables('names').comms), '2023-06-01-preview').hostName]"
+    },
     "acrLoginServer": {
       "type": "string",
       "value": "[reference(resourceId('Microsoft.ContainerRegistry/registries', variables('names').acr), '2024-11-01-preview').loginServer]"
@@ -1230,6 +1795,14 @@
     "keyVaultUri": {
       "type": "string",
       "value": "[reference(resourceId('Microsoft.KeyVault/vaults', variables('names').keyVault), '2024-11-01').vaultUri]"
+    },
+    "keyVaultName": {
+      "type": "string",
+      "value": "[variables('names').keyVault]"
+    },
+    "recraftKeySecretName": {
+      "type": "string",
+      "value": "[variables('recraftKeySecretName')]"
     },
     "workspaceId": {
       "type": "string",

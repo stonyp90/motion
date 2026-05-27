@@ -16,31 +16,44 @@
 //!
 //! Cost (2026): $0.04 per `recraftv3` image. Free tier 50 generations.
 
+use crate::key_source::{KeySource, StaticKeySource};
 use crate::svg_sanitize::sanitize as sanitize_svg;
 use crate::{GeneratedImage, ImageGen, ImageGenError, ImageRequest};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use std::time::Duration;
 
 const ENDPOINT: &str = "https://external.api.recraft.ai/v1/images/generations";
 
 /// Cost per Recraft v3 image in USD micros ($0.04 → 40_000).
-const COST_PER_IMAGE_MICROS: u64 = 40_000;
+///
+/// Re-exported because the spend-cap layer in `motion-forge-http` uses
+/// this to project the maximum possible spend of a fan-out before
+/// kicking off any image-gen calls.
+pub const COST_PER_IMAGE_MICROS: u64 = 40_000;
 
 pub struct RecraftBackend {
-    api_key: String,
+    key_source: Arc<dyn KeySource>,
     client: reqwest::Client,
     style: String,
 }
 
 impl RecraftBackend {
-    /// Default style is `vector_illustration` — flat, designer-grade
-    /// vector art that matches the chrono_platform reference aesthetic.
-    /// Override via `with_style` if you want photorealistic or a
-    /// different illustration style.
+    /// Convenience constructor that wraps a literal key in a
+    /// [`StaticKeySource`]. Useful for tests, the CLI, and any caller
+    /// that already has the key in hand and doesn't need rotation.
     pub fn new(api_key: impl Into<String>) -> Self {
+        Self::with_key_source(Arc::new(StaticKeySource::new(api_key)))
+    }
+
+    /// Construct from any [`KeySource`]. The Key Vault flavour the
+    /// production ACA boot path uses goes through this path so the
+    /// secret is re-read every 5 minutes without redeploying the
+    /// container.
+    pub fn with_key_source(key_source: Arc<dyn KeySource>) -> Self {
         Self {
-            api_key: api_key.into(),
+            key_source,
             client: reqwest::Client::builder()
                 .timeout(Duration::from_secs(60)) // Recraft generations take 5-15 s
                 .build()
@@ -100,10 +113,16 @@ impl ImageGen for RecraftBackend {
             response_format: "b64_json",
         };
 
+        // Pull the current key — env source returns instantly; Key
+        // Vault source returns the cached value (5-minute TTL) and
+        // re-fetches on miss. Resolved per-call so a rotation while
+        // the backend is alive is picked up automatically.
+        let api_key = self.key_source.current().await?;
+
         let resp = self
             .client
             .post(ENDPOINT)
-            .bearer_auth(&self.api_key)
+            .bearer_auth(&api_key)
             .json(&body)
             .send()
             .await
