@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * TrustStrip — non-technical enterprise band aimed at procurement,
  * partnership conversations, and brand-team buyers.
@@ -8,12 +10,19 @@
  * the product is a motion-design tool, not a film-pipeline tool, so
  * the MPA's studio-content-security framework isn't the right register.
  *
+ * Motion: when the strip scrolls into view the section header fades up
+ * + the three cards stagger in (120 ms apart) using the brand
+ * Decelerate easing. Once-only via `useInViewOnce` so the cards don't
+ * re-animate when the user scrolls back up.
+ *
  * Why no clickable badge logos: a real SVG badge for SOC 2 would imply
  * we've passed and been listed by AICPA. Until the audit completes,
  * we use plain typography + a one-liner — accurate, defensible, and
  * trivially upgraded to a real badge once the attestation PDF lands.
  */
+import { useRef } from 'react';
 import { ShieldCheck, Building2, Globe2 } from 'lucide-react';
+import { useInViewOnce } from '@/lib/hooks/useInViewOnce';
 
 interface Cert {
   icon: React.ReactNode;
@@ -47,14 +56,24 @@ const CERTS: ReadonlyArray<Cert> = [
 ] as const;
 
 export function TrustStrip() {
+  const sectionRef = useRef<HTMLElement>(null);
+  const inView = useInViewOnce(sectionRef);
+
   return (
     <section
+      ref={sectionRef}
       id="trust"
       aria-labelledby="trust-heading"
       className="section-tight bg-bg-primary"
     >
       <div className="container">
-        <div className="flex flex-col items-center gap-2 text-center">
+        <div
+          className="flex flex-col items-center gap-2 text-center transition-all duration-700 ease-out"
+          style={{
+            opacity: inView ? 1 : 0,
+            transform: inView ? 'translateY(0)' : 'translateY(12px)',
+          }}
+        >
           {/* Eyebrow — bumped from text-tertiary to a stronger
               accent-600 / accent-400 split so it reads as a true
               label in both themes (was sitting at ~5:1 contrast
@@ -68,10 +87,17 @@ export function TrustStrip() {
         </div>
 
         <ul className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-3 lg:gap-6">
-          {CERTS.map((cert) => (
+          {CERTS.map((cert, i) => (
             <li
               key={cert.title}
-              className="flex flex-col gap-2.5 rounded-2xl border border-border-light bg-bg-secondary p-5 transition hover:border-accent-300 hover:shadow-card"
+              className="flex flex-col gap-2.5 rounded-2xl border border-border-light bg-bg-secondary p-5 transition-all duration-700 ease-out hover:border-accent-300 hover:shadow-card"
+              style={{
+                opacity: inView ? 1 : 0,
+                transform: inView ? 'translateY(0)' : 'translateY(20px)',
+                // Stagger the 3 cards 120 ms apart so the eye reads
+                // them as a sequence, not a wall.
+                transitionDelay: inView ? `${180 + i * 120}ms` : '0ms',
+              }}
             >
               {/* Icon — no tinted background pill (was bg-accent-50 /
                   bg-accent-950). The icon stroke carries the accent
