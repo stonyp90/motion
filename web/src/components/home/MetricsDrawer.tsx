@@ -27,8 +27,8 @@ const POLL_MS = 3000;
 
 /**
  * Side-panel that surfaces real host + engine + local-LLM telemetry.
- * Modelled on ursly's MetricsPanel:
- *   - Each metric is a labelled progress bar coloured by ursly's
+ * Modelled on the internal design system's MetricsPanel:
+ *   - Each metric is a labelled progress bar coloured by the
  *     50%/80% green/amber/red convention (thresholds come from the
  *     engine so we can tune in one place).
  *   - Per-Ollama-loaded-model row shows total RAM + VRAM split.

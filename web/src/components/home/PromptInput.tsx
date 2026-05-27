@@ -49,6 +49,13 @@ interface Props {
    * in the bottom-right of the prompt control row.
    */
   controlsSlot?: ReactNode;
+  /**
+   * When true, the textarea becomes read-only and the Generate button
+   * is rendered as a styled-but-unclickable presentational element.
+   * Used by the anonymous sample-run demo to play the prompt UI as a
+   * cinematic without giving the product away.
+   */
+  readOnly?: boolean;
 }
 
 const MIN_HEIGHT_FULL = 96; // px — about 4 lines (initial draft state)
@@ -77,6 +84,7 @@ export function PromptInput({
   attachmentChips,
   onAttach,
   controlsSlot,
+  readOnly = false,
 }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -165,6 +173,9 @@ export function PromptInput({
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
         onPaste={handlePaste}
+        readOnly={readOnly}
+        tabIndex={readOnly ? -1 : undefined}
+        aria-readonly={readOnly || undefined}
         placeholder={
           compact
             ? 'Refine the animation — change the tagline, swap a scene, retime…'
@@ -188,31 +199,53 @@ export function PromptInput({
               when disabled. Mirrors Cursor / Lovable / v0's "main
               CTA" pattern where the button is loud enough to read
               across the room. */}
-          <button
-            type="button"
-            onClick={onGenerate}
-            disabled={!value.trim() || isGenerating}
-            title={
-              !value.trim()
-                ? 'Write a brief above to generate'
-                : isGenerating
-                  ? 'Generating…'
-                  : 'Generate (⌘ Enter)'
-            }
-            className="group inline-flex items-center gap-2 rounded-full bg-accent-700 px-5 py-2 text-sm font-semibold text-white shadow-card transition-all hover:-translate-y-px hover:bg-accent-800 hover:shadow-glow disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:shadow-none disabled:hover:translate-y-0"
-            aria-label="Generate motion graphic"
-            data-testid="generate-button"
-          >
-            {isGenerating ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Sparkles className="h-4 w-4 transition-transform group-hover:scale-110" />
-            )}
-            <span>{isGenerating ? 'Generating' : 'Generate'}</span>
-            {!isGenerating && value.trim() && (
-              <span className="hidden font-mono text-2xs opacity-70 sm:inline">⌘⏎</span>
-            )}
-          </button>
+          {readOnly ? (
+            // Sample-run mode: render the Generate button as a styled
+            // presentational div so clicks fall through to the demo's
+            // click-shield (which routes to /signup).
+            <div
+              aria-hidden
+              className={`group inline-flex items-center gap-2 rounded-full px-5 py-2 text-sm font-semibold text-white shadow-card ${
+                isGenerating
+                  ? 'bg-accent-700'
+                  : 'bg-accent-700 animate-pulse-accent'
+              }`}
+              data-testid="generate-button"
+            >
+              {isGenerating ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+              <span>{isGenerating ? 'Generating' : 'Generate'}</span>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={onGenerate}
+              disabled={!value.trim() || isGenerating}
+              title={
+                !value.trim()
+                  ? 'Write a brief above to generate'
+                  : isGenerating
+                    ? 'Generating…'
+                    : 'Generate (⌘ Enter)'
+              }
+              className="group inline-flex items-center gap-2 rounded-full bg-accent-700 px-5 py-2 text-sm font-semibold text-white shadow-card transition-all hover:-translate-y-px hover:bg-accent-800 hover:shadow-glow disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:shadow-none disabled:hover:translate-y-0"
+              aria-label="Generate motion graphic"
+              data-testid="generate-button"
+            >
+              {isGenerating ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4 transition-transform group-hover:scale-110" />
+              )}
+              <span>{isGenerating ? 'Generating' : 'Generate'}</span>
+              {!isGenerating && value.trim() && (
+                <span className="hidden font-mono text-2xs opacity-70 sm:inline">⌘⏎</span>
+              )}
+            </button>
+          )}
         </div>
       </div>
 

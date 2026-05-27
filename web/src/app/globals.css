@@ -347,9 +347,32 @@
     /* Slow — preview reveal, large surface entry. */
     --dur-slow: 320ms;
 
+    /* Spring — overshoot-and-settle window, paired with --ease-spring. Used
+       once-per-session moments (generate-success punctuation). */
+    --dur-spring: 620ms;
+
+    /* Micro — sub-100ms hover-dot pulses or focus rings on small targets. */
+    --dur-micro: 60ms;
+
+    /* Long-pulse — breathing animations that loop calmly (status dots,
+       voice-listening rings). Slow enough to feel ambient. */
+    --dur-long-pulse: 1800ms;
+
     /* Stagger — gap between sibling animations in a sequence. Multiply by
        the index to get each child's delay. */
     --dur-stagger: 30ms;
+
+    /* ── Stagger philosophy (motion-audit token system) ───────────────────
+     * <80ms  : high-frequency / fast-list / word-by-word reveals.
+     * 90-120 : per-item card or KPI staggers (most scroll-triggered work).
+     * 150ms  : status indicators (ellipsis dots, loading stages).
+     * 220ms+ : hero-level reveals where each step is its own beat. */
+
+    --stagger-tight:     70ms;
+    --stagger-fast-list: 90ms;
+    --stagger-cards:    120ms;
+    --stagger-indicator: 150ms;
+    --stagger-slow:     220ms;
 
     /* ── Compound transition utilities ───────────────────────────────────── */
 
@@ -387,11 +410,19 @@
 
   @media (prefers-reduced-motion: reduce) {
     :root {
-      --dur-instant: 0.01ms;
-      --dur-fast:    0.01ms;
-      --dur-base:    0.01ms;
-      --dur-slow:    0.01ms;
-      --dur-stagger: 0ms;
+      --dur-instant:    0.01ms;
+      --dur-fast:       0.01ms;
+      --dur-base:       0.01ms;
+      --dur-slow:       0.01ms;
+      --dur-stagger:    0ms;
+      --dur-micro:      0.01ms;
+      --dur-spring:     0.01ms;
+      --dur-long-pulse: 0.01ms;
+      --stagger-tight:     0ms;
+      --stagger-fast-list: 0ms;
+      --stagger-cards:     0ms;
+      --stagger-indicator: 0ms;
+      --stagger-slow:      0ms;
       --ease-spring: var(--ease-out-quart); /* drop the overshoot */
     }
     .animate-panel-drift,
@@ -466,3 +497,51 @@
 
 .animate-toast-in  { animation: toast-in  var(--dur-base) var(--ease-out-quart) both; }
 .animate-toast-out { animation: toast-out var(--dur-fast) var(--ease-in-quart)  both; }
+
+/* ── Form-error shake ─────────────────────────────────────────────────────
+ * One-shot horizontal nudge for inline validation errors. Snap easing so it
+ * reads as a correction, not decoration. */
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%      { transform: translateX(-4px); }
+  40%      { transform: translateX(4px); }
+  60%      { transform: translateX(-3px); }
+  80%      { transform: translateX(2px); }
+}
+
+.animate-shake { animation: shake var(--dur-base) var(--ease-snap) both; }
+
+/* ── Auth submit-success spring ───────────────────────────────────────────
+ * The single "you made it" moment on signup / login success. Reuses the
+ * spring easing reserved for generate-success; only fires once per submit. */
+
+@keyframes auth-spring-in {
+  0%   { transform: scale(0.92); opacity: 0; }
+  60%  { transform: scale(1.04); opacity: 1; }
+  100% { transform: scale(1);    opacity: 1; }
+}
+
+.animate-auth-spring-in {
+  animation: auth-spring-in var(--dur-spring) var(--ease-spring) both;
+}
+
+/* ── Reveal-on-mount (fade + slide-up) ───────────────────────────────────
+ * Pair with `.stagger-child` and inline `style={{ '--i': index }}` to
+ * cascade children. Used by the auth surfaces and the welcome dashboard
+ * so the first paint reads as composed motion rather than a hard cut. */
+
+@keyframes reveal-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-reveal-up {
+  animation: reveal-fade-up var(--dur-base) var(--ease-out-quart) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-shake,
+  .animate-auth-spring-in,
+  .animate-reveal-up { animation: none !important; }
+}

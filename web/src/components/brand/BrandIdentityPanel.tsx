@@ -185,7 +185,7 @@ export function BrandIdentityPanel({
           <input
             className="mf-brand-drawer__name"
             type="text"
-            placeholder="Brand name (e.g. Chrono Innovation)"
+            placeholder="Brand name (e.g. Acme Studio)"
             value={identity.name}
             onChange={e => patch({ name: e.target.value })}
             aria-label="Brand name"

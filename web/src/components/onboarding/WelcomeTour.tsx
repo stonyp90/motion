@@ -1,12 +1,13 @@
 'use client';
 
 /**
- * WelcomeTour — 3-step first-visit onboarding for motion-forge's
- * simplified home (W17 simplified-home + W18 onboarding pass).
+ * WelcomeTour — 3-step first-visit onboarding for the post-login
+ * welcome dashboard. Walks new users through the desktop-acquire path:
+ * download the binary → install Ollama → discover what the app does.
  *
  * Architecture
  * ------------
- *  <WelcomeTourProvider>           — context + portal mount; wraps HomeApp
+ *  <WelcomeTourProvider>           — context + portal mount; wraps WelcomeDashboard
  *    └─ <WelcomeTour />            — overlay renderer (renders into <body>)
  *         ├─ <ScrimAndCutout />    — full-screen dim + transparent cutout
  *         └─ <Callout />           — pointer-aware popover with copy + CTAs
@@ -14,13 +15,10 @@
  * The tour anchors to DOM nodes via `data-testid` attributes so it
  * remains decoupled from class names that change with styling passes.
  *
- *   Required testids on HomeApp / its children (see INTEGRATION.md):
- *     - data-testid="mf-prompt-textarea"   on the <textarea>
- *     - data-testid="mf-mic-button"        on the mic <button>  (Step 1 secondary anchor)
- *     - data-testid="mf-cast-row"          on the cast row wrapper
- *     - data-testid="mf-generate-button"   on the Generate <button>
- *     - data-testid="mf-preview-frame"     on the preview <div>
- *     - data-testid="mf-export-buttons"    on the export row wrapper
+ *   Required testids on the welcome dashboard:
+ *     - data-testid="mf-welcome-download"     on the OS-detected download card
+ *     - data-testid="mf-welcome-install"      on the install-steps section
+ *     - data-testid="mf-welcome-capabilities" on the capabilities grid
  *
  * Behavior
  * --------
@@ -66,26 +64,26 @@ import { X } from 'lucide-react';
 // ---------------------------------------------------------------------------
 // Storage key (single source of truth for "has the user finished the tour?")
 // ---------------------------------------------------------------------------
-export const TOUR_STORAGE_KEY = 'mf-tour-completed';
+export const TOUR_STORAGE_KEY = 'mf-welcome-tour-seen';
 
 // ---------------------------------------------------------------------------
 // i18n shim — replace with real hook in W18.
 // ---------------------------------------------------------------------------
 type Dict = Record<string, string>;
 const DEFAULT_COPY: Dict = {
-  'onboarding.tour.step1.title': 'Drop a brief, paste a script, or hit the mic.',
+  'onboarding.tour.step1.title': 'Grab the build for your machine.',
   'onboarding.tour.step1.body':
-    'Anything goes. Start with one sentence or paste a full Chrono-style scene — Motion Forge will run with either.',
-  'onboarding.tour.step2.title': 'Cast the characters that should appear.',
+    'ControlCraft runs natively. We picked the right installer for your OS — one click and the download starts.',
+  'onboarding.tour.step2.title': 'Set up in about five minutes.',
   'onboarding.tour.step2.body':
-    'Pick a mascot, a logo, or a person from the library. Cast members get woven into every shot the prompt asks for.',
-  'onboarding.tour.step3.title': 'Generate. Preview in seconds. Export to anything.',
+    'The desktop shell wraps a local engine plus Ollama for on-device inference. Three steps, no command-line voodoo.',
+  'onboarding.tour.step3.title': 'This is what waits inside the app.',
   'onboarding.tour.step3.body':
-    'Hit Generate, watch the Lottie render in-browser, then export to .lottie.json, MP4, or a designer pack.',
+    'Local vision-model inference, brand-locked palette, every export your stack already takes. Run ControlCraft to start generating.',
   'onboarding.tour.next': 'Next',
   'onboarding.tour.back': 'Back',
   'onboarding.tour.skip': 'Skip tour',
-  'onboarding.tour.done': 'Get started',
+  'onboarding.tour.done': 'Got it',
   'onboarding.tour.close': 'Close tour',
   'onboarding.tour.progress': 'Step {current} of {total}',
 };
@@ -106,7 +104,7 @@ function t(key: string, vars?: Record<string, string | number>): string {
 type Side = 'top' | 'bottom' | 'left' | 'right';
 
 interface TourStep {
-  id: 'prompt' | 'cast' | 'generate';
+  id: 'download' | 'install' | 'launch';
   /** Primary DOM anchor — the callout points at this. */
   anchorTestId: string;
   /** Optional second anchor — both rects merge so the cutout covers both. */
@@ -119,24 +117,22 @@ interface TourStep {
 
 const STEPS: readonly TourStep[] = [
   {
-    id: 'prompt',
-    anchorTestId: 'mf-prompt-textarea',
-    secondaryAnchorTestId: 'mf-mic-button',
+    id: 'download',
+    anchorTestId: 'mf-welcome-download',
     preferredSide: 'bottom',
     titleKey: 'onboarding.tour.step1.title',
     bodyKey: 'onboarding.tour.step1.body',
   },
   {
-    id: 'cast',
-    anchorTestId: 'mf-cast-row',
-    preferredSide: 'bottom',
+    id: 'install',
+    anchorTestId: 'mf-welcome-install',
+    preferredSide: 'top',
     titleKey: 'onboarding.tour.step2.title',
     bodyKey: 'onboarding.tour.step2.body',
   },
   {
-    id: 'generate',
-    anchorTestId: 'mf-generate-button',
-    secondaryAnchorTestId: 'mf-export-buttons',
+    id: 'launch',
+    anchorTestId: 'mf-welcome-capabilities',
     preferredSide: 'top',
     titleKey: 'onboarding.tour.step3.title',
     bodyKey: 'onboarding.tour.step3.body',

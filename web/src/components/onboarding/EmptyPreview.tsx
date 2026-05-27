@@ -77,10 +77,10 @@ const DEFAULT_EXAMPLES: readonly ExamplePrompt[] = [
   },
   {
     key: 'script',
-    label: 'Paste a Chrono-style script',
+    label: 'Paste a motion-design script',
     prompt:
       '# Scene 1 (0–4s)\nWide on logo, particles drift in from the left.\n\n# Scene 2 (4–10s)\nWordmark settles, three feature pills slide up in sequence.\n\n# Scene 3 (10–15s)\nCTA "Try it now" pulses once, end card holds for 2s.',
-    meta: 'Chrono · paste',
+    meta: 'Sample · paste',
   },
 ];
 

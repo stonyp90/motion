@@ -19,7 +19,9 @@ export interface TokenUsage {
  * accounting on the wire when the orchestrator captures real usage.
  */
 const MODEL_INFO: Record<ModelChoice, { max: number; perMTok: number; vendor: string; icon: typeof Cpu }> = {
-  // Local · vision-capable
+  // Local · vision-capable (quality-tier defaults handled by QualityPreset)
+  'ollama/qwen2.5vl:32b': { max: 128_000, perMTok: 0, vendor: 'local', icon: Cpu },
+  'ollama/qwen2.5vl:7b': { max: 128_000, perMTok: 0, vendor: 'local', icon: Cpu },
   'ollama/llama3.2-vision:11b': { max: 128_000, perMTok: 0, vendor: 'local', icon: Cpu },
   'ollama/qwen2-vl:7b': { max: 32_768, perMTok: 0, vendor: 'local', icon: Cpu },
   'ollama/llava-llama3:8b': { max: 8192, perMTok: 0, vendor: 'local', icon: Cpu },

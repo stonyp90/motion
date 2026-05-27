@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { KcError, passwordLogin } from '@/lib/server/keycloak';
+import {
+  adminFindUserByEmail,
+  KcError,
+  passwordLogin,
+} from '@/lib/server/keycloak';
 
 /**
  * POST /api/auth/login
@@ -11,6 +15,14 @@ import { KcError, passwordLogin } from '@/lib/server/keycloak';
  * single hop where it's attached. `expires_at` is a millisecond epoch
  * derived from `expires_in` so the client can run a refresh timer
  * without doing the arithmetic.
+ *
+ * When the realm enforces `verifyEmail: true` and the user hasn't yet
+ * clicked their verification link, Keycloak refuses the password grant
+ * with `invalid_grant + account is not fully set up`. We catch that
+ * exact 400 / `invalid_grant` combo, look the user up via admin REST
+ * to confirm `emailVerified === false`, and return a structured 403
+ * `{error:'email_not_verified', email}` so the form can redirect to
+ * /verify-email instead of showing a generic "wrong password" error.
  */
 export async function POST(req: NextRequest) {
   let body: { email?: unknown; password?: unknown };
@@ -35,6 +47,28 @@ export async function POST(req: NextRequest) {
     });
   } catch (e) {
     if (e instanceof KcError) {
+      // Possible verify-email branch: Keycloak rejects unverified accounts
+      // with `invalid_grant` + a description that includes "not fully set
+      // up" or "verify email". Cross-check via admin REST so we never
+      // misclassify a wrong-password attempt as a verify-email problem.
+      const lower = e.message.toLowerCase();
+      const couldBeUnverified =
+        lower.includes('not fully set up') ||
+        lower.includes('verify email') ||
+        lower.includes('email is not verified');
+      if (couldBeUnverified) {
+        try {
+          const user = await adminFindUserByEmail(email.toLowerCase());
+          if (user && !user.emailVerified) {
+            return NextResponse.json(
+              { error: 'email_not_verified', email },
+              { status: 403 },
+            );
+          }
+        } catch {
+          // fall through to the generic 401
+        }
+      }
       // 401 covers "invalid_grant" (wrong creds) + most realm errors.
       const status = e.status === 401 || e.status === 400 ? 401 : 500;
       return NextResponse.json({ error: e.message }, { status });

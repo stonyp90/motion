@@ -1,12 +1,12 @@
 {
-  "projectId": "chrono-innovation",
-  "name": "Chrono Innovation",
+  "projectId": "acme-studio",
+  "name": "Acme Studio",
   "palette": [
-    { "role": "primary", "hex": "#000000", "label": "Chrono Black" },
+    { "role": "primary", "hex": "#000000", "label": "Studio Black" },
     { "role": "neutral-bg", "hex": "#ffffff", "label": "Page White" },
     { "role": "neutral-text", "hex": "#111111", "label": "Body Text" },
     { "role": "emphasis", "hex": "#2563eb", "weight": 16.6, "label": "Signal Blue" },
-    { "role": "emphasis", "hex": "#facc15", "weight": 16.6, "label": "Lucius Yellow" },
+    { "role": "emphasis", "hex": "#facc15", "weight": 16.6, "label": "Spark Yellow" },
     { "role": "emphasis", "hex": "#dc2626", "weight": 16.6, "label": "Alert Red" }
   ],
   "font": {
@@ -17,17 +17,17 @@
   },
   "logos": [
     {
-      "id": "logo-chrono-primary",
-      "name": "Chrono wordmark (black on transparent)",
-      "file_url": "blob:will-be-cdn-url-after-sync/chrono.svg",
+      "id": "logo-studio-primary",
+      "name": "Studio wordmark (black on transparent)",
+      "file_url": "blob:will-be-cdn-url-after-sync/wordmark.svg",
       "role": "primary-logo",
       "mime": "image/svg+xml",
       "locked": false
     },
     {
-      "id": "logo-lucius-mascot",
-      "name": "Lucius the AI mascot",
-      "file_url": "blob:will-be-cdn-url-after-sync/lucius.png",
+      "id": "logo-mascot",
+      "name": "Studio mascot",
+      "file_url": "blob:will-be-cdn-url-after-sync/mascot.png",
       "role": "mascot",
       "mime": "image/png",
       "locked": false

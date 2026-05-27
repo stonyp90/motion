@@ -207,3 +207,138 @@ function escapeHtml(s: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
+
+/**
+ * Verify-email template — clicked when a new signup confirms ownership
+ * of the address. The link points at /api/auth/verify-email?token=…
+ * which validates, flips Keycloak's emailVerified, fires the welcome
+ * email, and redirects to /verify-email/success.
+ *
+ * Same palette + scaffold as `welcomeEmailHtml` so the two emails read
+ * as a deliberate pair.
+ */
+export function verifyEmailHtml(args: { firstName?: string; link: string; expiresInHours?: number }): string {
+  const greeting = args.firstName ? `Hi ${escapeHtml(args.firstName)},` : 'Welcome,';
+  const expiresInHours = args.expiresInHours ?? 24;
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Confirm your ControlCraft account</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f8fafc;padding:40px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="560" cellspacing="0" cellpadding="0" border="0" style="background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;">
+            <tr>
+              <td style="padding:32px 40px 8px 40px;">
+                <span style="font-size:18px;font-weight:700;letter-spacing:-0.01em;color:#0f172a;">
+                  Control<span style="color:#059669;">Craft</span>
+                </span>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:8px 40px 24px 40px;">
+                <h1 style="margin:0 0 16px 0;font-size:26px;line-height:1.2;font-weight:700;letter-spacing:-0.02em;color:#0f172a;">
+                  ${greeting} confirm your email.
+                </h1>
+                <p style="margin:0;font-size:16px;line-height:1.55;color:#475569;">
+                  One quick click and your account is ready. The link below
+                  expires in ${expiresInHours} hours.
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 40px 32px 40px;">
+                <a href="${args.link}" style="display:inline-block;background:#059669;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 22px;border-radius:9999px;">
+                  Confirm my email →
+                </a>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 40px 32px 40px;font-size:13px;color:#64748b;line-height:1.5;">
+                Or paste this URL into your browser:<br/>
+                <a href="${args.link}" style="color:#059669;word-break:break-all;text-decoration:none;">${args.link}</a>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:24px 40px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:13px;color:#64748b;line-height:1.5;">
+                Didn't sign up? You can safely ignore this email — your
+                address won't be added to any list.
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+}
+
+/**
+ * Password-reset template — fires from /api/auth/forgot-password. Link
+ * lands on /reset-password?token=… where the user picks a new password.
+ * Token TTL is one hour by design (short window keeps the loss surface
+ * small if a mail client leaks the URL).
+ */
+export function resetPasswordEmailHtml(args: { firstName?: string; link: string; expiresInMinutes?: number }): string {
+  const greeting = args.firstName ? `Hi ${escapeHtml(args.firstName)},` : 'Hi,';
+  const expiresInMinutes = args.expiresInMinutes ?? 60;
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Reset your ControlCraft password</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f8fafc;padding:40px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="560" cellspacing="0" cellpadding="0" border="0" style="background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;">
+            <tr>
+              <td style="padding:32px 40px 8px 40px;">
+                <span style="font-size:18px;font-weight:700;letter-spacing:-0.01em;color:#0f172a;">
+                  Control<span style="color:#059669;">Craft</span>
+                </span>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:8px 40px 24px 40px;">
+                <h1 style="margin:0 0 16px 0;font-size:26px;line-height:1.2;font-weight:700;letter-spacing:-0.02em;color:#0f172a;">
+                  ${greeting} reset your password.
+                </h1>
+                <p style="margin:0;font-size:16px;line-height:1.55;color:#475569;">
+                  Use the link below to pick a new password. It expires
+                  in ${expiresInMinutes} minutes. If you didn't request
+                  this, you can ignore it — your password stays the same.
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 40px 32px 40px;">
+                <a href="${args.link}" style="display:inline-block;background:#059669;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 22px;border-radius:9999px;">
+                  Reset my password →
+                </a>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 40px 32px 40px;font-size:13px;color:#64748b;line-height:1.5;">
+                Or paste this URL into your browser:<br/>
+                <a href="${args.link}" style="color:#059669;word-break:break-all;text-decoration:none;">${args.link}</a>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:24px 40px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:13px;color:#64748b;line-height:1.5;">
+                Questions? Just reply — a human reads every email.
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+}

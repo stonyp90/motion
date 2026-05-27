@@ -74,10 +74,14 @@ export function TrustStrip() {
     >
       <div className="container">
         <div
-          className="flex flex-col items-center gap-2 text-center transition-all duration-700 ease-out"
+          className="flex flex-col items-center gap-2 text-center transition-all duration-700"
           style={{
             opacity: inView ? 1 : 0,
             transform: inView ? 'translateY(0)' : 'translateY(12px)',
+            // Brand Decelerate token instead of browser-default ease-out
+            // — keeps the section header in lockstep with the KPI strip
+            // above and the card stagger below.
+            transitionTimingFunction: 'var(--ease-out-quart)',
           }}
         >
           {/* Eyebrow — bumped from text-tertiary to a stronger
@@ -96,13 +100,14 @@ export function TrustStrip() {
           {CERTS.map((cert, i) => (
             <li
               key={cert.title}
-              className="flex flex-col gap-2.5 rounded-2xl border border-border-light bg-bg-secondary p-5 transition-all duration-700 ease-out hover:border-accent-300 hover:shadow-card"
+              className="flex flex-col gap-2.5 rounded-2xl border border-border-light bg-bg-secondary p-5 transition-all duration-700 hover:border-accent-300 hover:shadow-card"
               style={{
                 opacity: inView ? 1 : 0,
                 transform: inView ? 'translateY(0)' : 'translateY(20px)',
-                // Stagger the 3 cards 120 ms apart so the eye reads
-                // them as a sequence, not a wall.
-                transitionDelay: inView ? `${180 + i * 120}ms` : '0ms',
+                // Stagger the 3 cards by --stagger-cards (120ms token)
+                // so the eye reads them as a sequence, not a wall.
+                transitionDelay: inView ? `calc(180ms + ${i} * var(--stagger-cards))` : '0ms',
+                transitionTimingFunction: 'var(--ease-out-quart)',
               }}
             >
               {/* Icon — no tinted background pill (was bg-accent-50 /

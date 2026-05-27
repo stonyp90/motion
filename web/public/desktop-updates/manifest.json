@@ -1,0 +1,7 @@
+{
+  "$schema": "Tauri 2 updater manifest. Owned by .github/workflows/desktop-release.yml — CI rewrites this file (and pushes back to main) on every desktop-v* tag. Hand-edits get overwritten.",
+  "version": "0.0.0",
+  "notes": "No public desktop release yet.",
+  "pub_date": "2026-05-27T00:00:00Z",
+  "platforms": {}
+}

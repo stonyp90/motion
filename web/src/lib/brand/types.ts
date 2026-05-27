@@ -18,7 +18,7 @@ export interface ColorRole {
   /** Hex value, lowercased, with leading '#'. e.g. "#10b981". */
   hex: string;
   /**
-   * Visual weight (0–100). Chrono's "16.6%" model: three emphasis
+   * Visual weight (0–100). Three-tier emphasis model: three emphasis
    * colors that should each occupy ~16.6% of any composition.
    * Optional — only required for role === "emphasis".
    */
@@ -85,7 +85,7 @@ export interface BrandVoice {
 export interface BrandIdentity {
   /** Owning project / tenant id — used as the localStorage key suffix. */
   projectId: string;
-  /** Display name (e.g. "Chrono Innovation"). */
+  /** Display name (e.g. "Acme Studio"). */
   name: string;
   palette: ColorRole[];
   font: FontChoice;

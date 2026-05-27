@@ -31,8 +31,18 @@ const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000;
 export interface AuthUser {
   email?: string;
   name?: string;
+  /** Given name from the JWT — drives the welcome dashboard greeting. */
+  firstName?: string;
+  /** Family name from the JWT. */
+  lastName?: string;
   /** Initial pulled from the JWT for the header avatar. */
   initial?: string;
+  /** Whether Keycloak considers the email verified. */
+  emailVerified?: boolean;
+  /** Keycloak user id (`sub` claim) — needed for /api/auth/profile calls. */
+  sub?: string;
+  /** JWT issued-at (ms) — proxy for "last login on this device". */
+  lastLoginAt?: number;
 }
 
 interface AuthState {
@@ -189,14 +199,25 @@ function parseUserFromJwt(token: string): AuthUser | null {
     const json = atob(part.replace(/-/g, '+').replace(/_/g, '/'));
     const payload = JSON.parse(json) as Record<string, unknown>;
     const email = typeof payload.email === 'string' ? payload.email : undefined;
+    const firstName =
+      typeof payload.given_name === 'string' ? payload.given_name : undefined;
+    const lastName =
+      typeof payload.family_name === 'string' ? payload.family_name : undefined;
     const name =
       typeof payload.name === 'string'
         ? payload.name
-        : typeof payload.preferred_username === 'string'
-          ? payload.preferred_username
-          : undefined;
-    const initial = (name?.[0] || email?.[0] || '').toUpperCase() || undefined;
-    return { email, name, initial };
+        : [firstName, lastName].filter(Boolean).join(' ') ||
+          (typeof payload.preferred_username === 'string'
+            ? payload.preferred_username
+            : undefined);
+    const emailVerified =
+      typeof payload.email_verified === 'boolean' ? payload.email_verified : undefined;
+    const sub = typeof payload.sub === 'string' ? payload.sub : undefined;
+    const lastLoginAt =
+      typeof payload.iat === 'number' ? payload.iat * 1000 : undefined;
+    const initial =
+      (firstName?.[0] || name?.[0] || email?.[0] || '').toUpperCase() || undefined;
+    return { email, name, firstName, lastName, initial, emailVerified, sub, lastLoginAt };
   } catch {
     return null;
   }

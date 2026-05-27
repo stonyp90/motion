@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
+import { Step } from '@/components/install/Step';
 
 export const metadata: Metadata = {
   title: 'Install ControlCraft Desktop · Setup guide',
@@ -52,7 +53,39 @@ export default function InstallPage() {
             entirely on your machine — no requests leave your laptop.
           </p>
 
-          <ol className="mt-12 flex flex-col gap-12">
+          <section className="mt-10 rounded-2xl border border-accent-300 bg-accent-50 p-5 dark:border-accent-800 dark:bg-accent-950/30 sm:p-6">
+            <h2 className="flex items-center gap-2 text-sm font-bold tracking-tight text-text-primary">
+              <Zap className="h-3.5 w-3.5 text-accent-600" aria-hidden />
+              One-liner install (skips the Gatekeeper warning)
+            </h2>
+            <p className="mt-1.5 text-xs leading-relaxed text-text-secondary">
+              Paste in Terminal. Downloads via{' '}
+              <code className="rounded bg-bg-tertiary px-1 font-mono text-2xs">curl</code>{' '}
+              so macOS never stamps the quarantine bit — no
+              &quot;Apple cannot verify…&quot; dialog. Same outcome as
+              the manual three-step path below.
+            </p>
+            <CodeBlock label="macOS · curl | bash">
+              {`curl -fsSL https://controlcraft.io/api/install/mac | bash`}
+            </CodeBlock>
+            <details className="mt-3 text-xs text-text-tertiary [&_summary]:cursor-pointer">
+              <summary>Windows / Linux equivalents</summary>
+              <div className="mt-2 flex flex-col gap-2">
+                <CodeBlock label="Windows · PowerShell">
+                  {`iwr -useb https://controlcraft.io/api/install/windows | iex`}
+                </CodeBlock>
+                <CodeBlock label="Linux · AppImage">
+                  {`curl -fsSL https://controlcraft.io/api/install/linux | bash`}
+                </CodeBlock>
+              </div>
+            </details>
+          </section>
+
+          <p className="mt-10 text-xs text-text-tertiary">
+            Or do it step-by-step:
+          </p>
+
+          <ol className="mt-3 flex flex-col gap-12">
             <Step number={1} icon={<DownloadIcon className="h-4 w-4" />} title="Install the ControlCraft app">
               <p>
                 Grab the installer for your OS from{' '}
@@ -297,37 +330,6 @@ sudo apt --fix-broken install`}</CodeBlock>
       </article>
       <Footer />
     </main>
-  );
-}
-
-function Step({
-  number,
-  icon,
-  title,
-  children,
-}: {
-  number: number;
-  icon: React.ReactNode;
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <li className="flex gap-5">
-      <div className="flex flex-col items-center">
-        <span className="grid h-9 w-9 place-items-center rounded-full bg-accent-600 font-mono text-sm font-bold text-white">
-          {number}
-        </span>
-      </div>
-      <div className="flex flex-1 flex-col gap-3">
-        <h2 className="flex items-center gap-2 text-lg font-bold tracking-tight text-text-primary">
-          <span className="text-accent-700">{icon}</span>
-          {title}
-        </h2>
-        <div className="flex flex-col gap-3 text-sm leading-relaxed text-text-secondary">
-          {children}
-        </div>
-      </div>
-    </li>
   );
 }
 

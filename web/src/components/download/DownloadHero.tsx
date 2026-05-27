@@ -14,7 +14,13 @@ import {
   Shield,
   ShieldAlert,
 } from 'lucide-react';
-import { ASSETS, VERSION, type DownloadAsset, type DownloadOs } from '@/lib/download-manifest';
+import {
+  ASSETS,
+  VERSION,
+  detectOs,
+  type DownloadAsset,
+  type DownloadOs,
+} from '@/lib/download-manifest';
 
 /**
  * Download landing for the ControlCraft desktop app.
@@ -466,19 +472,3 @@ function TrustChip({
   );
 }
 
-/* ------------------------------------------------------------------ utils */
-
-function detectOs(): DownloadOs {
-  if (typeof navigator === 'undefined') return 'mac-arm';
-  const ua = navigator.userAgent || '';
-  const plat = (navigator.platform || '').toLowerCase();
-  if (/win/i.test(ua) || plat.includes('win')) return 'windows';
-  if (/linux/i.test(ua) || plat.includes('linux')) return 'linux-deb';
-  if (/mac/i.test(ua) || plat.includes('mac')) {
-    // Default to Apple silicon — the vast majority of new Macs since
-    // 2020 are M-series. Intel users will see the same big CTA but
-    // can grab the x64 build from the secondary grid below.
-    return 'mac-arm';
-  }
-  return 'mac-arm';
-}

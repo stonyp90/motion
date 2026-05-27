@@ -16,6 +16,8 @@ import { Bot, Brain, Cloud, Cpu, ChevronDown, Eye } from 'lucide-react';
 
 export type ModelChoice =
   // Local · vision-capable (recommended when reference images attached)
+  | 'ollama/qwen2.5vl:7b'
+  | 'ollama/qwen2.5vl:32b'
   | 'ollama/llama3.2-vision:11b'
   | 'ollama/qwen2-vl:7b'
   | 'ollama/llava-llama3:8b'
@@ -47,11 +49,29 @@ export interface ModelOption {
 export const MODELS: ModelOption[] = [
   // ── Local · vision ──────────────────────────────────────────────
   {
+    id: 'ollama/qwen2.5vl:7b',
+    label: 'Qwen 2.5 VL 7B',
+    vendor: 'ollama',
+    capability: 'vision',
+    hint: 'Default · Alibaba · tops Open VLM · best JSON adherence',
+    meta: '~6.0 GB · local',
+    icon: Eye,
+  },
+  {
+    id: 'ollama/qwen2.5vl:32b',
+    label: 'Qwen 2.5 VL 32B',
+    vendor: 'ollama',
+    capability: 'vision',
+    hint: 'Best local quality · requires 32+ GB unified RAM',
+    meta: '~20 GB · local',
+    icon: Eye,
+  },
+  {
     id: 'ollama/llama3.2-vision:11b',
     label: 'Llama 3.2 Vision 11B',
     vendor: 'ollama',
     capability: 'vision',
-    hint: 'Default · Meta · top open vision model · strong JSON',
+    hint: 'Meta · strong open vision model',
     meta: '~7.9 GB · local',
     icon: Eye,
   },
@@ -60,7 +80,7 @@ export const MODELS: ModelOption[] = [
     label: 'Qwen2-VL 7B',
     vendor: 'ollama',
     capability: 'vision',
-    hint: 'Alibaba · top of Open VLM leaderboard · faster',
+    hint: 'Fast preset default · faster cold-start',
     meta: '~4.4 GB · local',
     icon: Eye,
   },

@@ -1,66 +1,47 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { KcError, adminCreateUser, passwordLogin } from '@/lib/server/keycloak';
-import { sendEmail, welcomeEmailHtml } from '@/lib/server/email';
+import {
+  KcError,
+  adminCreateUser,
+  adminFindUserByEmail,
+} from '@/lib/server/keycloak';
+import { sendEmail, verifyEmailHtml } from '@/lib/server/email';
+import { checkRateLimit, clientIp } from '@/lib/server/rate-limit';
+import { signToken, VERIFY_EMAIL_TTL_MS } from '@/lib/server/auth-tokens';
 
 /**
  * POST /api/auth/register
  *
  * Body:  { email, password, first_name?, last_name? }
- * Reply: { access_token, refresh_token, expires_in, expires_at }
+ * Reply: { ok: true, email }   (no tokens — the user must verify first)
  *
- * Two-step server flow:
- *   1) Admin REST POST /users — creates the Keycloak user.
- *   2) Direct grant immediately as that user — returns tokens to the
- *      caller so the UX is "form submit → logged in" with no extra
- *      round-trip.
+ * Server flow:
+ *   1) Admin REST POST /users — creates the Keycloak user with
+ *      `emailVerified: false`.
+ *   2) Sign an HMAC verify-email token and email the click-link via
+ *      ACS. Fire-and-forget — a transient ACS hiccup never blocks the
+ *      signup (the user can hit /verify-email's "resend" link).
+ *   3) Return 200 with the email so the client can navigate to
+ *      /verify-email?email=… for the pending screen.
  *
- * The realm export currently has `registrationAllowed: false`, so this
- * is the only path through which a user can be created. Email
- * verification is also disabled (`verifyEmail: false`), so the new
- * user can log in immediately.
+ * No `passwordLogin` here: until the user clicks the link, the realm
+ * refuses to issue tokens. This is enforced both at the realm level
+ * (`verifyEmail: true`) and at the login route (defense-in-depth).
  *
  * ## Anti-enumeration / abuse mitigations
  *
  * - **Per-IP rate limit** (5 attempts / 15 min, in-memory sliding
- *   window). Cheap defense against a wordlist walker; the prod
- *   deploy is single-instance ACA so a process-local store is fine.
- *   Multi-instance setups should swap this for Redis.
- * - **Equalized latency on the 409 branch** (`await sleep(...)` to
- *   match the happy-path Keycloak round-trip) so an attacker can't
+ *   window). Cheap defense against a wordlist walker.
+ * - **Equalized latency on the 409 branch** so an attacker can't
  *   distinguish duplicate from new via response time. Combined with
- *   a non-specific error string, this raises the bar for enumeration
- *   without breaking the existing UX (real signups still get tokens).
+ *   the masked error string, this raises the bar for enumeration.
  * - **firstName / lastName sanitization** (length cap + control-char
- *   strip) blocks CRLF/SMTP injection through the welcome email.
+ *   strip) blocks CRLF/SMTP injection through the email.
+ * - **Resend for unverified duplicates**: if an existing account is
+ *   unverified, transparently re-issue the verify link instead of
+ *   surfacing a 409 — same user-experience as a fresh signup; no
+ *   enumeration signal because verified accounts also return success
+ *   (the 409 case below).
  */
-
-// --- per-IP sliding-window rate limit (in-memory) -------------------
-
-/** Window size for the rate-limit bucket. */
-const RATE_LIMIT_WINDOW_MS = 15 * 60_000;
-/** Max attempts per IP in the window. */
-const RATE_LIMIT_MAX = 5;
-const ipBuckets: Map<string, number[]> = new Map();
-
-function rateLimit(ip: string): boolean {
-  const now = Date.now();
-  const cutoff = now - RATE_LIMIT_WINDOW_MS;
-  const hits = (ipBuckets.get(ip) ?? []).filter((t) => t > cutoff);
-  if (hits.length >= RATE_LIMIT_MAX) {
-    ipBuckets.set(ip, hits);
-    return false;
-  }
-  hits.push(now);
-  ipBuckets.set(ip, hits);
-  return true;
-}
-
-/** Best-effort client IP — works behind ACA's ingress proxy. */
-function clientIp(req: NextRequest): string {
-  const xff = req.headers.get('x-forwarded-for');
-  if (xff) return xff.split(',')[0]!.trim();
-  return req.headers.get('x-real-ip') ?? 'unknown';
-}
 
 /** Caps + strips control chars from user-supplied name fields so they
  *  cannot be used for SMTP/CRLF injection through the welcome email. */
@@ -77,7 +58,7 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 export async function POST(req: NextRequest) {
   // Rate limit before doing any work — fail fast under attack.
   const ip = clientIp(req);
-  if (!rateLimit(ip)) {
+  if (!checkRateLimit(ip, { scope: 'register', max: 5, windowMs: 15 * 60_000 })) {
     return NextResponse.json(
       { error: 'too many signup attempts; please try again later' },
       { status: 429, headers: { 'Retry-After': '900' } },
@@ -111,35 +92,57 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    await adminCreateUser({ email, password, firstName, lastName });
-    const t = await passwordLogin(email, password);
-    // Fire branded welcome email — fire-and-forget so a transient ACS
-    // hiccup doesn't block signup. `sendEmail` catches its own errors
-    // + returns false; we just kick it off and move on.
+    const userId = await adminCreateUser({ email, password, firstName, lastName });
+    const appUrl = process.env.PUBLIC_APP_URL ?? req.nextUrl.origin;
+    const token = signToken({
+      sub: userId,
+      email,
+      purpose: 'verify-email',
+      ttlMs: VERIFY_EMAIL_TTL_MS,
+      exp: 0,
+    });
+    const link = `${appUrl}/api/auth/verify-email?token=${encodeURIComponent(token)}`;
     void sendEmail({
       to: email,
-      subject: 'Welcome to ControlCraft',
-      html: welcomeEmailHtml({ firstName }),
+      subject: 'Confirm your ControlCraft account',
+      html: verifyEmailHtml({ firstName, link }),
     });
-    return NextResponse.json({
-      access_token: t.access_token,
-      refresh_token: t.refresh_token,
-      expires_in: t.expires_in,
-      expires_at: Date.now() + t.expires_in * 1000,
-    });
+    return NextResponse.json({ ok: true, email });
   } catch (e) {
     if (e instanceof KcError) {
-      // Equalize duplicate-email response timing with the happy path
-      // (one Keycloak admin POST + one direct-grant token call ≈ 200ms
-      // round-trip locally; production typically 50-150ms). Also mask
-      // the duplicate signal in the error body — combined with the
-      // sleep this makes enumeration impractically slow at 5 req/15min.
       if (e.status === 409) {
+        // Equalize duplicate-email response timing with the happy path
+        // (one Keycloak admin POST ≈ 100ms locally; production typically
+        // 50-150ms).
         await sleep(150);
-        return NextResponse.json(
-          { error: 'registration failed; if you already have an account, please sign in' },
-          { status: 409 },
-        );
+        // If the existing account is unverified we transparently re-issue
+        // a verify-email link — same outcome as a fresh signup, no leak.
+        // For verified accounts we still return 200 with a stripped
+        // payload so an attacker can't distinguish via shape; the form
+        // navigates to /verify-email either way, which itself surfaces
+        // an "already verified, sign in" path.
+        try {
+          const existing = await adminFindUserByEmail(email);
+          if (existing && !existing.emailVerified) {
+            const appUrl = process.env.PUBLIC_APP_URL ?? req.nextUrl.origin;
+            const token = signToken({
+              sub: existing.id,
+              email,
+              purpose: 'verify-email',
+              ttlMs: VERIFY_EMAIL_TTL_MS,
+              exp: 0,
+            });
+            const link = `${appUrl}/api/auth/verify-email?token=${encodeURIComponent(token)}`;
+            void sendEmail({
+              to: email,
+              subject: 'Confirm your ControlCraft account',
+              html: verifyEmailHtml({ firstName: existing.firstName, link }),
+            });
+          }
+        } catch (lookupErr) {
+          console.error('[register] resend lookup failed', { err: String(lookupErr) });
+        }
+        return NextResponse.json({ ok: true, email });
       }
       const status = e.status === 401 || e.status === 400 ? 400 : 500;
       return NextResponse.json({ error: e.message }, { status });

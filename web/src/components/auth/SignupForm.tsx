@@ -1,10 +1,16 @@
 'use client';
 
-import { use, useState, type FormEvent } from 'react';
+import { use, useEffect, useState, type FormEvent, type CSSProperties } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, Loader2 } from 'lucide-react';
-import { useAuthStore } from '@/stores/auth-store';
+import { selectIsAuthenticated, useAuthStore } from '@/stores/auth-store';
+import { Field } from './_shared/Field';
+import {
+  PasswordStrengthBar,
+  passwordHint,
+  scorePassword,
+} from './_shared/PasswordStrengthBar';
 
 interface Props {
   searchParamsPromise: Promise<{ next?: string }>;
@@ -12,15 +18,19 @@ interface Props {
 
 /**
  * Sign-up form — branded, talks to /api/auth/register. The server
- * route creates the Keycloak user via the admin REST API and then
- * issues a password-grant login so the response carries tokens.
- * Email verification is off at the realm level, so the form is one
- * step: submit → logged in → redirect.
+ * route creates the Keycloak user (emailVerified:false) and emails a
+ * verify-email link via ACS. The form does NOT receive tokens; on a
+ * 200 response it routes to /verify-email?email=… where the pending
+ * screen tells the user to check their inbox.
+ *
+ * If a signed-in user lands here we redirect away — no point letting
+ * them re-create their own account.
  */
 export function SignupForm({ searchParamsPromise }: Props) {
   const sp = use(searchParamsPromise);
   const router = useRouter();
-  const setTokens = useAuthStore((s) => s.setTokens);
+  const hydrated = useAuthStore((s) => s.hydrated);
+  const isAuthed = useAuthStore(selectIsAuthenticated);
 
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -28,8 +38,14 @@ export function SignupForm({ searchParamsPromise }: Props) {
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorPulse, setErrorPulse] = useState(0);
 
-  const next = isSafeNext(sp.next) ? sp.next! : '/';
+  useEffect(() => {
+    if (hydrated && isAuthed) {
+      router.replace('/');
+    }
+  }, [hydrated, isAuthed, router]);
+
   const passwordStrength = scorePassword(password);
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
@@ -37,6 +53,7 @@ export function SignupForm({ searchParamsPromise }: Props) {
     if (submitting) return;
     if (password.length < 8) {
       setError('Password must be at least 8 characters.');
+      setErrorPulse((p) => p + 1);
       return;
     }
     setSubmitting(true);
@@ -53,57 +70,61 @@ export function SignupForm({ searchParamsPromise }: Props) {
         }),
       });
       const data = (await r.json()) as
-        | {
-            access_token: string;
-            refresh_token: string;
-            expires_in: number;
-            expires_at: number;
-          }
+        | { ok: true; email: string }
         | { error: string };
-      if (!r.ok || !('access_token' in data)) {
+      if (!r.ok || !('ok' in data)) {
         const msg = 'error' in data ? data.error : `HTTP ${r.status}`;
         setError(humaniseError(msg, r.status));
+        setErrorPulse((p) => p + 1);
         return;
       }
-      setTokens(data);
-      router.push(next as never);
-      router.refresh();
+      // Route to the pending screen — no token until the email link is clicked.
+      const params = new URLSearchParams({ email: data.email });
+      if (sp.next && isSafeNext(sp.next)) params.set('next', sp.next);
+      router.push(`/verify-email?${params.toString()}` as never);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'sign-up failed');
+      setErrorPulse((p) => p + 1);
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <div className="relative z-10 mx-auto w-full max-w-md">
-      <div className="rounded-2xl border border-border-light bg-bg-primary p-8 shadow-card sm:p-10">
-        <div className="flex flex-col gap-1.5">
-          <h1 className="text-[28px] font-bold tracking-tight text-text-primary">
-            Create your account.
-          </h1>
-          <p className="text-sm text-text-secondary">
-            Free during the open beta. No card.
-          </p>
-        </div>
+    <div className="animate-reveal-up rounded-2xl border border-border-light bg-bg-primary p-8 shadow-card sm:p-10">
+      <div
+        className="animate-reveal-up stagger-child flex flex-col gap-1.5"
+        style={{ '--i': 0 } as CSSProperties}
+      >
+        <h1 className="text-[28px] font-bold tracking-tight text-text-primary">
+          Create your account.
+        </h1>
+        <p className="text-sm text-text-secondary">
+          Free during the open beta. No card.
+        </p>
+      </div>
 
-        <form onSubmit={handleSubmit} className="mt-7 flex flex-col gap-4">
-          <div className="grid grid-cols-2 gap-3">
-            <Field
-              id="first_name"
-              label="First name"
-              autoComplete="given-name"
-              value={firstName}
-              onChange={setFirstName}
-            />
-            <Field
-              id="last_name"
-              label="Last name"
-              autoComplete="family-name"
-              value={lastName}
-              onChange={setLastName}
-            />
-          </div>
+      <form onSubmit={handleSubmit} className="mt-7 flex flex-col gap-4">
+        <div
+          className="animate-reveal-up stagger-child grid grid-cols-2 gap-3"
+          style={{ '--i': 1 } as CSSProperties}
+        >
+          <Field
+            id="first_name"
+            label="First name"
+            autoComplete="given-name"
+            value={firstName}
+            onChange={setFirstName}
+          />
+          <Field
+            id="last_name"
+            label="Last name"
+            autoComplete="family-name"
+            value={lastName}
+            onChange={setLastName}
+          />
+        </div>
+        <div className="animate-reveal-up stagger-child" style={{ '--i': 2 } as CSSProperties}>
           <Field
             id="email"
             label="Work email"
@@ -113,6 +134,8 @@ export function SignupForm({ searchParamsPromise }: Props) {
             value={email}
             onChange={setEmail}
           />
+        </div>
+        <div className="animate-reveal-up stagger-child" style={{ '--i': 3 } as CSSProperties}>
           <Field
             id="password"
             label="Password"
@@ -123,133 +146,60 @@ export function SignupForm({ searchParamsPromise }: Props) {
             onChange={setPassword}
             hint={passwordHint(password.length, passwordStrength)}
           />
-          {password.length > 0 && (
-            <PasswordStrengthBar score={passwordStrength} />
-          )}
-          {error && (
-            <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-              {error}
-            </p>
-          )}
-          <button
-            type="submit"
-            disabled={submitting || !email || !password}
-            className="btn-accent mt-1 px-5 py-3 text-base disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:shadow-none"
+        </div>
+        {password.length > 0 && (
+          <PasswordStrengthBar score={passwordStrength} />
+        )}
+        {error && (
+          <p
+            key={errorPulse}
+            role="alert"
+            className="animate-shake text-sm text-red-600 dark:text-red-400"
           >
-            {submitting ? (
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-            ) : (
-              <ArrowRight className="h-4 w-4" aria-hidden />
-            )}
-            {submitting ? 'Creating' : 'Create account'}
-          </button>
-        </form>
+            {error}
+          </p>
+        )}
+        <button
+          type="submit"
+          disabled={submitting || !email || !password}
+          className="btn-accent animate-reveal-up stagger-child mt-1 px-5 py-3 text-base disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:shadow-none"
+          style={{ '--i': 4 } as CSSProperties}
+        >
+          {submitting ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          ) : (
+            <ArrowRight className="h-4 w-4" aria-hidden />
+          )}
+          {submitting ? 'Creating' : 'Create account'}
+        </button>
+      </form>
 
-        <p className="mt-6 text-center text-sm text-text-secondary">
-          Already have an account?{' '}
-          <Link
-            href={(`/login${sp.next ? `?next=${encodeURIComponent(sp.next)}` : ''}`) as never}
-            className="font-medium text-text-accent underline-offset-2 hover:underline"
-          >
-            Sign in
-          </Link>
-        </p>
-        <p className="mt-3 text-center text-[11px] text-text-tertiary">
-          By creating an account you agree to our{' '}
-          <Link href="/terms" className="underline-offset-2 hover:underline">
-            terms
-          </Link>{' '}
-          and{' '}
-          <Link href="/privacy" className="underline-offset-2 hover:underline">
-            privacy policy
-          </Link>
-          .
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function Field({
-  id,
-  label,
-  value,
-  onChange,
-  type = 'text',
-  autoComplete,
-  required,
-  hint,
-}: {
-  id: string;
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  type?: string;
-  autoComplete?: string;
-  required?: boolean;
-  hint?: string;
-}) {
-  return (
-    <label htmlFor={id} className="flex flex-col gap-1.5 text-sm">
-      <span className="font-medium text-text-primary">{label}</span>
-      <input
-        id={id}
-        name={id}
-        type={type}
-        autoComplete={autoComplete}
-        required={required}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="rounded-lg border border-border-light bg-bg-primary px-3 py-2.5 text-base text-text-primary placeholder:text-text-tertiary focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/20"
-      />
-      {hint && <span className="text-[11px] text-text-tertiary">{hint}</span>}
-    </label>
-  );
-}
-
-/* ------------------------------------------------------- password helpers */
-
-function scorePassword(p: string): 0 | 1 | 2 | 3 | 4 {
-  // Very small heuristic — Tablix-style five-level meter. Don't gate
-  // submit on this; the server is the authority.
-  if (p.length === 0) return 0;
-  let score = 0;
-  if (p.length >= 8) score += 1;
-  if (p.length >= 12) score += 1;
-  if (/[A-Z]/.test(p) && /[a-z]/.test(p)) score += 1;
-  if (/\d/.test(p) && /[^A-Za-z0-9]/.test(p)) score += 1;
-  return Math.min(4, score) as 0 | 1 | 2 | 3 | 4;
-}
-
-function passwordHint(len: number, score: 0 | 1 | 2 | 3 | 4): string | undefined {
-  if (len === 0) return 'At least 8 characters.';
-  if (len < 8) return `${8 - len} more character${8 - len === 1 ? '' : 's'}.`;
-  if (score <= 1) return 'Add a mix of cases, numbers, and symbols for a stronger password.';
-  return undefined;
-}
-
-function PasswordStrengthBar({ score }: { score: 0 | 1 | 2 | 3 | 4 }) {
-  const labels = ['Too short', 'Weak', 'OK', 'Good', 'Strong'] as const;
-  const colors = [
-    'bg-red-400',
-    'bg-orange-400',
-    'bg-yellow-400',
-    'bg-accent-400',
-    'bg-accent-600',
-  ];
-  return (
-    <div className="-mt-2 flex items-center gap-2 text-[11px] text-text-tertiary">
-      <div className="flex flex-1 gap-1">
-        {[0, 1, 2, 3].map((i) => (
-          <span
-            key={i}
-            className={`h-1 flex-1 rounded-full ${
-              i < score ? colors[score] : 'bg-border-light'
-            }`}
-          />
-        ))}
-      </div>
-      <span className="min-w-[5ch] text-right">{labels[score]}</span>
+      <p
+        className="animate-reveal-up stagger-child mt-6 text-center text-sm text-text-secondary"
+        style={{ '--i': 5 } as CSSProperties}
+      >
+        Already have an account?{' '}
+        <Link
+          href={(`/login${sp.next ? `?next=${encodeURIComponent(sp.next)}` : ''}`) as never}
+          className="font-medium text-text-accent underline-offset-2 hover:underline"
+        >
+          Sign in
+        </Link>
+      </p>
+      <p
+        className="animate-reveal-up stagger-child mt-3 text-center text-[11px] text-text-tertiary"
+        style={{ '--i': 6 } as CSSProperties}
+      >
+        By creating an account you agree to our{' '}
+        <Link href="/terms" className="underline-offset-2 hover:underline">
+          terms
+        </Link>{' '}
+        and{' '}
+        <Link href="/privacy" className="underline-offset-2 hover:underline">
+          privacy policy
+        </Link>
+        .
+      </p>
     </div>
   );
 }

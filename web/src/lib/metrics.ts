@@ -44,8 +44,9 @@ export async function fetchEngineMetrics(
 
 /**
  * Map a 0-100 percentage to one of three semantic levels using the
- * thresholds the engine recommends. Mirrors ursly's success / warning
- * / critical convention so the dashboard register is consistent.
+ * thresholds the engine recommends. Mirrors the internal design
+ * system's success / warning / critical convention so the dashboard
+ * register is consistent.
  */
 export type Severity = 'healthy' | 'warning' | 'critical';
 

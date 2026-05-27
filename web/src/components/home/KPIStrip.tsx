@@ -78,11 +78,16 @@ function Kpi({
     <div
       role="group"
       aria-label={kpi.label}
-      className="flex flex-col gap-2 transition-all duration-700 ease-out"
+      className="flex flex-col gap-2 transition-all duration-700"
       style={{
         opacity: active ? 1 : 0,
         transform: active ? 'translateY(0)' : 'translateY(16px)',
         transitionDelay: active ? `${delayMs}ms` : '0ms',
+        // Use the brand Decelerate token (--ease-out-quart) instead of the
+        // browser default `ease-out`. Motion audit flagged inconsistencies
+        // across the home strip animations; centralising on one curve
+        // makes the scroll-triggered reveals feel uniform.
+        transitionTimingFunction: 'var(--ease-out-quart)',
       }}
     >
       <dt className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-accent-700 dark:text-accent-400">

@@ -176,8 +176,9 @@ export interface CreateUserInput {
 
 /**
  * Create a Keycloak user via the Admin REST API. The new user is
- * enabled, email-verified (verifyEmail is disabled at the realm
- * level), and given a permanent password. Returns the user id.
+ * enabled, NOT email-verified — verify-email runs in our Next.js layer
+ * via /api/auth/verify-email. Login refuses tokens until the user
+ * clicks the link in the verification email. Returns the user id.
  *
  * Throws `KcError(409, ...)` if the email is taken.
  */
@@ -195,7 +196,7 @@ export async function adminCreateUser(input: CreateUserInput): Promise<string> {
       firstName: input.firstName,
       lastName: input.lastName,
       enabled: true,
-      emailVerified: true,
+      emailVerified: false,
       credentials: [
         { type: 'password', value: input.password, temporary: false },
       ],
@@ -213,6 +214,130 @@ export async function adminCreateUser(input: CreateUserInput): Promise<string> {
   const loc = r.headers.get('location');
   const id = loc?.split('/').pop() ?? '';
   return id;
+}
+
+export interface KcUser {
+  id: string;
+  email: string;
+  username?: string;
+  firstName?: string;
+  lastName?: string;
+  emailVerified: boolean;
+  enabled: boolean;
+  createdTimestamp?: number;
+}
+
+/**
+ * Look up a Keycloak user by email. Used by the verify / forgot-password
+ * routes which key off email (the user has not yet authenticated).
+ * Returns null when no user matches — the API routes always respond 200
+ * regardless, so this nullable shape is the enumeration-safe contract.
+ */
+export async function adminFindUserByEmail(email: string): Promise<KcUser | null> {
+  const token = await adminToken();
+  const url = new URL(`${adminBase()}/users`);
+  url.searchParams.set('email', email);
+  url.searchParams.set('exact', 'true');
+  const r = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: 'no-store',
+  });
+  if (!r.ok) {
+    const text = await r.text().catch(() => '');
+    throw new KcError(r.status, `find user failed: ${text.slice(0, 200)}`);
+  }
+  const arr = (await r.json()) as KcUser[];
+  return arr[0] ?? null;
+}
+
+/** Fetch a user by id (the JWT `sub` claim). */
+export async function adminGetUser(userId: string): Promise<KcUser> {
+  const token = await adminToken();
+  const r = await fetch(`${adminBase()}/users/${encodeURIComponent(userId)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: 'no-store',
+  });
+  if (!r.ok) {
+    const text = await r.text().catch(() => '');
+    throw new KcError(r.status, `get user failed: ${text.slice(0, 200)}`);
+  }
+  return (await r.json()) as KcUser;
+}
+
+/**
+ * Mark a user's email as verified. Idempotent — the verify endpoint
+ * tolerates re-clicks because we treat already-verified as success.
+ */
+export async function adminSetEmailVerified(userId: string): Promise<void> {
+  return adminUpdateUser(userId, { emailVerified: true });
+}
+
+/** Patch a user's profile (currently firstName / lastName / emailVerified / enabled). */
+export async function adminUpdateUser(
+  userId: string,
+  patch: Partial<Pick<KcUser, 'firstName' | 'lastName' | 'emailVerified' | 'enabled'>>,
+): Promise<void> {
+  const token = await adminToken();
+  const r = await fetch(`${adminBase()}/users/${encodeURIComponent(userId)}`, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(patch),
+    cache: 'no-store',
+  });
+  if (!r.ok) {
+    const text = await r.text().catch(() => '');
+    throw new KcError(r.status, `update user failed: ${text.slice(0, 200)}`);
+  }
+}
+
+/**
+ * Set a permanent (non-temporary) password for a user via admin REST.
+ * Used by the forgot-password and change-password flows.
+ */
+export async function adminResetPassword(userId: string, newPassword: string): Promise<void> {
+  const token = await adminToken();
+  const r = await fetch(
+    `${adminBase()}/users/${encodeURIComponent(userId)}/reset-password`,
+    {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ type: 'password', value: newPassword, temporary: false }),
+      cache: 'no-store',
+    },
+  );
+  if (!r.ok) {
+    const text = await r.text().catch(() => '');
+    throw new KcError(r.status, `reset password failed: ${text.slice(0, 200)}`);
+  }
+}
+
+/**
+ * Disable a user account. v1 of "delete account" — recoverable by an
+ * admin via the Keycloak UI within the grace period; we'll move to
+ * hard-delete (`DELETE /users/{id}`) once a retention policy lands.
+ */
+export async function adminDisableUser(userId: string): Promise<void> {
+  return adminUpdateUser(userId, { enabled: false });
+}
+
+/** Hard-delete a Keycloak user. Use with care — irreversible. */
+export async function adminDeleteUser(userId: string): Promise<void> {
+  const token = await adminToken();
+  const r = await fetch(`${adminBase()}/users/${encodeURIComponent(userId)}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+    cache: 'no-store',
+  });
+  if (!r.ok && r.status !== 404) {
+    const text = await r.text().catch(() => '');
+    throw new KcError(r.status, `delete user failed: ${text.slice(0, 200)}`);
+  }
 }
 
 /** Map Keycloak's various error shapes to a human-readable string. */

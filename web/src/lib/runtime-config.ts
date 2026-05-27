@@ -99,3 +99,25 @@ export function isLocalEngineOverride(): boolean {
     return false;
   }
 }
+
+/**
+ * Are we running inside the Tauri desktop shell?
+ *
+ * Two reliable signals:
+ *   1. `window.__TAURI__` — exposed by Tauri's JS bridge as soon as
+ *      the webview boots, before our own JS runs.
+ *   2. `mf_local_engine_base` in localStorage — set by `installDesktopOverride()`
+ *      on first paint and persisted afterwards.
+ *
+ * We OR them so the detection survives a page navigation where the
+ * URL params have already been stripped (after install) AND works on
+ * very-first-paint before localStorage is populated (via __TAURI__).
+ *
+ * SSR-safe — always returns false on the server (no `window`).
+ */
+export function isDesktopMode(): boolean {
+  if (typeof window === 'undefined') return false;
+  const w = window as unknown as { __TAURI__?: unknown };
+  if (w.__TAURI__) return true;
+  return isLocalEngineOverride();
+}

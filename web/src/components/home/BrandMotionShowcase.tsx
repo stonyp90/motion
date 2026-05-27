@@ -45,8 +45,7 @@ const SCENES: ReadonlyArray<Scene> = [
     meta: 'corporate · 1920×1080',
   },
   {
-    // Animation-feature scene. Replaces the prior Quebec / SR&ED
-    // accounting use case — animation studios are the canonical
+    // Animation-feature scene — animation studios are the canonical
     // motion-design buyer, so the example reads as native to the
     // product instead of leaking a one-vertical pitch.
     id: 'animation',
@@ -196,34 +195,35 @@ export function BrandMotionShowcase() {
           }
         }
 
-        /* Scene container — fades in as a whole, 0.4s. */
+        /* Scene container — fades in as a whole. Brand Decelerate token. */
         .bms-scene {
-          animation: bms-fade-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+          animation: bms-fade-in var(--dur-slow) var(--ease-out-quart) both;
         }
 
         /* Eyebrow appears first. */
         .bms-eyebrow {
-          animation: bms-fade-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+          animation: bms-fade-up var(--dur-slow) var(--ease-out-quart) both;
         }
 
-        /* Headline words stagger in with a spring overshoot. */
+        /* Headline words stagger in with a spring overshoot. The only
+           place on the home licensed to use --ease-spring — it's the
+           moment-of-arrival punctuation. */
         .bms-word {
           display: inline-block;
           opacity: 0;
-          animation: bms-spring-in 0.62s cubic-bezier(0.34, 1.56, 0.64, 1)
-            both;
+          animation: bms-spring-in var(--dur-spring) var(--ease-spring) both;
         }
 
         /* Sub appears after all words have landed. */
         .bms-sub {
-          animation: bms-fade-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.6s both;
+          animation: bms-fade-up var(--dur-slow) var(--ease-out-quart) 0.6s both;
         }
 
         /* Process chips — each slides in from a different direction. */
         .bms-chip {
           opacity: 0;
-          animation-duration: 0.5s;
-          animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
+          animation-duration: var(--dur-slow);
+          animation-timing-function: var(--ease-spring);
           animation-fill-mode: both;
         }
         .bms-chip-0 { animation-name: bms-slide-from-left;  animation-delay: 0.85s; }
@@ -232,13 +232,14 @@ export function BrandMotionShowcase() {
         .bms-chip-3 { animation-name: bms-slide-from-bottom; animation-delay: 1.15s; }
         .bms-chip-4 { animation-name: bms-slide-from-right; animation-delay: 1.25s; }
 
-        /* Pulsing accent dot on the SAMPLE badge. */
+        /* Pulsing accent dot on the SAMPLE badge. Long-pulse + Decelerate
+           for ambient breathing — never attention-grabbing. */
         @keyframes bms-pulse {
           0%, 100% { opacity: 0.9; transform: scale(1); }
           50%      { opacity: 0.5; transform: scale(0.85); }
         }
         .bms-sample-dot {
-          animation: bms-pulse 1.8s ease-in-out infinite;
+          animation: bms-pulse var(--dur-long-pulse) var(--ease-out-quart) infinite;
         }
 
         /* Reduced-motion: kill every entrance + the pulse. */

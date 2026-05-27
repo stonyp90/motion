@@ -84,3 +84,21 @@ export const ASSETS: ReadonlyArray<DownloadAsset> = [
 export function findAsset(os: DownloadOs): DownloadAsset | undefined {
   return ASSETS.find((a) => a.os === os);
 }
+
+/**
+ * Best-effort browser detection. Returns the asset key matching the
+ * visitor's OS. Apple silicon is the default for any Mac because the
+ * userAgent doesn't reliably distinguish — Intel users still see the
+ * mac-intel card in any secondary grid below.
+ *
+ * SSR-safe: returns a stable `mac-arm` when called without `navigator`.
+ */
+export function detectOs(): DownloadOs {
+  if (typeof navigator === 'undefined') return 'mac-arm';
+  const ua = navigator.userAgent || '';
+  const plat = (navigator.platform || '').toLowerCase();
+  if (/win/i.test(ua) || plat.includes('win')) return 'windows';
+  if (/linux/i.test(ua) || plat.includes('linux')) return 'linux-deb';
+  if (/mac/i.test(ua) || plat.includes('mac')) return 'mac-arm';
+  return 'mac-arm';
+}
