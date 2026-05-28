@@ -11,7 +11,8 @@
 use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use tracing::Instrument;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmRequest {
@@ -57,6 +58,36 @@ impl LlmRequest {
         self.images = images;
         self
     }
+}
+
+/// Token usage / latency reported by a backend after a completion.
+///
+/// All fields are `Option` because providers differ in what they expose:
+/// - Ollama: token counts only when `options.return_full_telemetry` is on
+///   (we don't enable it by default), so usually all `None`.
+/// - LM Studio / OpenAI-compatible: `prompt_tokens` + `completion_tokens`
+///   + `total_tokens` when the endpoint returns a `usage` block.
+/// - OpenAI cloud: same shape as LM Studio.
+/// - Anthropic: `input_tokens` + `output_tokens`, plus the two
+///   prompt-caching fields (`cache_creation_input_tokens`,
+///   `cache_read_input_tokens`) when caching is active.
+///
+/// The struct is non-exhaustive in spirit — additional fields may be
+/// added in future without breaking callers, since usage is currently
+/// surfaced via `tracing` logs rather than a public return value.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct Usage {
+    pub prompt_tokens: Option<u32>,
+    pub completion_tokens: Option<u32>,
+    pub total_tokens: Option<u32>,
+    /// Anthropic prompt-caching: tokens written to the cache on this
+    /// call (first time a stable prefix is seen). Present only on
+    /// Anthropic responses where caching is enabled.
+    pub cache_creation_input_tokens: Option<u32>,
+    /// Anthropic prompt-caching: tokens served from cache on this call.
+    /// A non-zero value means the system prefix was a cache hit and the
+    /// caller paid the (much cheaper) cached read rate.
+    pub cache_read_input_tokens: Option<u32>,
 }
 
 #[async_trait]
@@ -312,6 +343,14 @@ struct OllamaOpts {
 #[derive(Deserialize)]
 struct OllamaResp {
     response: String,
+    /// Ollama returns prompt token count under `prompt_eval_count` and
+    /// completion token count under `eval_count` when available (not
+    /// every model/build reports them). Both optional; we surface them
+    /// via tracing when present.
+    #[serde(default)]
+    prompt_eval_count: Option<u32>,
+    #[serde(default)]
+    eval_count: Option<u32>,
 }
 
 #[async_trait]
@@ -321,6 +360,18 @@ impl LlmBackend for OllamaBackend {
     }
 
     async fn complete_json(&self, req: &LlmRequest) -> Result<String> {
+        let span = tracing::info_span!(
+            "llm_complete",
+            backend = "ollama",
+            model = %self.model,
+        );
+        self.complete_json_inner(req).instrument(span).await
+    }
+}
+
+impl OllamaBackend {
+    async fn complete_json_inner(&self, req: &LlmRequest) -> Result<String> {
+        let started = Instant::now();
         let url = format!("{}/api/generate", self.host);
         // Bake the schema into the user prompt as a hint — Ollama's
         // built-in JSON mode constrains shape but not field names.
@@ -393,6 +444,18 @@ impl LlmBackend for OllamaBackend {
             .json()
             .await
             .context("parsing ollama response")?;
+        let elapsed_ms = started.elapsed().as_millis() as u64;
+        let total_tokens = match (resp.prompt_eval_count, resp.eval_count) {
+            (Some(p), Some(c)) => Some(p + c),
+            _ => None,
+        };
+        tracing::info!(
+            elapsed_ms,
+            prompt_tokens = ?resp.prompt_eval_count,
+            completion_tokens = ?resp.eval_count,
+            total_tokens = ?total_tokens,
+            "ollama complete_json done"
+        );
         Ok(resp.response)
     }
 }
@@ -474,6 +537,8 @@ struct OpenAiReq<'a> {
 #[derive(Deserialize)]
 struct OpenAiResp {
     choices: Vec<OpenAiChoice>,
+    #[serde(default)]
+    usage: Option<OpenAiUsage>,
 }
 
 #[derive(Deserialize)]
@@ -486,13 +551,27 @@ struct OpenAiMessageOwned {
     content: String,
 }
 
+#[derive(Deserialize, Default)]
+struct OpenAiUsage {
+    #[serde(default)]
+    prompt_tokens: Option<u32>,
+    #[serde(default)]
+    completion_tokens: Option<u32>,
+    #[serde(default)]
+    total_tokens: Option<u32>,
+}
+
+/// Internal wrapper around the OpenAI-style call that also surfaces the
+/// usage block when the upstream reports it. The public callers
+/// (`LmStudioBackend`, `OpenAiBackend`) wrap their own tracing span
+/// around the call and log usage after this returns.
 async fn openai_style_call(
     client: &reqwest::Client,
     url: &str,
     api_key: Option<&str>,
     model: &str,
     req: &LlmRequest,
-) -> Result<String> {
+) -> Result<(String, Usage)> {
     let response_format = req.schema.as_ref().map(|schema| {
         serde_json::json!({
             "type": "json_schema",
@@ -528,11 +607,19 @@ async fn openai_style_call(
         .json::<OpenAiResp>()
         .await
         .context("parsing OpenAI-compatible response")?;
-    raw.choices
+    let usage = raw.usage.as_ref().map(|u| Usage {
+        prompt_tokens: u.prompt_tokens,
+        completion_tokens: u.completion_tokens,
+        total_tokens: u.total_tokens,
+        ..Usage::default()
+    }).unwrap_or_default();
+    let content = raw
+        .choices
         .into_iter()
         .next()
         .map(|c| c.message.content)
-        .ok_or_else(|| anyhow!("empty choices array"))
+        .ok_or_else(|| anyhow!("empty choices array"))?;
+    Ok((content, usage))
 }
 
 #[async_trait]
@@ -541,8 +628,30 @@ impl LlmBackend for LmStudioBackend {
         "lmstudio"
     }
     async fn complete_json(&self, req: &LlmRequest) -> Result<String> {
+        let span = tracing::info_span!(
+            "llm_complete",
+            backend = "lmstudio",
+            model = %self.model,
+        );
+        self.complete_json_inner(req).instrument(span).await
+    }
+}
+
+impl LmStudioBackend {
+    async fn complete_json_inner(&self, req: &LlmRequest) -> Result<String> {
+        let started = Instant::now();
         let url = format!("{}/v1/chat/completions", self.host);
-        openai_style_call(&self.client, &url, None, &self.model, req).await
+        let (content, usage) =
+            openai_style_call(&self.client, &url, None, &self.model, req).await?;
+        let elapsed_ms = started.elapsed().as_millis() as u64;
+        tracing::info!(
+            elapsed_ms,
+            prompt_tokens = ?usage.prompt_tokens,
+            completion_tokens = ?usage.completion_tokens,
+            total_tokens = ?usage.total_tokens,
+            "lmstudio complete_json done"
+        );
+        Ok(content)
     }
 }
 
@@ -579,14 +688,35 @@ impl LlmBackend for OpenAiBackend {
         "openai"
     }
     async fn complete_json(&self, req: &LlmRequest) -> Result<String> {
-        openai_style_call(
+        let span = tracing::info_span!(
+            "llm_complete",
+            backend = "openai",
+            model = %self.model,
+        );
+        self.complete_json_inner(req).instrument(span).await
+    }
+}
+
+impl OpenAiBackend {
+    async fn complete_json_inner(&self, req: &LlmRequest) -> Result<String> {
+        let started = Instant::now();
+        let (content, usage) = openai_style_call(
             &self.client,
             "https://api.openai.com/v1/chat/completions",
             Some(&self.api_key),
             &self.model,
             req,
         )
-        .await
+        .await?;
+        let elapsed_ms = started.elapsed().as_millis() as u64;
+        tracing::info!(
+            elapsed_ms,
+            prompt_tokens = ?usage.prompt_tokens,
+            completion_tokens = ?usage.completion_tokens,
+            total_tokens = ?usage.total_tokens,
+            "openai complete_json done"
+        );
+        Ok(content)
     }
 }
 
@@ -617,13 +747,39 @@ impl AnthropicBackend {
     }
 }
 
+/// Anthropic request body. `system` is sent as an array of content
+/// blocks (rather than a plain string) so we can attach
+/// `cache_control: { type: "ephemeral" }` to the stable prefix and let
+/// the upstream serve the system prompt from cache on subsequent calls.
+/// See <https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching>.
 #[derive(Serialize)]
 struct AnthropicReq<'a> {
     model: &'a str,
-    system: &'a str,
+    system: Vec<AnthropicSystemBlock<'a>>,
     messages: Vec<AnthropicMessage<'a>>,
     max_tokens: u32,
     temperature: f32,
+}
+
+/// A single block inside the Anthropic `system` array. Each block has
+/// a `type` ("text"), a `text` payload, and an optional `cache_control`
+/// directive. The "ephemeral" cache TTL is ~5 minutes — long enough for
+/// a brief-to-timeline run (which fires ~N scene calls back-to-back)
+/// to amortize the cache write on the first call and hit the (much
+/// cheaper) cached read on every scene after.
+#[derive(Serialize)]
+struct AnthropicSystemBlock<'a> {
+    #[serde(rename = "type")]
+    block_type: &'a str,
+    text: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cache_control: Option<AnthropicCacheControl>,
+}
+
+#[derive(Serialize, Clone, Copy)]
+struct AnthropicCacheControl {
+    #[serde(rename = "type")]
+    cc_type: &'static str,
 }
 
 #[derive(Serialize)]
@@ -635,11 +791,53 @@ struct AnthropicMessage<'a> {
 #[derive(Deserialize)]
 struct AnthropicResp {
     content: Vec<AnthropicContent>,
+    #[serde(default)]
+    usage: Option<AnthropicUsage>,
 }
 
 #[derive(Deserialize)]
 struct AnthropicContent {
     text: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+struct AnthropicUsage {
+    #[serde(default)]
+    input_tokens: Option<u32>,
+    #[serde(default)]
+    output_tokens: Option<u32>,
+    /// Tokens written to the prompt-cache on this call. Non-zero only
+    /// on the first call that pushed a new stable prefix into the cache.
+    #[serde(default)]
+    cache_creation_input_tokens: Option<u32>,
+    /// Tokens served from the prompt-cache on this call. Non-zero on a
+    /// cache hit — billed at the cached read rate (~10× cheaper).
+    #[serde(default)]
+    cache_read_input_tokens: Option<u32>,
+}
+
+/// Split the system prompt into a "stable prefix" (cacheable) and a
+/// "volatile suffix" (per-call). The stable prefix carries everything
+/// that's identical across calls within an orchestration run — the
+/// persona, output format, anti-patterns, quality bar — while the
+/// volatile suffix carries any caller-injected addendum (theme
+/// guidance, attached-images reinforcement) that may vary per call.
+///
+/// We look for the addendum delimiter the orchestrator uses
+/// ("\n\nAdditional theme guidance: ") and the attached-images banner
+/// ("\n\nUSER HAS ATTACHED REFERENCE IMAGES"); the earliest match wins.
+/// If neither is present the whole system string is the stable prefix
+/// and the suffix is empty.
+fn split_system_for_caching(system: &str) -> (&str, &str) {
+    let candidates = ["\n\nAdditional theme guidance: ", "\n\nUSER HAS ATTACHED"];
+    let cut = candidates
+        .iter()
+        .filter_map(|needle| system.find(needle))
+        .min();
+    match cut {
+        Some(idx) => system.split_at(idx),
+        None => (system, ""),
+    }
 }
 
 #[async_trait]
@@ -648,6 +846,18 @@ impl LlmBackend for AnthropicBackend {
         "anthropic"
     }
     async fn complete_json(&self, req: &LlmRequest) -> Result<String> {
+        let span = tracing::info_span!(
+            "llm_complete",
+            backend = "anthropic",
+            model = %self.model,
+        );
+        self.complete_json_inner(req).instrument(span).await
+    }
+}
+
+impl AnthropicBackend {
+    async fn complete_json_inner(&self, req: &LlmRequest) -> Result<String> {
+        let started = Instant::now();
         let user = if let Some(schema) = &req.schema {
             format!(
                 "{}\n\nReturn JSON matching exactly this schema:\n{}\n\n\
@@ -657,6 +867,29 @@ impl LlmBackend for AnthropicBackend {
         } else {
             req.user.clone()
         };
+
+        // Build the `system` array — split into a cacheable stable
+        // prefix (persona, JSON-schema instructions, anti-patterns,
+        // easing rules) and a volatile suffix (per-call theme addendum
+        // and attached-image hints). Mark only the stable prefix as
+        // ephemeral; the suffix flows through uncached.
+        let (stable, volatile) = split_system_for_caching(&req.system);
+        let mut system = Vec::with_capacity(2);
+        system.push(AnthropicSystemBlock {
+            block_type: "text",
+            text: stable,
+            cache_control: Some(AnthropicCacheControl {
+                cc_type: "ephemeral",
+            }),
+        });
+        if !volatile.is_empty() {
+            system.push(AnthropicSystemBlock {
+                block_type: "text",
+                text: volatile,
+                cache_control: None,
+            });
+        }
+
         // Anthropic's `assistant prefill` pattern: seed the assistant's
         // turn with `{` so the model is forced to continue from inside
         // a JSON object. This is the official Anthropic technique for
@@ -666,7 +899,7 @@ impl LlmBackend for AnthropicBackend {
         // below since prefill content is NOT echoed back.
         let body = AnthropicReq {
             model: &self.model,
-            system: &req.system,
+            system,
             messages: vec![
                 AnthropicMessage {
                     role: "user",
@@ -694,6 +927,21 @@ impl LlmBackend for AnthropicBackend {
             .json()
             .await
             .context("parsing anthropic response")?;
+        let elapsed_ms = started.elapsed().as_millis() as u64;
+        let usage = resp.usage.unwrap_or_default();
+        let total_tokens = match (usage.input_tokens, usage.output_tokens) {
+            (Some(i), Some(o)) => Some(i + o),
+            _ => None,
+        };
+        tracing::info!(
+            elapsed_ms,
+            prompt_tokens = ?usage.input_tokens,
+            completion_tokens = ?usage.output_tokens,
+            total_tokens = ?total_tokens,
+            cache_creation_input_tokens = ?usage.cache_creation_input_tokens,
+            cache_read_input_tokens = ?usage.cache_read_input_tokens,
+            "anthropic complete_json done"
+        );
         resp.content
             .into_iter()
             .filter_map(|c| c.text)
@@ -774,6 +1022,90 @@ pub async fn auto_local_first(mock_canned: &str) -> Box<dyn LlmBackend> {
     Box::new(MockBackend::new(mock_canned))
 }
 
+// -------------------------- tiered router --------------------------
+
+/// Threshold (in `max_tokens`) below which a request routes to the
+/// cheap backend instead of the main one. Anything `<=` this value
+/// goes to `cheap`; anything larger goes to `main`. Picked so that
+/// utility calls (script-synth's per-scene VO line, brief
+/// classification) hit the small/fast tier, while the full
+/// timeline-generation call still goes to the main tier.
+pub const CHEAP_TIER_MAX_TOKENS: u32 = 512;
+
+/// Two-tier router. `cheap` handles low-cost utility calls (anything
+/// with `max_tokens <= CHEAP_TIER_MAX_TOKENS`), `main` handles the
+/// timeline-generation hot path. When only one backend is available
+/// the same `Arc` is stored in both fields so the router is a no-op
+/// pass-through and existing single-backend deployments keep working.
+///
+/// Implemented as an [`LlmBackend`] itself so it can be plugged into
+/// any call site that takes a `&dyn LlmBackend` without further
+/// changes. The router picks per-call via [`Backends::route`].
+pub struct Backends {
+    pub cheap: std::sync::Arc<dyn LlmBackend>,
+    pub main: std::sync::Arc<dyn LlmBackend>,
+}
+
+impl Backends {
+    /// Construct a router with explicit cheap + main backends.
+    pub fn new(
+        cheap: std::sync::Arc<dyn LlmBackend>,
+        main: std::sync::Arc<dyn LlmBackend>,
+    ) -> Self {
+        Self { cheap, main }
+    }
+
+    /// Construct a router from a single backend (degenerate case —
+    /// cheap == main). Useful when only one backend is configured
+    /// (e.g. local-only Ollama deployment).
+    pub fn single(backend: std::sync::Arc<dyn LlmBackend>) -> Self {
+        Self {
+            cheap: backend.clone(),
+            main: backend,
+        }
+    }
+
+    /// Decide which backend handles this request. Currently a simple
+    /// threshold on `max_tokens`; a future revision may consider the
+    /// schema complexity, the presence of images, or a caller-supplied
+    /// `tier` hint on `LlmRequest`.
+    pub fn route(&self, req: &LlmRequest) -> &dyn LlmBackend {
+        if req.max_tokens <= CHEAP_TIER_MAX_TOKENS {
+            &*self.cheap
+        } else {
+            &*self.main
+        }
+    }
+
+    /// Build a `Backends` router using `auto_local_first` selection.
+    /// In the current implementation cheap == main (the auto-picker
+    /// only chooses one backend), so this is equivalent to
+    /// [`Backends::single`]. Reserved for the future when the cheap
+    /// tier picks a smaller local Ollama model (e.g. qwen2.5:3b)
+    /// while the main tier picks a larger one (qwen2.5vl:7b) or a
+    /// cloud backend.
+    pub async fn auto_local_first(mock_canned: &str) -> Self {
+        let single = auto_local_first(mock_canned).await;
+        let arc: std::sync::Arc<dyn LlmBackend> = std::sync::Arc::from(single);
+        Self::single(arc)
+    }
+}
+
+#[async_trait]
+impl LlmBackend for Backends {
+    fn name(&self) -> &str {
+        // Reports the main tier's name — callers that care about the
+        // per-call backend should inspect the routed `&dyn LlmBackend`
+        // returned by `route()` directly. This name is used for
+        // top-level logging only.
+        self.main.name()
+    }
+
+    async fn complete_json(&self, req: &LlmRequest) -> Result<String> {
+        self.route(req).complete_json(req).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -784,6 +1116,76 @@ mod tests {
         let r = LlmRequest::new("system", "user");
         let raw = b.complete_json(&r).await.unwrap();
         assert!(raw.contains("ok"));
+    }
+
+    #[tokio::test]
+    async fn backends_router_routes_by_max_tokens() {
+        // Two distinct mock backends so we can tell which one served
+        // the call by the response content.
+        let cheap: std::sync::Arc<dyn LlmBackend> =
+            std::sync::Arc::new(MockBackend::new(r#"{"tier":"cheap"}"#));
+        let main: std::sync::Arc<dyn LlmBackend> =
+            std::sync::Arc::new(MockBackend::new(r#"{"tier":"main"}"#));
+        let router = Backends::new(cheap, main);
+
+        // <= CHEAP_TIER_MAX_TOKENS → cheap
+        let small = LlmRequest {
+            max_tokens: CHEAP_TIER_MAX_TOKENS,
+            ..LlmRequest::new("s", "u")
+        };
+        let raw = router.complete_json(&small).await.unwrap();
+        assert!(raw.contains("cheap"), "small req should route to cheap: {raw}");
+
+        // > CHEAP_TIER_MAX_TOKENS → main
+        let big = LlmRequest {
+            max_tokens: CHEAP_TIER_MAX_TOKENS + 1,
+            ..LlmRequest::new("s", "u")
+        };
+        let raw = router.complete_json(&big).await.unwrap();
+        assert!(raw.contains("main"), "big req should route to main: {raw}");
+    }
+
+    #[tokio::test]
+    async fn backends_single_serves_both_tiers_from_one_backend() {
+        // Degenerate case: only one backend configured. Both tiers
+        // should resolve to it and the router must not break.
+        let one: std::sync::Arc<dyn LlmBackend> =
+            std::sync::Arc::new(MockBackend::new(r#"{"only":true}"#));
+        let router = Backends::single(one);
+        let small = LlmRequest {
+            max_tokens: 16,
+            ..LlmRequest::new("s", "u")
+        };
+        let big = LlmRequest {
+            max_tokens: 4096,
+            ..LlmRequest::new("s", "u")
+        };
+        assert!(router.complete_json(&small).await.unwrap().contains("only"));
+        assert!(router.complete_json(&big).await.unwrap().contains("only"));
+    }
+
+    #[test]
+    fn split_system_for_caching_splits_at_addendum() {
+        let s = "STABLE PERSONA\n\nAdditional theme guidance: be playful";
+        let (stable, volatile) = split_system_for_caching(s);
+        assert_eq!(stable, "STABLE PERSONA");
+        assert!(volatile.starts_with("\n\nAdditional theme guidance:"));
+    }
+
+    #[test]
+    fn split_system_for_caching_splits_at_images_banner() {
+        let s = "STABLE PERSONA\n\nUSER HAS ATTACHED REFERENCE IMAGES\nuse them";
+        let (stable, volatile) = split_system_for_caching(s);
+        assert_eq!(stable, "STABLE PERSONA");
+        assert!(volatile.starts_with("\n\nUSER HAS ATTACHED"));
+    }
+
+    #[test]
+    fn split_system_for_caching_no_split_when_pure_stable() {
+        let s = "STABLE ONLY";
+        let (stable, volatile) = split_system_for_caching(s);
+        assert_eq!(stable, "STABLE ONLY");
+        assert_eq!(volatile, "");
     }
 
     #[test]

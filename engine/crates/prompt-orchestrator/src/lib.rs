@@ -18,6 +18,8 @@ use llm::LlmRequest;
 use motion_forge_style_extract::{EasingLabel, StyleCard};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::time::Instant;
+use tracing::Instrument;
 
 // Re-export the character types so consumers (and W4's brief_to_timeline)
 // can use the single canonical `CharacterRef` from this crate root.
@@ -304,6 +306,29 @@ impl PromptOrchestrator {
         reference_images: &[std::path::PathBuf],
         reference_documents: &[std::path::PathBuf],
     ) -> Result<LottieTimeline> {
+        let span = tracing::info_span!(
+            "orchestrate",
+            duration_seconds = self.duration_seconds,
+            prompt_len = user_prompt.len(),
+        );
+        self.orchestrate_with_context_inner(
+            user_prompt,
+            style,
+            reference_images,
+            reference_documents,
+        )
+        .instrument(span)
+        .await
+    }
+
+    async fn orchestrate_with_context_inner(
+        &self,
+        user_prompt: &str,
+        style: &StyleCard,
+        reference_images: &[std::path::PathBuf],
+        reference_documents: &[std::path::PathBuf],
+    ) -> Result<LottieTimeline> {
+        let started = Instant::now();
         let style_summary = summarize_style(style);
         let cast_summary = characters::summarize_cast(&self.cast_registry, &self.cast);
 
@@ -440,6 +465,8 @@ impl PromptOrchestrator {
         let req = LlmRequest { max_tokens, ..req };
         let timeline: LottieTimeline =
             llm::LlmBackendExt::complete_into(&*self.backend, &req).await?;
+        let elapsed_ms = started.elapsed().as_millis() as u64;
+        tracing::info!(elapsed_ms, "orchestrate done");
         Ok(timeline)
     }
 }
