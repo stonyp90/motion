@@ -65,7 +65,7 @@ export function AuthSplitLayout({
     <main className="relative flex min-h-screen flex-col bg-bg-primary lg:grid lg:grid-cols-[1fr_minmax(0,34rem)] lg:grid-rows-1">
       {/* ────────────────── left "stage" ────────────────── */}
       <section
-        className="relative hidden overflow-hidden bg-bg-primary px-12 py-12 lg:flex lg:flex-col lg:justify-between"
+        className="relative hidden overflow-hidden bg-bg-primary py-12 pl-12 pr-8 lg:flex lg:flex-col lg:justify-between"
         aria-hidden="true"
       >
         {/* Ambient glow — same emerald + amber tune as the home hero so
@@ -91,7 +91,7 @@ export function AuthSplitLayout({
         />
 
         {/* Film-strip top rule */}
-        <div className="relative z-10 flex items-center justify-between">
+        <div className="relative z-10 flex w-full max-w-xl items-center justify-between lg:ml-auto">
           <div
             className="animate-reveal-up stagger-child"
             style={{ '--i': 0 } as React.CSSProperties}
@@ -108,7 +108,7 @@ export function AuthSplitLayout({
         </div>
 
         {/* Center stack: eyebrow + display headline + scene cards */}
-        <div className="relative z-10 flex max-w-xl flex-col gap-9">
+        <div className="relative z-10 flex max-w-xl flex-col gap-9 lg:ml-auto">
           <div className="flex flex-col gap-3">
             <p
               className="animate-reveal-up stagger-child font-mono text-[11px] font-semibold uppercase tracking-[0.22em] text-accent-700 dark:text-accent-400"
@@ -155,7 +155,7 @@ export function AuthSplitLayout({
 
         {/* Trust pill row — film-strip footer */}
         <div
-          className="animate-reveal-up stagger-child relative z-10 flex flex-wrap items-center gap-2"
+          className="animate-reveal-up stagger-child relative z-10 flex max-w-xl flex-wrap items-center gap-2 lg:ml-auto"
           style={{ '--i': 3 + bullets.length } as React.CSSProperties}
         >
           {TRUST_PILLS.map((label) => (
@@ -180,7 +180,7 @@ export function AuthSplitLayout({
       </header>
 
       {/* ────────────────── right "booth" (form panel) ────────────────── */}
-      <section className="relative flex flex-1 flex-col items-stretch justify-center bg-bg-secondary px-4 py-12 sm:px-8 sm:py-16">
+      <section className="relative flex flex-1 flex-col items-stretch justify-center bg-bg-secondary px-4 py-12 sm:py-16 sm:pl-8 sm:pr-8 lg:pl-8 lg:pr-12">
         {/* Subtle ambient glow on the booth side too so the right pane
             doesn't read as a flat slab next to the left stage. */}
         <div
@@ -192,7 +192,7 @@ export function AuthSplitLayout({
           }}
         />
 
-        <div className="relative z-10 mx-auto flex w-full max-w-md flex-col gap-3">
+        <div className="relative z-10 mx-auto flex w-full max-w-md flex-col gap-3 lg:ml-0">
           <div className="flex items-end justify-between gap-3 px-1 font-mono text-[10px] uppercase tracking-[0.22em] text-text-tertiary">
             <span className="inline-flex items-center gap-2">
               <span className="h-px w-6 bg-accent-500/60" aria-hidden />
