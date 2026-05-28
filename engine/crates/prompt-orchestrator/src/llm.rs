@@ -607,12 +607,16 @@ async fn openai_style_call(
         .json::<OpenAiResp>()
         .await
         .context("parsing OpenAI-compatible response")?;
-    let usage = raw.usage.as_ref().map(|u| Usage {
-        prompt_tokens: u.prompt_tokens,
-        completion_tokens: u.completion_tokens,
-        total_tokens: u.total_tokens,
-        ..Usage::default()
-    }).unwrap_or_default();
+    let usage = raw
+        .usage
+        .as_ref()
+        .map(|u| Usage {
+            prompt_tokens: u.prompt_tokens,
+            completion_tokens: u.completion_tokens,
+            total_tokens: u.total_tokens,
+            ..Usage::default()
+        })
+        .unwrap_or_default();
     let content = raw
         .choices
         .into_iter()
@@ -1134,7 +1138,10 @@ mod tests {
             ..LlmRequest::new("s", "u")
         };
         let raw = router.complete_json(&small).await.unwrap();
-        assert!(raw.contains("cheap"), "small req should route to cheap: {raw}");
+        assert!(
+            raw.contains("cheap"),
+            "small req should route to cheap: {raw}"
+        );
 
         // > CHEAP_TIER_MAX_TOKENS → main
         let big = LlmRequest {
