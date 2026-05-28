@@ -33,7 +33,8 @@ use std::thread;
 use std::time::Duration;
 
 use rand::Rng;
-use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
+use serde::Serialize;
+use tauri::{Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 
 mod setup;
 
@@ -120,22 +121,31 @@ pub fn run() {
                 Err(e) => log::warn!("ollama sidecar skipped: {e}"),
             }
 
-            // Best-effort: wait up to 10s for the engine to become healthy
-            // before opening the window so the first paint isn't a 503.
-            wait_for_engine(engine_port);
-
             // Build the URL with engine + token query params so the web
             // app reconfigures itself for local mode without rebuild.
+            // We can hand these to the webview before the engine is
+            // actually healthy — React's auth-store / runtime-config
+            // consume them on hydrate, and any pre-engine-ready API
+            // call will simply 503 with a clear error.
             let frontend = frontend_url();
             let url = format!(
                 "{frontend}?engine=http%3A%2F%2F127.0.0.1%3A{engine_port}&token={secret}"
             );
             log::info!("opening window at {url}");
 
-            // Parse + open. The `windows[]` array in tauri.conf.json
-            // is intentionally empty so we own window creation here —
-            // the URL is per-launch dynamic (engine port + secret), so
-            // there's nothing useful to pre-declare statically.
+            // Parse + open the window IMMEDIATELY. Previously we
+            // synchronously polled the engine's `/healthz` for up to
+            // 10s before this line ran — that meant cold-start to
+            // first paint took up to 10s. The window now opens as
+            // soon as the sidecar is spawned; engine readiness is
+            // polled on a background task and signalled via an
+            // `engine-ready` Tauri event for the React side to react
+            // to once it wires up a listener.
+            //
+            // The `windows[]` array in tauri.conf.json is intentionally
+            // empty so we own window creation here — the URL is
+            // per-launch dynamic (engine port + secret), so there's
+            // nothing useful to pre-declare statically.
             let parsed: tauri::Url = url.parse().unwrap_or_else(|e| {
                 log::error!("URL parse failed ({e}) — falling back to {frontend}");
                 frontend.parse().expect("static frontend URL parses")
@@ -146,6 +156,26 @@ pub fn run() {
                 .min_inner_size(1024.0, 640.0)
                 .resizable(true)
                 .build()?;
+
+            // Now that the window is opening, kick off the engine
+            // health-poll on Tauri's async runtime. When the engine
+            // responds healthy we emit `engine-ready` so the frontend
+            // can flip into "online" mode. In parallel we fire a
+            // best-effort no-op GET against Ollama's `/api/tags` — if
+            // the daemon is cold this nudges it to start serving so
+            // the first model call doesn't pay a wakeup tax.
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let (engine_ready, _ollama) =
+                    tokio::join!(poll_engine_ready(engine_port), wake_ollama());
+                let payload = EngineReadyPayload {
+                    port: engine_port,
+                    healthy: engine_ready,
+                };
+                if let Err(e) = app_handle.emit("engine-ready", &payload) {
+                    log::warn!("emit engine-ready failed: {e}");
+                }
+            });
 
             Ok(())
         })
@@ -319,21 +349,68 @@ fn dirs_like() -> PathBuf {
     PathBuf::from(".")
 }
 
-fn wait_for_engine(port: u16) {
+/// Payload sent on the `engine-ready` event. Carries the port so the
+/// frontend can re-confirm which engine it should be talking to (the
+/// same one it already got via the `?engine=…` URL param, but having
+/// it here means the event is self-contained for any future consumer).
+#[derive(Debug, Serialize, Clone)]
+struct EngineReadyPayload {
+    port: u16,
+    /// `false` means we exhausted the polling budget without a healthy
+    /// response. We still emit the event so the frontend can choose to
+    /// surface a "engine still starting" affordance instead of hanging.
+    healthy: bool,
+}
+
+/// Poll the engine's `/healthz` endpoint until it returns 200 or we
+/// exhaust ~10s of attempts. Runs on Tauri's async runtime so the
+/// main thread (and therefore the window paint) is never blocked.
+///
+/// Returns `true` if the engine came up healthy, `false` if we timed
+/// out. Either way the `engine-ready` event is emitted by the caller
+/// — the frontend can decide what to do with a `healthy: false`.
+async fn poll_engine_ready(port: u16) -> bool {
     let url = format!("http://127.0.0.1:{port}/healthz");
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_millis(500))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            log::warn!("engine health client build failed: {e}");
+            return false;
+        }
+    };
     for attempt in 0..40 {
-        match std::net::TcpStream::connect_timeout(
-            &format!("127.0.0.1:{port}").parse().unwrap(),
-            Duration::from_millis(250),
-        ) {
-            Ok(_) => {
+        match client.get(&url).send().await {
+            Ok(r) if r.status().is_success() => {
                 log::info!("engine healthy after {} attempts ({url})", attempt + 1);
-                return;
+                return true;
             }
-            Err(_) => std::thread::sleep(Duration::from_millis(250)),
+            _ => tokio::time::sleep(Duration::from_millis(250)).await,
         }
     }
-    log::warn!("engine did not become healthy within ~10s; opening window anyway");
+    log::warn!("engine did not become healthy within ~10s; window already open");
+    false
+}
+
+/// Fire-and-forget GET against the local Ollama daemon. If it isn't
+/// running yet (e.g. we just spawned it) the request will fail — we
+/// don't care; the act of attempting the connection nudges the OS
+/// scheduler / launchd to wake the daemon up so the first real model
+/// call from the UI doesn't pay the full cold-start latency.
+async fn wake_ollama() {
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    let _ = client
+        .get("http://127.0.0.1:11434/api/tags")
+        .send()
+        .await;
 }
 
 fn frontend_url() -> String {
