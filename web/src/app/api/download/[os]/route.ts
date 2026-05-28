@@ -33,7 +33,6 @@ export const runtime = 'nodejs';
 
 const VALID_OS: DownloadOs[] = [
   'mac-arm',
-  'mac-intel',
   'windows',
   'linux-deb',
   'linux-appimage',

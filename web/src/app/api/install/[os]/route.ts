@@ -23,7 +23,11 @@ import { VERSION } from '@/lib/download-manifest';
  * users hitting a stale script.
  */
 
-const VALID = ['mac', 'mac-arm', 'mac-intel', 'windows', 'linux'] as const;
+// Mac Intel removed — no Intel binary is currently shipped (see
+// download-manifest.ts comment). The `mac` alias still works and
+// maps to Apple silicon. If an Intel user explicitly passes
+// `mac-intel`, fall through to a 404 so they get an honest signal.
+const VALID = ['mac', 'mac-arm', 'windows', 'linux'] as const;
 
 interface Params {
   params: Promise<{ os: string }>;
@@ -37,10 +41,10 @@ export async function GET(req: NextRequest, { params }: Params) {
 
   const base = `${req.nextUrl.origin}`;
 
-  if (os === 'mac' || os === 'mac-arm' || os === 'mac-intel') {
-    // Default to apple-silicon when the caller passes plain `mac`.
-    const downloadEndpoint = os === 'mac-intel' ? 'mac-intel' : 'mac-arm';
-    const script = macScript({ downloadUrl: `${base}/api/download/${downloadEndpoint}` });
+  if (os === 'mac' || os === 'mac-arm') {
+    // Apple silicon only — `mac` aliases to it. Mac Intel is not
+    // currently shipped (see download-manifest.ts).
+    const script = macScript({ downloadUrl: `${base}/api/download/mac-arm` });
     return new NextResponse(script, {
       headers: {
         'Content-Type': 'text/plain; charset=utf-8',
