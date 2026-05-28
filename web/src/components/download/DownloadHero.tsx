@@ -58,9 +58,21 @@ export function DownloadHero() {
         redirect: 'manual',
         cache: 'no-store',
       });
-      // 302 lands as `opaqueredirect` when `redirect: 'manual'`. Treat
-      // it as success and let the browser follow it natively.
-      if (res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400)) {
+      // Success paths from /api/download/<os>:
+      //   - 3xx redirect (CDN path) — `redirect: 'manual'` surfaces it as
+      //     `opaqueredirect`. Browser follows natively.
+      //   - 2xx with attachment (GitHub Releases proxy) — body IS the
+      //     installer. Re-trigger via window.location so the browser's
+      //     save dialog handles it; prior fetch bytes are discarded.
+      const isAttachment = res.headers
+        .get('content-disposition')
+        ?.toLowerCase()
+        .includes('attachment');
+      if (
+        res.type === 'opaqueredirect' ||
+        (res.status >= 300 && res.status < 400) ||
+        (res.ok && isAttachment)
+      ) {
         window.location.href = `/api/download/${asset.os}`;
         return;
       }
