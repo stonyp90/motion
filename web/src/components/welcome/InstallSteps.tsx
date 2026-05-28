@@ -20,8 +20,8 @@ export function InstallSteps() {
       style={{ '--i': 4 } as CSSProperties}
     >
       <div className="flex flex-col items-start gap-2">
-        <p className="font-mono text-2xs font-medium uppercase tracking-[0.18em] text-text-tertiary">
-          Step 2 · Set up
+        <p className="font-mono text-2xs font-medium uppercase tracking-[0.18em] text-text-accent">
+          After you download
         </p>
         <h2 className="text-2xl font-bold tracking-tight text-text-primary sm:text-[28px]">
           Three steps. About five minutes.
@@ -31,27 +31,29 @@ export function InstallSteps() {
       <ol className="mt-8 flex flex-col gap-8">
         <Step number={1} icon={<DownloadIcon className="h-4 w-4" />} title="Open the installer">
           <p>
-            macOS: drag <code className="rounded bg-bg-tertiary px-1 font-mono text-xs">ControlCraft.app</code>{' '}
-            into Applications. Windows / Linux: run the installer for your platform.
+            <strong className="font-semibold text-text-primary">macOS</strong> — drag{' '}
+            <code className="rounded bg-bg-tertiary px-1 font-mono text-xs">ControlCraft.app</code>{' '}
+            into Applications.{' '}
+            <strong className="font-semibold text-text-primary">Windows / Linux</strong> — run
+            the installer.
           </p>
         </Step>
         <Step number={2} icon={<Terminal className="h-4 w-4" />} title="Install Ollama (once)">
           <p>
-            ControlCraft uses a local LLM through Ollama. The desktop shell auto-detects it;{' '}
+            Ollama runs the local model. One command per platform —{' '}
             <Link
               href={"/install#install-ollama" as never}
               className="font-medium text-text-accent underline-offset-2 hover:underline"
             >
-              the install guide
-            </Link>{' '}
-            has the one-liner per platform.
+              copy it from the setup guide
+            </Link>
+            . If Ollama is already installed, ControlCraft picks it up automatically.
           </p>
         </Step>
-        <Step number={3} icon={<Zap className="h-4 w-4" />} title="Launch ControlCraft">
+        <Step number={3} icon={<Zap className="h-4 w-4" />} title="Launch and generate">
           <p>
-            The first window opens to a prompt. The local-model chip lights up{' '}
-            <code className="rounded bg-bg-tertiary px-1 font-mono text-xs">llava · loaded</code>{' '}
-            once the model is warm. Click Generate to make your first motion graphic.
+            Open ControlCraft, paste a brief, click <strong className="font-semibold text-text-primary">Generate</strong>.
+            First run downloads the model once; every brief after that is local and offline.
           </p>
         </Step>
       </ol>

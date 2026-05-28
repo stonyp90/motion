@@ -71,15 +71,15 @@ export const TOUR_STORAGE_KEY = 'mf-welcome-tour-seen';
 // ---------------------------------------------------------------------------
 type Dict = Record<string, string>;
 const DEFAULT_COPY: Dict = {
-  'onboarding.tour.step1.title': 'Grab the build for your machine.',
+  'onboarding.tour.step1.title': 'Download the build for your machine.',
   'onboarding.tour.step1.body':
-    'ControlCraft runs natively. We picked the right installer for your OS — one click and the download starts.',
-  'onboarding.tour.step2.title': 'Set up in about five minutes.',
+    'We picked the right installer for your OS — one click and the download starts.',
+  'onboarding.tour.step2.title': 'Install + launch.',
   'onboarding.tour.step2.body':
-    'The desktop shell wraps a local engine plus Ollama for on-device inference. Three steps, no command-line voodoo.',
-  'onboarding.tour.step3.title': 'This is what waits inside the app.',
+    'Three quick steps: run the installer, install Ollama once (one command), then launch ControlCraft.',
+  'onboarding.tour.step3.title': 'Generate your first reel.',
   'onboarding.tour.step3.body':
-    'Local vision-model inference, brand-locked palette, every export your stack already takes. Run ControlCraft to start generating.',
+    'Local vision models, brand-locked palette, every export your stack already takes — no cloud, no rate limits.',
   'onboarding.tour.next': 'Next',
   'onboarding.tour.back': 'Back',
   'onboarding.tour.skip': 'Skip tour',
