@@ -12,8 +12,11 @@ import { CapabilitiesPanel } from './CapabilitiesPanel';
  * signed-in users — the actual generator lives in the desktop app.
  *
  * Layout: greeting → desktop download CTA → install steps →
- * account links → capabilities preview. WelcomeTour overlays on the
- * first visit (localStorage `mf-welcome-tour-seen`).
+ * account links → capabilities preview. The WelcomeTour is opt-in —
+ * the GreetingBlock surfaces a "Take a quick tour" link that calls
+ * useWelcomeTour().open(). We do NOT auto-open: a centered callout
+ * over a layout this dense ends up covering the greeting and the
+ * very card it's trying to point at.
  *
  * Section ordering matches the user's task flow:
  *   1. Identify (greeting tells them they're signed in)
@@ -24,7 +27,7 @@ import { CapabilitiesPanel } from './CapabilitiesPanel';
  */
 export function WelcomeDashboard() {
   return (
-    <WelcomeTourProvider>
+    <WelcomeTourProvider autoStart={false}>
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-10 px-4 py-12 sm:px-6 sm:py-16 lg:py-20">
         <GreetingBlock />
         <DesktopGetCard />
