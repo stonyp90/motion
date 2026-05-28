@@ -7,10 +7,9 @@ import { AuthMotionBackground } from './AuthMotionBackground';
 
 interface Props {
   children: ReactNode;
-  /** Small label above the form card — "Create your account", "Sign in", etc. */
+  /** Small label used as the section's aria-label since the form is the
+   *  only visible heading on the page now ("Create your account", "Sign in", etc.). */
   eyebrow?: string;
-  /** Film-strip register on the form chrome ("Act 01 · Onboarding"). */
-  rightChapter?: string;
 }
 
 /**
@@ -26,13 +25,7 @@ interface Props {
  * On mobile the background still fills the viewport; a slim header
  * carries the logo and reel label so the form stays the focal point.
  */
-export function AuthSplitLayout({
-  children,
-  eyebrow,
-  rightChapter,
-}: Props) {
-  const chapter = rightChapter ?? 'ACT 01  ·  ONBOARDING';
-
+export function AuthSplitLayout({ children, eyebrow }: Props) {
   return (
     <main className="relative flex min-h-screen flex-col bg-[#0e1014]">
       <AuthMotionBackground />
@@ -57,32 +50,14 @@ export function AuthSplitLayout({
         </span>
       </header>
 
-      {/* Form card — centered on top of the motion background. */}
+      {/* Form card — centered on top of the motion background. The
+          background's top HUD already carries reel/act metadata and
+          the bottom pipeline timeline shows what's next, so this slot
+          is intentionally chrome-free: the form is the only thing the
+          user actually needs to do here. */}
       <section className="relative z-10 flex flex-1 items-center justify-center px-4 py-10 sm:py-14">
-        <div className="relative w-full max-w-md">
-          {/* Chapter tag + Take label — film-strip chrome above the card.
-              The film-strip top rule already carries Reel/brand metadata,
-              so this row stays purposeful (per-surface chapter only). */}
-          <div className="mb-3 flex items-end justify-between gap-3 px-1 font-mono text-[10px] uppercase tracking-[0.22em] text-white/70">
-            <span className="inline-flex items-center gap-2">
-              <span className="h-px w-6 bg-accent-400/70" aria-hidden />
-              {chapter}
-            </span>
-            <span>Take 01</span>
-          </div>
-
-          {/* Wrapper provides a strong drop-shadow halo so the form card
-              reads as "lit booth on a dark stage" in both light and dark
-              themes — bg-bg-primary matches our dark canvas in dark mode,
-              so the shadow + the card's own border are what define the
-              card silhouette there. */}
-          <div className="auth-card-halo" aria-label={eyebrow}>
-            {children}
-          </div>
-
-          <p className="mt-4 px-1 text-center text-[11px] text-white/55">
-            Next take · confirm email · pick your brand palette · ship your first reel.
-          </p>
+        <div className="auth-card-halo relative w-full max-w-md" aria-label={eyebrow}>
+          {children}
         </div>
       </section>
 
