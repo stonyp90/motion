@@ -84,6 +84,15 @@ const nextConfig = {
       },
     ];
   },
+  async redirects() {
+    return [
+      // /studio used to host an in-browser Lottie preset editor. The
+      // editor now lives in the desktop app only — bounce old links to
+      // the download page so visitors can grab the binary.
+      { source: '/studio', destination: '/download', permanent: true },
+      { source: '/studio/:path*', destination: '/download', permanent: true },
+    ];
+  },
 };
 
 module.exports = nextConfig;
