@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Download, ArrowRight, LogOut, Sparkles, User } from 'lucide-react';
+import { Download, ArrowRight, LogOut, User } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ThemeToggle } from './ThemeToggle';
@@ -62,26 +62,16 @@ export function Header() {
 
         <div className="flex items-center gap-1">
           <ThemeToggle />
-          {hydrated && isAuthenticated && (
+          {hydrated && isAuthenticated && !desktop && (
             <>
               <Link
-                href={"/studio" as never}
+                href={"/download" as never}
                 className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-text-primary"
-                aria-label="Open Studio — direct-edit + multi-format export"
+                aria-label="Download ControlCraft desktop"
               >
-                <Sparkles className="h-4 w-4" />
-                <span className="hidden sm:inline">Studio</span>
+                <Download className="h-4 w-4" />
+                <span className="hidden sm:inline">Download</span>
               </Link>
-              {!desktop && (
-                <Link
-                  href={"/download" as never}
-                  className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-text-primary"
-                  aria-label="Download ControlCraft desktop"
-                >
-                  <Download className="h-4 w-4" />
-                  <span className="hidden sm:inline">Download</span>
-                </Link>
-              )}
               <div className="mx-1 h-5 w-px bg-border-light" aria-hidden />
             </>
           )}

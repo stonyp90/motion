@@ -38,7 +38,7 @@ interface Props {
    * Capture-the-current-frame handoff. When set, the preview surfaces
    * a "Capture frame" button next to play/pause. Clicking it pauses
    * the animation, rasterises the current SVG to a PNG blob, and
-   * hands the blob back so HomeApp can append it as a context image
+   * hands the blob back so StudioApp can append it as a context image
    * for the next generate / iterate call.
    */
   onCaptureFrame?: (blob: Blob, filename: string) => void;

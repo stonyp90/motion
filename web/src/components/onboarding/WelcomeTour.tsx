@@ -140,7 +140,7 @@ const STEPS: readonly TourStep[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Context — lets HomeApp imperatively re-open the tour (e.g. from a "?"
+// Context — lets the host page imperatively re-open the tour (e.g. from a "?"
 // help menu) or test it from a Storybook story.
 // ---------------------------------------------------------------------------
 interface WelcomeTourCtx {

@@ -18,7 +18,6 @@ export default function robots(): MetadataRoute.Robots {
           '/api/',
           '/dashboard/',
           '/preview-demo/',
-          '/studio/',
         ],
       },
     ],
