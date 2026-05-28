@@ -42,7 +42,20 @@ export function DesktopGetCard() {
         redirect: 'manual',
         cache: 'no-store',
       });
-      if (res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400)) {
+      // Success paths from /api/download/<os>:
+      //   - 3xx redirect: CDN-base configured, hand off to the browser
+      //   - 2xx with attachment: GitHub Releases proxy, the response body
+      //     IS the installer. Re-trigger via window.location so the browser
+      //     handles the save dialog (the prior fetch's bytes are discarded).
+      const isAttachment = res.headers
+        .get('content-disposition')
+        ?.toLowerCase()
+        .includes('attachment');
+      if (
+        res.type === 'opaqueredirect' ||
+        (res.status >= 300 && res.status < 400) ||
+        (res.ok && isAttachment)
+      ) {
         window.location.href = `/api/download/${asset.os}`;
         return;
       }
