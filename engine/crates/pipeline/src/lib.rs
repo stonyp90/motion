@@ -26,6 +26,7 @@ use motion_forge_style_extract::{
 use motion_forge_video_io::Codec;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tracing::Instrument;
 
 #[derive(Debug, Clone)]
 pub struct Composition {
@@ -157,67 +158,119 @@ impl Pipeline {
         );
 
         // Phase 2: segmentation
-        let mut seg = PythonSidecarSegmenter::default_in_workspace();
-        let seg_manifest = seg.segment_video(&config.reference_video, &seg_dir)?;
-        tracing::info!(
-            masks = seg_manifest.total_masks(),
-            "phase 2 (segmentation) ok"
-        );
+        let seg_manifest = {
+            let span = tracing::info_span!("phase_2_segmentation");
+            let _enter = span.enter();
+            let t0 = std::time::Instant::now();
+            let mut seg = PythonSidecarSegmenter::default_in_workspace();
+            let manifest = seg.segment_video(&config.reference_video, &seg_dir)?;
+            tracing::info!(
+                masks = manifest.total_masks(),
+                elapsed_ms = t0.elapsed().as_millis() as u64,
+                "phase 2 (segmentation) ok"
+            );
+            manifest
+        };
+        // seg_manifest is consumed indirectly via seg_dir/manifest.json on disk
+        // by Phase 3b's BboxCropSpriteDecomposer; we keep the binding only to
+        // log the mask count above.
+        let _ = seg_manifest;
 
-        // Phase 3: scenes + sprites
-        let mut splitter = PySceneDetectSplitter::default();
-        let scene_manifest = splitter.split(&config.reference_video, &scenes_dir)?;
-        tracing::info!(
-            shots = scene_manifest.boundaries.len(),
-            "phase 3a (scenes) ok"
-        );
+        // Phase 3a: scenes
+        let scene_manifest = {
+            let span = tracing::info_span!("phase_3a_scenes");
+            let _enter = span.enter();
+            let t0 = std::time::Instant::now();
+            let mut splitter = PySceneDetectSplitter::default();
+            let manifest = splitter.split(&config.reference_video, &scenes_dir)?;
+            tracing::info!(
+                shots = manifest.boundaries.len(),
+                elapsed_ms = t0.elapsed().as_millis() as u64,
+                "phase 3a (scenes) ok"
+            );
+            manifest
+        };
 
-        let mut decomposer = BboxCropSpriteDecomposer;
-        let sprite_manifest = decomposer.decompose(
-            &config.reference_video,
-            &seg_dir.join("manifest.json"),
-            &sprites_dir,
-        )?;
-        tracing::info!(
-            sprites = sprite_manifest.sprite_count,
-            "phase 3b (sprites) ok"
-        );
+        // Phase 3b: sprite decomposition.
+        //
+        // NOTE on concurrency: at first glance Phase 3b and Phase 4 look
+        // independent — both fan out from earlier manifests. But Phase 4
+        // (`OklabStyleExtractor::extract`) takes `&SpriteManifest` as a
+        // required argument (see `style-extract/src/lib.rs:106`), so it
+        // *consumes* 3b's output and cannot run in parallel with it.
+        // Leaving them sequential. Per-phase spans below give the timing
+        // data the next optimization PR needs.
+        let sprite_manifest = {
+            let span = tracing::info_span!("phase_3b_sprites");
+            let _enter = span.enter();
+            let t0 = std::time::Instant::now();
+            let mut decomposer = BboxCropSpriteDecomposer;
+            let manifest = decomposer.decompose(
+                &config.reference_video,
+                &seg_dir.join("manifest.json"),
+                &sprites_dir,
+            )?;
+            tracing::info!(
+                sprites = manifest.sprite_count,
+                elapsed_ms = t0.elapsed().as_millis() as u64,
+                "phase 3b (sprites) ok"
+            );
+            manifest
+        };
 
         // Phase 4: style extraction (+ theme overlay)
-        let mut extractor = OklabStyleExtractor::default();
-        let mut card = extractor.extract(&scene_manifest, &sprite_manifest)?;
-        if let Some(t) = &config.theme {
-            t.overlay(&mut card);
-            let body = serde_json::to_string_pretty(t)?;
-            std::fs::write(&theme_path, body)
-                .with_context(|| format!("writing {}", theme_path.display()))?;
-        }
-        write_card(&card, &style_path)?;
-        tracing::info!(
-            swatches = card.palette.len(),
-            shots = card.shot_rhythm.shot_count,
-            style_path = %style_path.display(),
-            "phase 4 (style card) ok"
-        );
+        let card = {
+            let span = tracing::info_span!("phase_4_style");
+            let _enter = span.enter();
+            let t0 = std::time::Instant::now();
+            let mut extractor = OklabStyleExtractor::default();
+            let mut card = extractor.extract(&scene_manifest, &sprite_manifest)?;
+            if let Some(t) = &config.theme {
+                t.overlay(&mut card);
+                let body = serde_json::to_string_pretty(t)?;
+                std::fs::write(&theme_path, body)
+                    .with_context(|| format!("writing {}", theme_path.display()))?;
+            }
+            write_card(&card, &style_path)?;
+            tracing::info!(
+                swatches = card.palette.len(),
+                shots = card.shot_rhythm.shot_count,
+                style_path = %style_path.display(),
+                elapsed_ms = t0.elapsed().as_millis() as u64,
+                "phase 4 (style card) ok"
+            );
+            card
+        };
 
         // Phase 5: prompt → timeline (with multimodal context if attached)
-        let (timeline, backend_name) = orchestrate(
-            &config.prompt,
-            &card,
-            &PromptParams {
-                composition: config.composition.clone(),
-                duration_seconds: config.duration_seconds,
-                theme_addendum: config
-                    .theme
-                    .as_ref()
-                    .map(|t| t.system_prompt_addendum.clone()),
-                reference_images: config.reference_images.clone(),
-                reference_documents: config.reference_documents.clone(),
-                temperature: config.temperature,
-                max_tokens: config.max_tokens,
-            },
-        )
-        .await?;
+        let (timeline, backend_name) = {
+            let span = tracing::info_span!("phase_5_orchestrate");
+            let t0 = std::time::Instant::now();
+            let result = orchestrate(
+                &config.prompt,
+                &card,
+                &PromptParams {
+                    composition: config.composition.clone(),
+                    duration_seconds: config.duration_seconds,
+                    theme_addendum: config
+                        .theme
+                        .as_ref()
+                        .map(|t| t.system_prompt_addendum.clone()),
+                    reference_images: config.reference_images.clone(),
+                    reference_documents: config.reference_documents.clone(),
+                    temperature: config.temperature,
+                    max_tokens: config.max_tokens,
+                },
+            )
+            .instrument(span)
+            .await?;
+            tracing::info!(
+                backend = %result.1,
+                elapsed_ms = t0.elapsed().as_millis() as u64,
+                "phase 5 (orchestrate) ok"
+            );
+            result
+        };
 
         // Persist pipeline meta for iterate.
         let meta = PipelineMeta {
@@ -228,15 +281,27 @@ impl Pipeline {
         };
         std::fs::write(&pipeline_meta_path, serde_json::to_string_pretty(&meta)?)?;
 
-        SerdeLottieGenerator::new().write(&timeline, &config.output_lottie)?;
-        tracing::info!(out = %config.output_lottie.display(), "lottie written");
+        // Phase 6: render
+        let output_video = {
+            let span = tracing::info_span!("phase_6_render");
+            let _enter = span.enter();
+            let t0 = std::time::Instant::now();
+            SerdeLottieGenerator::new().write(&timeline, &config.output_lottie)?;
+            tracing::info!(out = %config.output_lottie.display(), "lottie written");
 
-        let mut output_video: Option<PathBuf> = None;
-        if let Some(video_out) = &config.output_video {
-            render_to_mp4(&config.output_lottie, video_out, &config.composition)?;
-            tracing::info!(out = %video_out.display(), "mp4 rendered");
-            output_video = Some(video_out.clone());
-        }
+            let mut output_video: Option<PathBuf> = None;
+            if let Some(video_out) = &config.output_video {
+                render_to_mp4(&config.output_lottie, video_out, &config.composition)?;
+                tracing::info!(out = %video_out.display(), "mp4 rendered");
+                output_video = Some(video_out.clone());
+            }
+            tracing::info!(
+                elapsed_ms = t0.elapsed().as_millis() as u64,
+                rendered_mp4 = output_video.is_some(),
+                "phase 6 (render) ok"
+            );
+            output_video
+        };
 
         Ok(GenerateResult {
             timeline,
