@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "io.controlcraft.desktop",
   "build": {
-    "frontendDist": "https://controlcraft.io",
+    "frontendDist": "https://www.controlcraft.io",
     "devUrl": "http://localhost:3010"
   },
   "app": {
@@ -16,7 +16,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://controlcraft.io/api/updater/{{target}}-{{arch}}/{{current_version}}"
+        "https://www.controlcraft.io/api/updater/{{target}}-{{arch}}/{{current_version}}"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYzNDMwRTJFOEEzQTA4RTkKUldUcENEcUtMZzVEOHdhVFBBcDJhWFlzYTlEY0wzQUlNZlJHclpMOVZKVWsxQlUxelFmZzJtNTYK",
       "windows": { "installMode": "passive" }
