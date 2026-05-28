@@ -26,9 +26,15 @@
 
 export const VERSION = '0.1.0';
 
+// Mac Intel (`x86_64-apple-darwin`) is temporarily not shipped. The
+// desktop-release workflow's macos-13 leg has been queued >6h on
+// GitHub-hosted runners; pulling Mac Intel from this manifest lets
+// the other four binaries ship without waiting. To re-add: build
+// `ControlCraft_<version>_x64.dmg`, upload it to the
+// `desktop-v<version>-rc*` release, and add back the `mac-intel`
+// entry + the type-union member below.
 export type DownloadOs =
   | 'mac-arm'
-  | 'mac-intel'
   | 'windows'
   | 'linux-deb'
   | 'linux-appimage';
@@ -57,13 +63,6 @@ export const ASSETS: ReadonlyArray<DownloadAsset> = [
     detail: 'M1, M2, M3, M4 · macOS 11+',
     sizeMb: 58,
     filename: `ControlCraft_${VERSION}_aarch64.dmg`,
-  },
-  {
-    os: 'mac-intel',
-    label: 'macOS · Intel',
-    detail: 'macOS 11+',
-    sizeMb: 58,
-    filename: `ControlCraft_${VERSION}_x64.dmg`,
   },
   {
     os: 'windows',
@@ -95,8 +94,8 @@ export function findAsset(os: DownloadOs): DownloadAsset | undefined {
 /**
  * Best-effort browser detection. Returns the asset key matching the
  * visitor's OS. Apple silicon is the default for any Mac because the
- * userAgent doesn't reliably distinguish — Intel users still see the
- * mac-intel card in any secondary grid below.
+ * userAgent doesn't reliably distinguish, and Mac Intel is not
+ * currently shipped (see DownloadOs comment above).
  *
  * SSR-safe: returns a stable `mac-arm` when called without `navigator`.
  */

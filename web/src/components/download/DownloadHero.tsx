@@ -211,15 +211,6 @@ const BYPASS_SNIPPETS: Array<{
       'Or use System Settings → Privacy & Security → Open Anyway after the first launch attempt.',
   },
   {
-    os: 'mac-intel',
-    label: 'macOS (Intel)',
-    problem: '"Apple cannot verify…" / "malicious software"',
-    command:
-      'xattr -dr com.apple.quarantine /Applications/ControlCraft.app',
-    note:
-      'Or use System Settings → Privacy & Security → Open Anyway after the first launch attempt.',
-  },
-  {
     os: 'windows',
     label: 'Windows',
     problem: 'SmartScreen "Windows protected your PC"',
