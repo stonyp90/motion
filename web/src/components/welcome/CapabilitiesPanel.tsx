@@ -18,7 +18,7 @@ export function CapabilitiesPanel() {
     >
       <header className="flex flex-col gap-1.5">
         <p className="font-mono text-2xs font-medium uppercase tracking-[0.18em] text-text-tertiary">
-          Step 3 · Inside the app
+          Inside the app
         </p>
         <h2 className="text-2xl font-bold tracking-tight text-text-primary sm:text-[28px]">
           What you&apos;ll be able to do.

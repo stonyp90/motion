@@ -79,8 +79,8 @@ export function DesktopGetCard() {
       style={{ '--i': 3 } as CSSProperties}
     >
       <div className="flex flex-col items-start gap-2">
-        <p className="font-mono text-2xs font-medium uppercase tracking-[0.18em] text-text-tertiary">
-          Step 1 · Get the desktop app
+        <p className="font-mono text-2xs font-medium uppercase tracking-[0.18em] text-text-accent">
+          Desktop · Native shell
         </p>
         <h2 className="text-2xl font-bold tracking-tight text-text-primary sm:text-[28px]">
           Built for {primary.label.split('·')[0].trim()}.
