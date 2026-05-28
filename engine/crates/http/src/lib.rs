@@ -34,8 +34,6 @@ use axum::{
     routing::{get, post},
 };
 use futures_util::Stream;
-use std::convert::Infallible;
-use std::time::Duration;
 use motion_forge_figma::ImportKind;
 use motion_forge_image_gen::backend_from_env as image_backend_from_env;
 use motion_forge_lottie_gen::{LottieGenerator, SerdeLottieGenerator};
@@ -52,9 +50,11 @@ use motion_forge_style_extract::StyleCard;
 use motion_forge_style_extract::Theme;
 use motion_forge_web_export::{WebExportFormat, export as web_export};
 use serde::{Deserialize, Serialize};
+use std::convert::Infallible;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::api_keys::{ApiKeyStore, IssuedApiKey, Tier};
 use crate::auth::{Claims, KeycloakAuthLayer, KeycloakConfig, Principal, PrincipalKind};
@@ -471,9 +471,7 @@ fn generate_request_to_config(req: GenerateRequest) -> Result<GenerateConfig, Ap
 }
 
 /// Translate a pipeline result into the public response envelope.
-fn generate_result_to_response(
-    result: motion_forge_pipeline::GenerateResult,
-) -> GenerateResponse {
+fn generate_result_to_response(result: motion_forge_pipeline::GenerateResult) -> GenerateResponse {
     GenerateResponse {
         work_dir: result.work_dir.display().to_string(),
         output_lottie: result.output_lottie.display().to_string(),
