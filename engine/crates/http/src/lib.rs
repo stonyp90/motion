@@ -27,9 +27,15 @@ use axum::{
     body::Bytes,
     extract::{Path, Query, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
-    response::{IntoResponse, Response},
+    response::{
+        IntoResponse, Response,
+        sse::{Event, KeepAlive, Sse},
+    },
     routing::{get, post},
 };
+use futures_util::Stream;
+use std::convert::Infallible;
+use std::time::Duration;
 use motion_forge_figma::ImportKind;
 use motion_forge_image_gen::backend_from_env as image_backend_from_env;
 use motion_forge_lottie_gen::{LottieGenerator, SerdeLottieGenerator};
@@ -124,6 +130,7 @@ pub async fn serve(bind: &str) -> Result<()> {
         .route("/generate", post(generate))
         .route("/iterate", post(iterate))
         .route("/v1/generate", post(generate))
+        .route("/v1/generate/stream", post(generate_stream))
         .route("/v1/iterate", post(iterate))
         .route("/v1/presets", get(list_presets))
         .route("/v1/presets/:id", get(get_preset))
@@ -419,10 +426,11 @@ async fn get_preset(Path(id): Path<String>) -> Result<Json<Preset>, ApiError> {
     Ok(Json(preset))
 }
 
-async fn generate(
-    State(state): State<AppState>,
-    Json(req): Json<GenerateRequest>,
-) -> Result<Json<GenerateResponse>, ApiError> {
+/// Translate a `GenerateRequest` into a validated `GenerateConfig`.
+/// Shared by `/v1/generate` (blocking JSON) and `/v1/generate/stream`
+/// (SSE) so the two surfaces never drift on path-sandboxing rules or
+/// default-value semantics.
+fn generate_request_to_config(req: GenerateRequest) -> Result<GenerateConfig, ApiError> {
     let theme = match req.theme.as_deref() {
         Some(t) => Some(Theme::resolve(t).map_err(ApiError::bad_request)?),
         None => None,
@@ -442,7 +450,7 @@ async fn generate(
     };
     let reference_images = validate_path_list(&req.reference_images, "reference_images")?;
     let reference_documents = validate_path_list(&req.reference_documents, "reference_documents")?;
-    let config = GenerateConfig {
+    Ok(GenerateConfig {
         reference_video,
         prompt: req.prompt,
         theme,
@@ -459,20 +467,125 @@ async fn generate(
         reference_documents,
         temperature: req.temperature,
         max_tokens: req.max_tokens,
-    };
-    let result = state
-        .pipeline
-        .run_full(config)
-        .await
-        .map_err(ApiError::internal)?;
-    Ok(Json(GenerateResponse {
+    })
+}
+
+/// Translate a pipeline result into the public response envelope.
+fn generate_result_to_response(
+    result: motion_forge_pipeline::GenerateResult,
+) -> GenerateResponse {
+    GenerateResponse {
         work_dir: result.work_dir.display().to_string(),
         output_lottie: result.output_lottie.display().to_string(),
         output_video: result.output_video.map(|p| p.display().to_string()),
         backend_name: result.backend_name,
         shots: result.timeline.shots.len() as u32,
         duration_seconds: result.timeline.duration_seconds,
-    }))
+    }
+}
+
+async fn generate(
+    State(state): State<AppState>,
+    Json(req): Json<GenerateRequest>,
+) -> Result<Json<GenerateResponse>, ApiError> {
+    let config = generate_request_to_config(req)?;
+    let result = state
+        .pipeline
+        .run_full(config)
+        .await
+        .map_err(ApiError::internal)?;
+    Ok(Json(generate_result_to_response(result)))
+}
+
+/// `POST /v1/generate/stream` — same input body as `/v1/generate`, but
+/// the response is a Server-Sent Events stream so the client sees
+/// activity instead of a single 50-150 s spinner.
+///
+/// Event sequence:
+///   - `started` — `{}` immediately after the pipeline task is spawned.
+///   - `heartbeat` — `{ "elapsed_ms": <u128> }` every 5 s while the
+///     pipeline runs. Gives the UI something to render and keeps the
+///     HTTP connection warm through reverse proxies.
+///   - `result` — full [`GenerateResponse`] when the pipeline finishes
+///     successfully. Last event before the stream closes.
+///   - `error` — `{ "error": "<message>" }` when the pipeline returns
+///     `Err` or the worker task panics. Terminal.
+///
+/// Per-phase events (segmentation_done / decompose_done / …) are
+/// intentionally out of scope here — they would require the pipeline
+/// crate to expose its phase boundaries. A follow-up can wire those
+/// through once the pipeline emits them.
+async fn generate_stream(
+    State(state): State<AppState>,
+    Json(req): Json<GenerateRequest>,
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
+    // Validate up-front so bad input still surfaces as a 4xx — once we
+    // upgrade to SSE the client can't easily read a 400 body.
+    let config = generate_request_to_config(req)?;
+
+    let pipeline = state.pipeline.clone();
+    let start = std::time::Instant::now();
+    let mut pipeline_handle = tokio::spawn(async move { pipeline.run_full(config).await });
+
+    let stream = async_stream::stream! {
+        // Tell the client the worker is running so the UI can swap from
+        // "submitting" to "rendering" immediately. JSON body is empty
+        // today; future phase events will carry a `phase` field.
+        yield Ok(Event::default().event("started").data("{}"));
+
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(5)) => {
+                    let elapsed = start.elapsed().as_millis();
+                    let ev = Event::default()
+                        .event("heartbeat")
+                        .json_data(serde_json::json!({ "elapsed_ms": elapsed }))
+                        .unwrap_or_else(|_| Event::default().event("heartbeat").data("{}"));
+                    yield Ok(ev);
+                }
+                res = &mut pipeline_handle => {
+                    match res {
+                        Ok(Ok(result)) => {
+                            let response = generate_result_to_response(result);
+                            let ev = Event::default()
+                                .event("result")
+                                .json_data(&response)
+                                .unwrap_or_else(|e| {
+                                    Event::default()
+                                        .event("error")
+                                        .data(format!("serialize result: {e}"))
+                                });
+                            yield Ok(ev);
+                        }
+                        Ok(Err(e)) => {
+                            let ev = Event::default()
+                                .event("error")
+                                .json_data(serde_json::json!({ "error": e.to_string() }))
+                                .unwrap_or_else(|_| {
+                                    Event::default().event("error").data("pipeline failed")
+                                });
+                            yield Ok(ev);
+                        }
+                        Err(join_err) => {
+                            // Worker task panicked or was cancelled.
+                            let ev = Event::default()
+                                .event("error")
+                                .json_data(serde_json::json!({
+                                    "error": format!("worker task: {join_err}")
+                                }))
+                                .unwrap_or_else(|_| {
+                                    Event::default().event("error").data("worker task failed")
+                                });
+                            yield Ok(ev);
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+    };
+
+    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
 async fn iterate(
