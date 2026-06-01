@@ -5,8 +5,6 @@ import Link from 'next/link';
 import { ArrowRight, PlayCircle } from 'lucide-react';
 import { BrandMotionShowcase } from './BrandMotionShowcase';
 import { ProcessRow } from './ProcessRow';
-import { LogoMarquee } from './LogoMarquee';
-import { TrustStrip } from './TrustStrip';
 import { KPIStrip } from './KPIStrip';
 
 /**
@@ -137,10 +135,6 @@ export function AnonHome() {
       </section>
 
       <ProcessRow />
-
-      <LogoMarquee />
-
-      <TrustStrip />
 
       <KPIStrip />
     </div>
