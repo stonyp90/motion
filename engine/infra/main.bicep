@@ -821,7 +821,7 @@ resource webManagedCert 'Microsoft.App/managedEnvironments/managedCertificates@2
 // apex cert — TXT validation (asuid TXT → env verificationId in Azure DNS)
 resource apexManagedCert 'Microsoft.App/managedEnvironments/managedCertificates@2025-01-01' = if (webCustomDomainEnabled) {
   parent: acaEnv
-  name: 'mc-cae-mf-dev-75m-controlcraft-io-4152'
+  name: 'mc-cae-mf-dev-75m-controlcraft-io-4668'
   location: location
   tags: tags
   properties: {
