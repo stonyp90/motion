@@ -22,9 +22,11 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
+pub mod gemini;
 pub mod recraft;
 pub mod svg_sanitize;
 
+pub use gemini::GeminiBackend;
 pub use recraft::RecraftBackend;
 
 /// What a caller wants generated. Stays minimal on purpose — anything
@@ -100,17 +102,23 @@ pub trait ImageGen: Send + Sync {
     async fn generate(&self, req: &ImageRequest) -> Result<GeneratedImage, ImageGenError>;
 }
 
-/// Boot the configured backend from env. Order: explicit env override
-/// first, then Recraft if its key is set, else a `NotImplemented` stub
-/// that errors out clearly.
+/// Boot the configured backend from env.
+///
+/// Selection order:
+///   1. `MOTION_FORGE_IMAGE_BACKEND` explicit override ("recraft" | "gemini")
+///   2. Auto-detect from whichever API key is present (Recraft beats Gemini
+///      when both are set, because Recraft returns native SVG).
+///   3. Error with a clear message if nothing is configured.
 ///
 /// Env:
-///   MOTION_FORGE_IMAGE_BACKEND  — "recraft" | (future) "dalle" | "imagen"
-///   RECRAFT_API_KEY             — required for Recraft
+///   MOTION_FORGE_IMAGE_BACKEND  — "recraft" | "gemini"
+///   RECRAFT_API_KEY             — required when backend = "recraft"
+///   GEMINI_API_KEY              — required when backend = "gemini"
+///   GEMINI_IMAGE_MODEL          — optional Gemini model override
 pub fn backend_from_env() -> Result<Box<dyn ImageGen>, ImageGenError> {
     // Empty env vars are treated as unset. Otherwise an unset-with-quotes
     // (`RECRAFT_API_KEY=""`) trips into "key present" and produces a
-    // 400 from Recraft instead of cleanly falling back to text-only.
+    // 400 from the provider instead of cleanly falling back to text-only.
     let env_nonempty = |k: &str| {
         std::env::var(k)
             .ok()
@@ -118,19 +126,29 @@ pub fn backend_from_env() -> Result<Box<dyn ImageGen>, ImageGenError> {
             .filter(|v| !v.is_empty())
     };
 
-    let pick = env_nonempty("MOTION_FORGE_IMAGE_BACKEND")
-        .or_else(|| env_nonempty("RECRAFT_API_KEY").map(|_| "recraft".into()));
+    let pick = env_nonempty("MOTION_FORGE_IMAGE_BACKEND").or_else(|| {
+        // Auto-detect: Recraft (SVG) preferred over Gemini (PNG).
+        env_nonempty("RECRAFT_API_KEY")
+            .map(|_| "recraft".into())
+            .or_else(|| env_nonempty("GEMINI_API_KEY").map(|_| "gemini".into()))
+    });
+
     match pick.as_deref() {
         Some("recraft") => {
             let key = env_nonempty("RECRAFT_API_KEY")
                 .ok_or_else(|| ImageGenError::MissingConfig("RECRAFT_API_KEY not set".into()))?;
             Ok(Box::new(RecraftBackend::new(key)))
         }
+        Some("gemini") | Some("imagen") => {
+            let key = env_nonempty("GEMINI_API_KEY")
+                .ok_or_else(|| ImageGenError::MissingConfig("GEMINI_API_KEY not set".into()))?;
+            Ok(Box::new(GeminiBackend::new(key)))
+        }
         Some(other) => Err(ImageGenError::MissingConfig(format!(
-            "unknown MOTION_FORGE_IMAGE_BACKEND={other} (supported: recraft)"
+            "unknown MOTION_FORGE_IMAGE_BACKEND={other} (supported: recraft, gemini)"
         ))),
         None => Err(ImageGenError::MissingConfig(
-            "no image backend configured; set MOTION_FORGE_IMAGE_BACKEND or RECRAFT_API_KEY".into(),
+            "no image backend configured; set RECRAFT_API_KEY or GEMINI_API_KEY".into(),
         )),
     }
 }
