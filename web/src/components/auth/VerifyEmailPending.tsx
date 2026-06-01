@@ -50,7 +50,7 @@ export function VerifyEmailPending({ email }: Props) {
   const displayEmail = email || 'your inbox';
 
   return (
-    <div className="animate-reveal-up rounded-2xl border border-border-light bg-bg-primary p-8 shadow-card sm:p-10">
+    <div className="animate-reveal-up rounded-2xl border border-border-light bg-bg-secondary p-8 shadow-card sm:p-10">
       <div
         className="animate-reveal-up stagger-child flex items-center justify-center"
         style={{ '--i': 0 } as CSSProperties}

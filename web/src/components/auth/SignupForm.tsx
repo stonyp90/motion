@@ -91,7 +91,7 @@ export function SignupForm({ searchParamsPromise }: Props) {
   };
 
   return (
-    <div className="animate-reveal-up rounded-2xl border border-border-light bg-bg-primary p-7 shadow-lift sm:p-9">
+    <div className="animate-reveal-up rounded-2xl border border-border-light bg-bg-secondary p-7 shadow-lift sm:p-9">
       <div
         className="animate-reveal-up stagger-child flex flex-col gap-2"
         style={{ '--i': 0 } as CSSProperties}
