@@ -86,6 +86,16 @@ const nextConfig = {
   },
   async redirects() {
     return [
+      // Canonical domain: redirect bare controlcraft.io → www.
+      // Runs at the Next.js layer so it works even when the apex TLS
+      // cert is not yet bound (ACA passes HTTP traffic through for the
+      // disabled custom domain binding, Next.js does the redirect).
+      {
+        source: '/:path*',
+        has: [{ type: 'host', value: 'controlcraft.io' }],
+        destination: 'https://www.controlcraft.io/:path*',
+        permanent: true,
+      },
       // /studio used to host an in-browser Lottie preset editor. The
       // editor now lives in the desktop app only — bounce old links to
       // the download page so visitors can grab the binary.
