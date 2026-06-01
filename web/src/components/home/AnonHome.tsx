@@ -4,90 +4,78 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowRight, PlayCircle } from 'lucide-react';
 import { BrandMotionShowcase } from './BrandMotionShowcase';
+import { AuthMotionBackground } from '@/components/auth/AuthMotionBackground';
 import { ProcessRow } from './ProcessRow';
 import { KPIStrip } from './KPIStrip';
 
 /**
- * Anonymous (logged-out) marketing surface. The signed-in build UI
- * lives in the desktop shell only (StudioApp); the web's authenticated
- * landing is WelcomeDashboard. So this component renders only when
- * the visitor has no session.
+ * Anonymous (logged-out) marketing surface.
  *
- * Layout: cinematic hero band → reel card (BrandMotionShowcase) →
- * Process / LogoMarquee / Trust / KPI strips.
+ * Layout: full-bleed cinematic hero (AuthMotionBackground + overlay CTAs)
+ *   → reel card (BrandMotionShowcase) → Process → KPI.
+ *
+ * The hero reuses AuthMotionBackground so the product demo is live from
+ * the very first fold — the same engine running behind login/signup.
  */
 export function AnonHome() {
   const router = useRouter();
   return (
     <div className="relative flex w-full flex-col bg-bg-primary">
+
+      {/* ── Hero: full-bleed cinema stage ──────────────────────────────── */}
       <section
         aria-label="ControlCraft hero"
-        className="relative isolate overflow-hidden px-4 pt-10 pb-20 sm:px-6 sm:pt-14 sm:pb-24 lg:pt-20 lg:pb-32"
+        className="relative isolate min-h-[100svh] overflow-hidden"
       >
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 -z-10"
-          style={{
-            backgroundImage:
-              'radial-gradient(circle at 18% 12%, color-mix(in srgb, var(--color-accent-500) 14%, transparent), transparent 55%),' +
-              'radial-gradient(circle at 88% 92%, color-mix(in srgb, var(--color-secondary-500) 10%, transparent), transparent 60%)',
-          }}
-        />
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 -z-10 opacity-[0.04]"
-          style={{
-            backgroundImage:
-              'linear-gradient(to right, var(--color-text-primary) 1px, transparent 1px), linear-gradient(to bottom, var(--color-text-primary) 1px, transparent 1px)',
-            backgroundSize: '48px 48px',
-          }}
-        />
+        {/* Live motion background — same engine as auth pages */}
+        <AuthMotionBackground />
 
-        <div className="mx-auto flex w-full max-w-6xl flex-col items-center gap-7 text-center">
-          <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.32em] text-accent-700 dark:text-accent-400">
-            ControlCraft  ·  Brand-grade motion, on tap
-          </p>
-          <h1 className="h-display max-w-4xl">
-            From brief to broadcast,
-            <br className="hidden sm:inline" />{' '}
-            <span className="text-accent-700 dark:text-accent-400">
-              in twenty minutes.
-            </span>
-          </h1>
-          <p className="max-w-2xl text-lg leading-[1.55] text-text-secondary sm:text-xl">
-            Marketing, product, and creative teams turn a brief into a
-            finished animated explainer the same day &mdash; without an
-            agency timeline or an agency invoice.
-          </p>
-          <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
-            <button
-              type="button"
-              onClick={() => router.push('/signup')}
-              className="btn-accent group px-8 py-3.5 text-base"
-              data-testid="hero-signup"
-            >
-              Get started &mdash; it&apos;s free
-              <ArrowRight
-                className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5"
-                aria-hidden
-              />
-            </button>
-            <a
-              href="#reel"
-              className="btn-ghost group px-6 py-3.5 text-base"
-              data-testid="hero-watch-reel"
-            >
-              <PlayCircle className="h-5 w-5" aria-hidden />
-              Watch the reel
-            </a>
+        {/* CTA overlay — centered over the canvas, clear of the hero silhouette */}
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center px-4 text-center">
+          <div className="flex flex-col items-center gap-6 max-w-3xl">
+            <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.32em] text-accent-400">
+              ControlCraft · Brand-grade motion, on tap
+            </p>
+            <h1 className="text-4xl font-bold tracking-tight text-white sm:text-5xl lg:text-6xl leading-[1.08]">
+              From brief to broadcast,{' '}
+              <span className="text-accent-400">in twenty minutes.</span>
+            </h1>
+            <p className="max-w-xl text-lg leading-[1.55] text-white/70 sm:text-xl">
+              Marketing, product, and creative teams turn a brief into a
+              finished animated explainer the same day — without an agency
+              timeline or an agency invoice.
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => router.push('/signup')}
+                className="btn-accent group px-8 py-3.5 text-base"
+                data-testid="hero-signup"
+              >
+                Get started — it&apos;s free
+                <ArrowRight
+                  className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5"
+                  aria-hidden
+                />
+              </button>
+              <a
+                href="#reel"
+                className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/8 px-6 py-3.5 text-base font-medium text-white backdrop-blur-sm transition-colors hover:bg-white/15"
+                data-testid="hero-watch-reel"
+              >
+                <PlayCircle className="h-5 w-5" aria-hidden />
+                Watch the reel
+              </a>
+            </div>
           </div>
         </div>
       </section>
 
+      {/* ── Reel card ──────────────────────────────────────────────────── */}
       <section
         id="reel"
         aria-label="ControlCraft sample reel"
-        className="relative mx-auto -mt-8 w-full max-w-6xl px-4 pb-16 sm:px-6 sm:pb-24"
+        className="relative mx-auto w-full max-w-6xl px-4 py-16 sm:px-6 sm:py-24"
       >
         <ReelHeader />
 
@@ -146,11 +134,9 @@ function ReelHeader() {
     <div className="mb-3 flex items-end justify-between gap-3 px-1 font-mono text-[10px] uppercase tracking-[0.22em] text-text-tertiary sm:text-[11px]">
       <span className="inline-flex items-center gap-2">
         <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent-500" aria-hidden />
-        Reel 001  ·  auto-play
+        Reel 001 · auto-play
       </span>
-      <span className="hidden sm:inline">
-        4 scenes  ·  17s loop  ·  16:9  ·  H.264
-      </span>
+      <span className="hidden sm:inline">4 scenes · 17s loop · 16:9 · H.264</span>
       <span>Ctrl 01 / 04</span>
     </div>
   );
@@ -161,14 +147,10 @@ function ReelFooter() {
     <div className="mt-3 grid grid-cols-1 gap-1 px-1 font-mono text-[10px] uppercase tracking-[0.22em] text-text-tertiary sm:grid-cols-3 sm:text-[11px]">
       <span className="inline-flex items-center gap-2">
         <span className="h-px w-6 bg-accent-500/60" aria-hidden />
-        Brief  →  Lottie  in 46.4s
+        Brief → Lottie in 46.4s
       </span>
-      <span className="sm:text-center">
-        12 characters  ·  ink + emerald  ·  Inter Bold
-      </span>
-      <span className="sm:text-right">
-        Iterate in &lt; 1s  ·  MP4 / .lottie / SVG
-      </span>
+      <span className="sm:text-center">12 characters · ink + emerald · Inter Bold</span>
+      <span className="sm:text-right">Iterate in &lt; 1s · MP4 / .lottie / SVG</span>
     </div>
   );
 }

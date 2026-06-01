@@ -28,7 +28,7 @@ interface Props {
  */
 export function AuthSplitLayout({ children, eyebrow }: Props) {
   return (
-    <main className="dark relative flex min-h-screen flex-col bg-[#0e1014]">
+    <main data-theme="dark" className="relative flex min-h-screen flex-col bg-[#0e1014]">
       <AuthMotionBackground />
 
       {/* Mobile slim header — keeps the brand anchor visible above the
