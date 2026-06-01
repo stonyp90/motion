@@ -56,6 +56,10 @@ param deployTimestamp string = utcNow('yyyyMMddHHmmss')
 @description('Keycloak bootstrap admin password. Used for the initial /admin login on the master realm; rotate via Keycloak admin UI post-deploy. The Keycloak container reads this from a Container Apps secret reference.')
 param keycloakAdminPassword string = newGuid()
 
+@secure()
+@description('Google AI Studio key for Gemini Imagen image generation. When set, the engine uses Gemini as the image-gen backend (falls back to Recraft when RECRAFT_API_KEY is also present). Leave empty to skip Gemini.')
+param geminiApiKey string = ''
+
 @description('GPU workload-profile SKU for the segment job. Default NC8as-T4 (~$1.20/hr). Requires GPU quota.')
 param gpuProfileType string = 'Consumption-GPU-NC8as-T4'
 
@@ -705,6 +709,11 @@ resource apiApp 'Microsoft.App/containerApps@2025-01-01' = {
         // sign the REST API requests. Pulled from the live resource at
         // deploy time so rotating the key only requires a redeploy.
         { name: 'acs-key', value: commsService.listKeys().primaryKey }
+        // Gemini API key — only injected when the param is non-empty.
+        // The `if` guard prevents the secret from appearing at all in
+        // the ACA manifest when Gemini isn't configured, so there's no
+        // empty-string secret to clean up on rotation.
+        ...(!empty(geminiApiKey) ? [{ name: 'gemini-api-key', value: geminiApiKey }] : [])
       ]
       maxInactiveRevisions: 2
     }
@@ -740,6 +749,8 @@ resource apiApp 'Microsoft.App/containerApps@2025-01-01' = {
             { name: 'AZURE_COMMS_KEY',            secretRef: 'acs-key' }
             { name: 'MOTION_FORGE_EMAIL_FROM',    value: 'donotreply@${emailDomain.properties.fromSenderDomain}' }
             { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
+            // Gemini/Imagen image-gen — only surfaced when key is provided.
+            ...(!empty(geminiApiKey) ? [{ name: 'GEMINI_API_KEY', secretRef: 'gemini-api-key' }] : [])
           ]
           volumeMounts: enableNfsModelMount ? [ { volumeName: 'models', mountPath: '/models' } ] : []
           probes: [
