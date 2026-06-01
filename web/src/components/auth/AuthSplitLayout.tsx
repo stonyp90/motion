@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 import Link from 'next/link';
+import { ArrowLeft } from 'lucide-react';
 import { MotionLogo } from '@/components/MotionLogo';
 import { AuthMotionBackground } from './AuthMotionBackground';
 
@@ -49,6 +50,15 @@ export function AuthSplitLayout({ children, eyebrow }: Props) {
           Reel 000
         </span>
       </header>
+
+      {/* Back to home — fixed top-left, always visible on the dark stage */}
+      <Link
+        href={'/' as never}
+        className="absolute top-4 left-4 z-20 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/8 px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.18em] text-white/70 backdrop-blur-sm transition-colors hover:bg-white/15 hover:text-white"
+      >
+        <ArrowLeft className="h-3 w-3" aria-hidden />
+        Back
+      </Link>
 
       {/* Form card — centered on top of the motion background. The
           background's top HUD already carries reel/act metadata and
