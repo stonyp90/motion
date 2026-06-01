@@ -4,7 +4,6 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowRight, PlayCircle } from 'lucide-react';
 import { BrandMotionShowcase } from './BrandMotionShowcase';
-import { FormatShowcase } from './FormatShowcase';
 import { ProcessRow } from './ProcessRow';
 import { LogoMarquee } from './LogoMarquee';
 import { TrustStrip } from './TrustStrip';
@@ -17,7 +16,7 @@ import { KPIStrip } from './KPIStrip';
  * the visitor has no session.
  *
  * Layout: cinematic hero band → reel card (BrandMotionShowcase) →
- * Format / Process / LogoMarquee / Trust / KPI strips.
+ * Process / LogoMarquee / Trust / KPI strips.
  */
 export function AnonHome() {
   const router = useRouter();
@@ -136,8 +135,6 @@ export function AnonHome() {
           <ReelFooter />
         </div>
       </section>
-
-      <FormatShowcase />
 
       <ProcessRow />
 

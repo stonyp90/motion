@@ -56,7 +56,7 @@ export function Header() {
   };
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-border-light bg-bg-primary/85 backdrop-blur-md">
+    <header className="sticky top-0 z-40 w-full border-b border-border-light bg-bg-primary">
       <div className="container flex h-16 items-center justify-between">
         <MotionLogo size="md" />
 
