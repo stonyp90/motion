@@ -30,6 +30,9 @@ param apiImageTag string = 'latest'
 @description('Image tag for the ControlCraft web frontend (Next.js standalone). The CI pipeline bumps this on every web push.')
 param webImageTag string = 'latest'
 
+@description('Bind www.controlcraft.io as a custom domain on the web app and auto-issue the ACA managed certificate. This REQUIRES public DNS (CNAME www -> ACA FQDN + asuid.www TXT -> env verificationId) to already be live, otherwise managed-cert creation fails with RequireCustomHostnameInEnvironment. Leave false to bootstrap the app on its *.azurecontainerapps.io URL; flip to true once controlcraft.io is delegated to Azure.')
+param webCustomDomainEnabled bool = false
+
 @description('Image tag for the Keycloak identity provider (custom build with the motion-forge realm baked in).')
 param keycloakImageTag string = 'latest'
 
@@ -792,7 +795,7 @@ resource apiApp 'Microsoft.App/containerApps@2025-01-01' = {
 // instead of trying to create a duplicate (which errors with
 // DuplicateManagedCertificateInEnvironment). The cert's subjectName +
 // validation method must match what was originally provisioned.
-resource webManagedCert 'Microsoft.App/managedEnvironments/managedCertificates@2025-01-01' = {
+resource webManagedCert 'Microsoft.App/managedEnvironments/managedCertificates@2025-01-01' = if (webCustomDomainEnabled) {
   parent: acaEnv
   name: 'mc-cae-mf-dev-75m-www-controlcraft-9785'
   location: location
@@ -835,13 +838,13 @@ resource webApp 'Microsoft.App/containerApps@2025-01-01' = {
         // The managedCertificate resource below auto-renews the Let's
         // Encrypt cert; first deploy needs DNS already in place
         // (CNAME www → ACA FQDN + TXT asuid.www → env verificationId).
-        customDomains: [
+        customDomains: webCustomDomainEnabled ? [
           {
             name: 'www.controlcraft.io'
             bindingType: 'SniEnabled'
             certificateId: webManagedCert.id
           }
-        ]
+        ] : []
       }
       registries: [
         { server: acr.properties.loginServer, identity: managedIdentity.id }
