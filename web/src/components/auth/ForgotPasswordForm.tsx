@@ -82,7 +82,7 @@ export function ForgotPasswordForm() {
         <button
           type="submit"
           disabled={submitting || !email}
-          className="btn-accent animate-reveal-up stagger-child mt-1 px-5 py-3 text-base disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:shadow-none"
+          className="btn-accent animate-reveal-up stagger-child mt-1 px-5 py-3 text-base"
           style={{ '--i': 2 } as CSSProperties}
         >
           {submitting ? (

@@ -55,7 +55,7 @@ export function VerifyEmailPending({ email }: Props) {
         className="animate-reveal-up stagger-child flex items-center justify-center"
         style={{ '--i': 0 } as CSSProperties}
       >
-        <span className="grid h-14 w-14 place-items-center rounded-full bg-accent-50 text-accent-700">
+        <span className="grid h-14 w-14 place-items-center rounded-full bg-accent-500/15 text-accent-300">
           <Inbox className="h-6 w-6" aria-hidden />
         </span>
       </div>

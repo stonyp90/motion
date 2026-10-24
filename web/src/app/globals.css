@@ -106,7 +106,20 @@
     @apply inline-flex items-center justify-center gap-2 rounded-full bg-accent-700 px-7 py-3
            text-[15px] font-semibold tracking-[-0.005em] text-white shadow-card transition-all duration-200
            hover:-translate-y-px hover:bg-accent-800 hover:shadow-glow
-           active:translate-y-0 active:shadow-card;
+           active:translate-y-0 active:shadow-card
+           disabled:cursor-not-allowed;
+  }
+  /* Disabled — a dimmed, translucent emerald that still reads as the primary
+     action waiting on input, not a dead grey slab. color-mix keeps it tied to
+     the accent token; raw CSS sidesteps @apply's opacity-modifier limit on
+     var()-based colors. Covers :hover so the lift/darken never fires while
+     disabled. */
+  .btn-accent:disabled,
+  .btn-accent:disabled:hover {
+    background-color: color-mix(in srgb, var(--color-accent-700) 32%, transparent);
+    color: color-mix(in srgb, #ffffff 55%, transparent);
+    transform: none;
+    box-shadow: none;
   }
   .btn-ghost {
     @apply inline-flex items-center justify-center gap-2 rounded-full border border-border
@@ -166,6 +179,12 @@
    text-text-primary, border-border-light, etc.), zero component code has to
    change.
 
+   The selector is [data-theme="dark"] (NOT :root[data-theme="dark"]) on
+   purpose: scoping to the attribute alone lets ANY subtree opt into the dark
+   token set by setting data-theme="dark" on a wrapper — used by the auth
+   layout's <main> and the welcome hero so a cinematic dark stage renders
+   over an otherwise-light page without the global theme having to flip.
+
    IDE register
    ------------
    - Backgrounds are soft-blacks (#0e1014, #14171c, #1a1e25) layered like an
@@ -188,7 +207,7 @@
    studio's IDE surface, this version is tuned for the simplified home.
    ============================================================================ */
 
-:root[data-theme="dark"] {
+[data-theme="dark"] {
   color-scheme: dark;
 
   /* --- Semantic surfaces -------------------------------------------------
@@ -259,7 +278,7 @@
    pure-black rgba so cards still lift off the surface. Tailwind utilities
    like `shadow-card` resolve to these via the CSS-variable indirection in
    tailwind.config (see INTEGRATION.md for the small tailwind change). */
-:root[data-theme="dark"] {
+[data-theme="dark"] {
   --shadow-soft: 0 1px 3px 0 rgba(0, 0, 0, 0.45), 0 1px 2px 0 rgba(0, 0, 0, 0.30);
   --shadow-card: 0 4px 16px -2px rgba(0, 0, 0, 0.55), 0 2px 6px -2px rgba(0, 0, 0, 0.35);
   --shadow-lift: 0 20px 40px -12px rgba(0, 0, 0, 0.70);
@@ -276,7 +295,7 @@
    The light .bg-hero-grid blends bg-primary -> bg-secondary with emerald
    and amber glows. On dark we want the same emerald glow but warmer at
    the bottom so the page doesn't read as a flat slab of black. */
-:root[data-theme="dark"] {
+[data-theme="dark"] {
   --gradient-hero-grid:
     linear-gradient(to bottom, var(--color-bg-primary) 0%, var(--color-bg-secondary) 100%),
     radial-gradient(at 25% 0%, rgba(52, 211, 153, 0.12) 0%, transparent 50%),
