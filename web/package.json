@@ -14,8 +14,8 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@auth/core": "^0.41.2",
-    "@scalar/api-reference-react": "^0.9.41",
+    "@auth/core": "^0.41.3",
+    "@scalar/api-reference-react": "^0.9.82",
     "cmdk": "^1.1.1",
     "lottie-react": "^2.4.1",
     "lucide-react": "^0.400.0",
@@ -23,17 +23,17 @@
     "next-auth": "^5.0.0-beta.31",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "react-resizable-panels": "^4.11.2",
-    "zustand": "^5.0.13"
+    "react-resizable-panels": "^4.14.8",
+    "zustand": "^5.0.16"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
-    "autoprefixer": "^10.4.0",
+    "autoprefixer": "^10.6.1",
     "eslint": "^8.56.0",
     "eslint-config-next": "^15.5.0",
-    "postcss": "^8.5.15",
+    "postcss": "^8.5.31",
     "tailwindcss": "^3.4.0",
     "typescript": "^5.6.0"
   },
