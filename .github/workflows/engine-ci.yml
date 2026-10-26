@@ -231,7 +231,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build api image (load locally for scan)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: engine
           file: engine/infra/docker/Dockerfile.api
