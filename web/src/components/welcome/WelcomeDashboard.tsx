@@ -1,6 +1,7 @@
 'use client';
 
 import { WelcomeTourProvider } from '@/components/onboarding/WelcomeTour';
+import { AuthMotionBackground } from '@/components/auth/AuthMotionBackground';
 import { GreetingBlock } from './GreetingBlock';
 import { DesktopGetCard } from './DesktopGetCard';
 import { InstallSteps } from './InstallSteps';
@@ -28,12 +29,32 @@ import { CapabilitiesPanel } from './CapabilitiesPanel';
 export function WelcomeDashboard() {
   return (
     <WelcomeTourProvider autoStart={false}>
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-10 px-4 py-12 sm:px-6 sm:py-16 lg:py-20">
-        <GreetingBlock />
-        <DesktopGetCard />
-        <InstallSteps />
-        <CapabilitiesPanel />
-        <AccountLinksRow />
+      <div className="flex w-full flex-col">
+        {/* Cinematic hero — the same live engine that runs behind login and
+            the anon home, now greeting the signed-in user. data-theme="dark"
+            flips the semantic tokens for THIS subtree only, so GreetingBlock's
+            text + accent render correctly on the dark stage while the content
+            below keeps the visitor's chosen theme. The greeting block is
+            centered (mx-auto) so it stays clear of the stage's side hero
+            silhouettes, which alternate left/right per scene. */}
+        <section
+          data-theme="dark"
+          aria-label="Welcome"
+          className="relative isolate flex min-h-[68svh] items-center overflow-hidden bg-[#0e1014]"
+        >
+          <AuthMotionBackground />
+          <div className="relative z-10 mx-auto w-full max-w-2xl px-4 sm:px-6">
+            <GreetingBlock />
+          </div>
+        </section>
+
+        {/* Content — download CTA, install steps, capabilities, account links. */}
+        <div className="mx-auto flex w-full max-w-5xl flex-col gap-10 px-4 py-12 sm:px-6 sm:py-16 lg:py-20">
+          <DesktopGetCard />
+          <InstallSteps />
+          <CapabilitiesPanel />
+          <AccountLinksRow />
+        </div>
       </div>
     </WelcomeTourProvider>
   );

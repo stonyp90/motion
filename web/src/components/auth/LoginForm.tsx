@@ -110,7 +110,7 @@ export function LoginForm({ searchParamsPromise }: Props) {
       {reason === 'expired' && (
         <p
           role="status"
-          className="animate-reveal-up stagger-child mt-5 rounded-lg border border-secondary-200 bg-secondary-50 px-3 py-2 text-xs text-text-secondary"
+          className="animate-reveal-up stagger-child mt-5 rounded-lg border border-secondary-500/30 bg-secondary-500/10 px-3 py-2 text-xs text-text-secondary"
           style={{ '--i': 1 } as CSSProperties}
         >
           Your session expired. Sign in again to pick up where you left off.
@@ -163,7 +163,7 @@ export function LoginForm({ searchParamsPromise }: Props) {
         <button
           type="submit"
           disabled={submitting || !email || !password}
-          className="btn-accent animate-reveal-up stagger-child mt-1 px-5 py-3 text-base disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:shadow-none"
+          className="btn-accent animate-reveal-up stagger-child mt-1 px-5 py-3 text-base"
           style={{ '--i': 4 } as CSSProperties}
         >
           {submitting ? (
